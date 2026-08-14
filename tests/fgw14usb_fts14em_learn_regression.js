@@ -1,0 +1,20 @@
+const fs = require('fs');
+const path = require('path');
+const main = fs.readFileSync(path.join(__dirname, '..', 'electron', 'main.js'), 'utf8');
+const py = fs.readFileSync(path.join(__dirname, '..', 'python', 'learn_device_id.py'), 'utf8');
+function assert(c, m) { if (!c) throw new Error(m); console.log('PASS:', m); }
+const handlerStart = main.indexOf("ipcMain.handle('learn-fts14em-base-id'");
+const handlerEnd = main.indexOf("ipcMain.handle('read-base-id'", handlerStart);
+if (handlerStart < 0 || handlerEnd < 0) throw new Error('FTS14EM IPC handler not found');
+const handler = main.slice(handlerStart, handlerEnd);
+assert(handler.includes('runPythonLearnDeviceId(portPath, gatewayType'), 'FAM14 and FGW14-USB FTS14EM learning use Python/eltakobus listener');
+assert(!handler.includes('listenForFts14emBaseIdViaFgw('), 'FGW14-USB no longer uses FIX69 raw JavaScript serial listener');
+assert(handler.includes("requiredRorg: '05'"), 'FTS14EM learning requires Series-14 ORG 0x05');
+assert(handler.includes('requiredDataByte3: 0x70'), 'FTS14EM learning requires press telegram 0x70');
+assert(handler.includes('repeatCount: 5'), 'FTS14EM learning still requires five presses');
+assert(py.includes('elif mode in ("fgw14usb", "fgw14"):'), 'Python listener keeps FGW14-USB as dedicated mode');
+assert(py.includes('mode = "fgw14usb"'), 'FGW14-USB is not remapped to FAM14');
+assert(py.includes('elif mode == "fgw14usb":'), 'FGW14-USB has dedicated serial timing');
+assert(py.includes('delay = 0.01'), 'FGW14-USB uses eltakobus reference delay_message 0.01');
+assert(py.includes('baud = 57600'), 'wired bus listener uses 57600 baud');
+console.log('FGW14-USB FTS14EM eltakobus regression tests passed.');

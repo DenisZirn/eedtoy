@@ -73,38 +73,39 @@ def body_candidates(body: bytes):
         return []
     candidates = []
 
-    def add(label: str, b: bytes, rorg: Optional[int] = None):
+    def add(label: str, b: bytes, rorg: Optional[int] = None, data_byte3: Optional[int] = None):
         sid = fmt_id_from_bytes(b)
         if sid:
-            candidates.append((label, sid, rorg))
+            candidates.append((label, sid, rorg, data_byte3))
 
-    rorgs = {0xF6, 0xD5, 0xA5, 0xD2, 0xD4}
+    rorgs = {0x05, 0xF6, 0xD5, 0xA5, 0xD2, 0xD4}
     n = len(body)
 
     # ESP2Message body often is: H_SEQ/LEN, RORG, DATA3..DATA0, ID3..ID0, STATUS
     if n >= 10 and body[1] in rorgs:
-        add("esp2-body-1", body[6:10], body[1])
+        add("esp2-body-1", body[6:10], body[1], body[2])
 
     # Sometimes body starts at RORG directly: RORG, DATA..., ID3..ID0, STATUS
     if n >= 9 and body[0] in rorgs:
-        add("esp2-body-0", body[5:9], body[0])
+        add("esp2-body-0", body[5:9], body[0], body[1])
 
     # ERP1 radio payload: RORG + variable data + SenderID(4) + STATUS
     if n >= 6 and body[0] in rorgs:
-        add("erp1-body", body[-5:-1], body[0])
+        add("erp1-body", body[-5:-1], body[0], body[1] if n > 1 else None)
 
     # Scan for RORG marker and use the normal ERP1 convention after it.
     for pos, val in enumerate(body):
         if val in rorgs and pos + 6 <= n:
             payload = body[pos:]
-            add(f"rorg-scan-{pos}", payload[-5:-1], val)
+            add(f"rorg-scan-{pos}", payload[-5:-1], val, payload[1] if len(payload) > 1 else None)
 
     return candidates
 
 
 def extract_id_from_message(msg: Any) -> Optional[dict]:
-    """Best-effort sender ID extraction from eltakobus message objects."""
-    # First use public attributes/properties if the library provides them.
+    """Best-effort sender ID plus RORG/data extraction from eltakobus messages."""
+    attr_sid = None
+    attr_source = None
     attr_names = [
         "sender", "sender_id", "senderid", "address", "originator",
         "source", "source_id", "source_address", "id",
@@ -114,47 +115,107 @@ def extract_id_from_message(msg: Any) -> Optional[dict]:
             if hasattr(msg, name):
                 sid = normalize_id(getattr(msg, name))
                 if sid:
-                    return {"id": sid, "source": f"attr.{name}", "message_type": type(msg).__name__}
+                    attr_sid = sid
+                    attr_source = f"attr.{name}"
+                    break
         except Exception:
             pass
 
-    # Many eltakobus messages expose .body.
     try:
         body = bytes(getattr(msg, "body"))
     except Exception:
         body = b""
-    for label, sid, rorg in body_candidates(body):
+    # Eltako RS485 bus telegram objects may expose the legacy ORG value 0x05
+    # and their data byte directly as attributes instead of embedding an EnOcean
+    # radio RORG (F6) in the body. Read those attributes first so IDs such as
+    # 00-00-10-01 from an FTS14EM can be learned reliably.
+    attr_rorg = None
+    for name in ("rorg", "org", "ORG", "telegram_type"):
+        try:
+            if hasattr(msg, name):
+                value = getattr(msg, name)
+                if hasattr(value, "value"):
+                    value = value.value
+                if isinstance(value, str):
+                    attr_rorg = int(value, 16)
+                else:
+                    attr_rorg = int(value)
+                break
+        except Exception:
+            pass
+
+    attr_data_byte3 = None
+    for name in ("data_byte3", "db3", "data", "value"):
+        try:
+            if hasattr(msg, name):
+                value = getattr(msg, name)
+                if isinstance(value, int):
+                    attr_data_byte3 = value & 0xFF
+                    break
+                raw_value = bytes(value)
+                if raw_value:
+                    attr_data_byte3 = raw_value[0]
+                    break
+        except Exception:
+            pass
+
+    candidates = body_candidates(body)
+    if candidates:
+        label, body_sid, rorg, data_byte3 = candidates[0]
         return {
-            "id": sid,
-            "source": label,
-            "rorg": f"{rorg:02X}" if rorg is not None else None,
+            "id": attr_sid or body_sid,
+            "source": attr_source or label,
+            "rorg": f"{(attr_rorg if attr_rorg is not None else rorg):02X}" if (attr_rorg is not None or rorg is not None) else None,
+            "data_byte3": attr_data_byte3 if attr_data_byte3 is not None else data_byte3,
             "message_type": type(msg).__name__,
         }
 
-    # Last resort: try bytes(msg), repr parsing not needed unless byte-like.
     try:
         raw = bytes(msg)
     except Exception:
         raw = b""
-    for label, sid, rorg in body_candidates(raw):
+    candidates = body_candidates(raw)
+    if candidates:
+        label, body_sid, rorg, data_byte3 = candidates[0]
         return {
-            "id": sid,
-            "source": "raw." + label,
+            "id": attr_sid or body_sid,
+            "source": attr_source or ("raw." + label),
             "rorg": f"{rorg:02X}" if rorg is not None else None,
+            "data_byte3": data_byte3,
             "message_type": type(msg).__name__,
         }
 
+    if attr_sid:
+        return {
+            "id": attr_sid,
+            "source": attr_source,
+            "rorg": f"{attr_rorg:02X}" if attr_rorg is not None else None,
+            "data_byte3": attr_data_byte3,
+            "message_type": type(msg).__name__,
+        }
     return None
 
 
-def listen_rs485(port: str, mode: str, timeout: float) -> dict:
+def listen_rs485(port: str, mode: str, timeout: float, repeat_count: int = 1, required_rorg: Optional[int] = None, required_data_byte3: Optional[int] = None) -> dict:
     from eltakobus.serial import RS485SerialInterfaceV2
 
-    baud = 9600 if mode == "fam-usb" else 57600
-    delay = 0.2 if mode == "fam-usb" else 0.001
+    if mode == "fam-usb":
+        baud = 9600
+        delay = 0.2
+    elif mode == "fgw14usb":
+        baud = 57600
+        # Reference eltakobus timing for FGW14-USB. It is a wired ESP2 bus
+        # gateway without FAM14 echo suppression.
+        delay = 0.01
+    else:
+        baud = 57600
+        delay = 0.001
     event = threading.Event()
     result = {"ok": False}
     seen = {"count": 0}
+    presses = {}
+    armed = {}
+    last_counted_at = {}
 
     def callback(message: Any) -> None:
         seen["count"] += 1
@@ -165,17 +226,53 @@ def listen_rs485(port: str, mode: str, timeout: float) -> dict:
             body_hex = ""
         log("RX", port, baud, type(message).__name__, body_hex or repr(message))
         parsed = extract_id_from_message(message)
-        if parsed and parsed.get("id"):
-            result.update({
-                "ok": True,
-                "id": parsed["id"],
-                "rorg": parsed.get("rorg"),
-                "protocol": "eltakobus-rs485",
-                "baudRate": baud,
-                "message_type": parsed.get("message_type"),
-                "source": parsed.get("source"),
-            })
-            event.set()
+        if not (parsed and parsed.get("id")):
+            return
+
+        sid = parsed["id"]
+        try:
+            rorg_value = int(str(parsed.get("rorg") or ""), 16)
+        except Exception:
+            rorg_value = None
+        data_value = parsed.get("data_byte3")
+
+        if required_rorg is not None and rorg_value != required_rorg:
+            return
+
+        if repeat_count > 1:
+            # FTS14EM: count deliberate presses of the same bus ID. A 0x00
+            # release telegram re-arms immediately. Some FGW14/eltakobus paths
+            # do not expose the release byte, therefore a conservative debounce
+            # also permits the next press after 250 ms without resetting the
+            # candidate because of unrelated RS485 traffic.
+            now = time.monotonic()
+            if data_value == 0x00:
+                armed[sid] = True
+                return
+            if required_data_byte3 is not None and data_value != required_data_byte3:
+                return
+            if armed.get(sid, True) is False and now - last_counted_at.get(sid, 0.0) < 0.25:
+                return
+            armed[sid] = False
+            last_counted_at[sid] = now
+            presses[sid] = presses.get(sid, 0) + 1
+            count = presses[sid]
+            print("[python-learn-progress] " + json.dumps({"id": sid, "count": count, "required": repeat_count}), file=sys.stderr, flush=True)
+            if count < repeat_count:
+                return
+
+        result.update({
+            "ok": True,
+            "id": sid,
+            "rorg": parsed.get("rorg"),
+            "protocol": "eltakobus-rs485",
+            "baudRate": baud,
+            "message_type": parsed.get("message_type"),
+            "source": parsed.get("source"),
+            "data_byte3": data_value,
+            "repeat_count": presses.get(sid, 1),
+        })
+        event.set()
 
     bus = None
     try:
@@ -214,16 +311,28 @@ def main() -> int:
     parser.add_argument("--port", required=True)
     parser.add_argument("--mode", default="auto")
     parser.add_argument("--timeout", type=float, default=20.0)
+    parser.add_argument("--repeat-count", type=int, default=1)
+    parser.add_argument("--required-rorg", default="")
+    parser.add_argument("--required-data-byte3", default="")
     args = parser.parse_args()
 
     mode = (args.mode or "auto").lower().strip()
-    if mode in ("fam14", "fgw14usb", "fgw14", "auto"):
+    if mode in ("fam14", "auto"):
         mode = "fam14"
+    elif mode in ("fgw14usb", "fgw14"):
+        mode = "fgw14usb"
     elif mode in ("fam-usb", "famusb"):
         mode = "fam-usb"
 
     try:
-        result = listen_rs485(args.port, mode, args.timeout)
+        required_rorg = int(args.required_rorg, 16) if args.required_rorg else None
+        required_data_byte3 = int(args.required_data_byte3, 0) if args.required_data_byte3 else None
+        result = listen_rs485(
+            args.port, mode, args.timeout,
+            repeat_count=max(1, int(args.repeat_count or 1)),
+            required_rorg=required_rorg,
+            required_data_byte3=required_data_byte3,
+        )
     except Exception as exc:
         log("fatal", repr(exc))
         import traceback

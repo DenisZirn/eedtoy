@@ -22,6 +22,7 @@ function getAppIconPath() {
 
 
 let mainWindow = null;
+let deviceDatabaseWindow = null;
 let currentLanguage = 'de';
 
 function t(key, variables = {}) {
@@ -30,6 +31,35 @@ function t(key, variables = {}) {
 
 function languageFilePath() {
   return path.join(app.getPath('userData'), 'language.txt');
+}
+
+function deviceDatabaseFilePath() {
+  return path.join(app.getPath('userData'), 'device-database.json');
+}
+
+async function loadDeviceDatabase() {
+  try {
+    const raw = await fs.readFile(deviceDatabaseFilePath(), 'utf8');
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+async function saveDeviceDatabase(database) {
+  const safe = database && typeof database === 'object' && !Array.isArray(database) ? database : {};
+  const target = deviceDatabaseFilePath();
+  const temporary = `${target}.tmp`;
+  await fs.mkdir(path.dirname(target), { recursive: true });
+  await fs.writeFile(temporary, JSON.stringify(safe, null, 2), 'utf8');
+  await fs.rename(temporary, target);
+  const raw = await fs.readFile(target, 'utf8');
+  const verified = JSON.parse(raw);
+  if (!verified || typeof verified !== 'object' || Array.isArray(verified)) {
+    throw new Error('Saved device database is invalid.');
+  }
+  return verified;
 }
 
 async function loadLanguage() {
@@ -52,8 +82,31 @@ async function persistLanguage(language) {
   await fs.writeFile(languageFilePath(), currentLanguage, 'utf8');
 }
 
-function sendMenuAction(action) {
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('menu-action', action);
+function sendMenuAction(action, targetWindow = mainWindow) {
+  if (targetWindow && !targetWindow.isDestroyed()) targetWindow.webContents.send('menu-action', action);
+}
+
+function buildDeviceDatabaseMenu() {
+  const template = [
+    {
+      label: t('menu.file'),
+      submenu: [
+        { label: t('menu.deviceDbImport'), accelerator: 'CmdOrCtrl+O', click: () => sendMenuAction('device-db-import', deviceDatabaseWindow) },
+        { label: t('menu.deviceDbExport'), accelerator: 'CmdOrCtrl+S', click: () => sendMenuAction('device-db-export', deviceDatabaseWindow) },
+        { type: 'separator' },
+        { label: t('menu.closeWindow'), role: 'close' },
+      ],
+    },
+    {
+      label: t('menu.edit'),
+      submenu: [
+        { label: t('menu.undo'), role: 'undo' }, { label: t('menu.redo'), role: 'redo' }, { type: 'separator' },
+        { label: t('menu.cut'), role: 'cut' }, { label: t('menu.copy'), role: 'copy' }, { label: t('menu.paste'), role: 'paste' },
+        { label: t('menu.selectAll'), role: 'selectAll' },
+      ],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
 function buildApplicationMenu() {
@@ -74,6 +127,7 @@ function buildApplicationMenu() {
         { label: t('menu.undo'), role: 'undo' }, { label: t('menu.redo'), role: 'redo' }, { type: 'separator' },
         { label: t('menu.cut'), role: 'cut' }, { label: t('menu.copy'), role: 'copy' }, { label: t('menu.paste'), role: 'paste' },
         { label: t('menu.selectAll'), role: 'selectAll' }, { type: 'separator' },
+        { label: t('menu.deviceDatabase'), click: () => createDeviceDatabaseWindow() }, { type: 'separator' },
         {
           label: t('menu.language'),
           submenu: [
@@ -95,8 +149,10 @@ function buildApplicationMenu() {
 
 async function changeLanguage(language) {
   await persistLanguage(language);
-  buildApplicationMenu();
+  if (deviceDatabaseWindow && !deviceDatabaseWindow.isDestroyed() && deviceDatabaseWindow.isFocused()) buildDeviceDatabaseMenu();
+  else buildApplicationMenu();
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('language-changed', currentLanguage);
+  if (deviceDatabaseWindow && !deviceDatabaseWindow.isDestroyed()) deviceDatabaseWindow.webContents.send('language-changed', currentLanguage);
 }
 
 function showAboutDialog() {
@@ -232,29 +288,12 @@ ipcMain.handle('open-project', async () => {
   }
 });
 
-function createWindow() {
-  const win = new BrowserWindow({
-    width: 1100, height: 850, minWidth: 800, minHeight: 600,
-    icon: getAppIconPath(),
-    webPreferences: {
-      nodeIntegration: false, contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js'),
-    },
-    title: 'EEDTOY – ELTAKO EnOcean Device to YAML Generator',
-    backgroundColor: '#080d18',
-  });
-  mainWindow = win;
-  win.on('closed', () => { if (mainWindow === win) mainWindow = null; });
-  win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
-
-  // Native context menu for editable fields. Electron does not provide one by
-  // default, so right-click paste only works when we add it explicitly.
+function attachNativeEditContextMenu(win) {
   win.webContents.on('context-menu', (_event, params) => {
-    const hasSelection = params.selectionText && params.selectionText.length > 0;
-    const isEditable = params.isEditable;
+    const hasSelection = Boolean(params.selectionText && params.selectionText.length > 0);
     const template = [];
 
-    if (isEditable) {
+    if (params.isEditable) {
       template.push(
         { label: t('menu.cut'), role: 'cut', enabled: hasSelection },
         { label: t('menu.copy'), role: 'copy', enabled: hasSelection },
@@ -272,6 +311,24 @@ function createWindow() {
 
     if (template.length) Menu.buildFromTemplate(template).popup({ window: win });
   });
+}
+
+function createWindow() {
+  const win = new BrowserWindow({
+    width: 1100, height: 850, minWidth: 800, minHeight: 600,
+    icon: getAppIconPath(),
+    webPreferences: {
+      nodeIntegration: false, contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js'),
+    },
+    title: 'EEDTOY – ELTAKO EnOcean Device to YAML Generator',
+    backgroundColor: '#080d18',
+  });
+  mainWindow = win;
+  win.on('closed', () => { if (mainWindow === win) mainWindow = null; });
+  win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
+
+  attachNativeEditContextMenu(win);
 
   const showMainWindow = () => {
     if (!win.isDestroyed()) {
@@ -299,6 +356,44 @@ function createWindow() {
   win.once('ready-to-show', showMainWindow);
   win.webContents.once('did-finish-load', () => setTimeout(showMainWindow, 50));
   setTimeout(showMainWindow, 1500);
+}
+
+function createDeviceDatabaseWindow() {
+  if (deviceDatabaseWindow && !deviceDatabaseWindow.isDestroyed()) {
+    if (deviceDatabaseWindow.isMinimized()) deviceDatabaseWindow.restore();
+    deviceDatabaseWindow.show();
+    deviceDatabaseWindow.focus();
+    return;
+  }
+
+  const win = new BrowserWindow({
+    width: 1180, height: 820, minWidth: 900, minHeight: 650,
+    parent: mainWindow || undefined,
+    modal: false,
+    show: false,
+    icon: getAppIconPath(),
+    title: t('menu.deviceDatabase'),
+    backgroundColor: '#eef2f5',
+    webPreferences: {
+      nodeIntegration: false, contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js'),
+    },
+  });
+  deviceDatabaseWindow = win;
+  win.on('focus', () => buildDeviceDatabaseMenu());
+  win.on('closed', () => {
+    if (deviceDatabaseWindow === win) deviceDatabaseWindow = null;
+    buildApplicationMenu();
+  });
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.on('focus', buildApplicationMenu);
+  win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
+  attachNativeEditContextMenu(win);
+  if (isDev) {
+    win.loadURL('http://localhost:5173/?window=device-database').catch(error => console.error('[device-database] loadURL failed', error));
+  } else {
+    win.loadFile(path.join(__dirname, '../dist/index.html'), { query: { window: 'device-database' } }).catch(error => console.error('[device-database] loadFile failed', error));
+  }
+  win.once('ready-to-show', () => { if (!win.isDestroyed()) { win.show(); win.focus(); } });
 }
 
 
@@ -483,14 +578,15 @@ function isValidFixedEsp2Frame(buf, i) {
 // This is the Eltako RS485 extended ESP2 format
 // ─────────────────────────────────────────────────────────────────
 function buildFamUsbRdIdBase() {
-  // Eltako/FAM-USB command in ESP2-style framing.
-  // Frame: A5 5A | H_SEQ+LEN | payload | checksum
-  // Checksum is calculated over H_SEQ+LEN plus all payload bytes.
-  const payload = Buffer.from([0xAB, 0x58, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
-  const lenByte = 0x2B; // H_SEQ=001, payload length=0x0B
-  let cs = lenByte;
-  for (const b of payload) cs = (cs + b) & 0xFF;
-  return Buffer.from([0xA5, 0x5A, lenByte, ...payload, cs]);
+  // Exact ESP2 frame used by eltakobus for the FAM-USB AB-58 request.
+  // ESP2Message.serialize() is: A5 5A + 11-byte body + checksum.
+  // Body: AB 58 00 00 00 00 00 00 00 00 00, checksum = 0x03.
+  // Do NOT prepend another length byte here; that produced an invalid 15-byte
+  // frame in the old JavaScript fallback.
+  return buildEsp2Message(Buffer.from([
+    0xAB, 0x58, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00,
+  ]));
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -544,7 +640,14 @@ function tryParseEltakoFamUsb(buf) {
       if (!allZero(id)) return fmtId(id);
     }
 
-    // Some FAM-USB variants answer the AB 58 command directly.
+    // Native response to AB-58: RMT header 0x8B, command 0x58, then Base-ID.
+    // This mirrors the reference Python path which reads response.body[2:6].
+    if (body[0] === 0x8B && body[1] === 0x58) {
+      const id = body.slice(2, 6);
+      if (!allZero(id)) return fmtId(id);
+    }
+
+    // Keep compatibility with adapters that wrap the command marker.
     if (body[0] === 0x8B && body[1] === 0xAB && body[2] === 0x58) {
       const id = body.slice(3, 7);
       if (!allZero(id)) return fmtId(id);
@@ -879,11 +982,14 @@ function runProcess(cmd, args = [], options = {}) {
 }
 
 function getEmbeddedPythonPath() {
+  const runtimeExecutable = process.platform === 'win32'
+    ? path.join('python-runtime', 'python.exe')
+    : path.join('python-runtime', 'bin', 'python3');
   const candidates = app.isPackaged
-    ? [path.join(process.resourcesPath || '', 'python-runtime', 'python.exe')]
+    ? [path.join(process.resourcesPath || '', runtimeExecutable)]
     : [
         process.env.EEDTOY_PYTHON || '',
-        path.join(__dirname, '..', 'python-runtime', 'python.exe'),
+        path.join(__dirname, '..', runtimeExecutable),
       ];
   return candidates.find(candidate => candidate && exists(candidate)) || candidates[0];
 }
@@ -902,7 +1008,7 @@ async function ensurePythonRuntime() {
   if (!pythonPath || !exists(pythonPath)) {
     pythonRuntimeState = {
       ok: false,
-      error: 'Die eingebettete EEDTOY Python-Laufzeit fehlt. Bitte EEDTOY mit dem vollständigen Windows-Installer neu installieren.',
+      error: 'Die eingebettete EEDTOY Python-Laufzeit fehlt. Bitte EEDTOY mit dem vollständigen Installer neu installieren.',
       attempts: [{ step: 'embedded-runtime-present', ok: false, pythonPath }],
     };
     return pythonRuntimeState;
@@ -1011,7 +1117,15 @@ async function runPythonDetector(preferredPath = '', mode = 'auto') {
       child.stderr.on('data', d => {
         const text = d.toString('utf8');
         stderr += text;
-        for (const line of text.split(/\r?\n/).filter(Boolean)) console.log(line);
+        for (const line of text.split(/\r?\n/).filter(Boolean)) {
+          console.log(line);
+          if (line.startsWith('[python-learn-progress] ')) {
+            try {
+              const progress = JSON.parse(line.slice('[python-learn-progress] '.length));
+              if (typeof options.onProgress === 'function') options.onProgress(progress);
+            } catch (_) {}
+          }
+        }
       });
       child.on('error', e => {
         clearTimeout(timer);
@@ -1064,7 +1178,7 @@ function getPythonLearnScriptPath() {
   return candidates.find(p => p && fs.existsSync(p)) || candidates[0];
 }
 
-async function runPythonLearnDeviceId(portPath = '', gatewayType = 'auto', timeoutMs = 20000) {
+async function runPythonLearnDeviceId(portPath = '', gatewayType = 'auto', timeoutMs = 20000, options = {}) {
   const { spawn } = require('child_process');
   const script = getPythonLearnScriptPath();
   const commandInfo = await getPythonCommands(script);
@@ -1086,6 +1200,9 @@ async function runPythonLearnDeviceId(portPath = '', gatewayType = 'auto', timeo
 
       const c = commands[index];
       const args = [...c.args, '--port', String(portPath || '').trim(), '--mode', mode, '--timeout', String(timeoutSec)];
+      if (options.repeatCount) args.push('--repeat-count', String(options.repeatCount));
+      if (options.requiredRorg) args.push('--required-rorg', String(options.requiredRorg));
+      if (options.requiredDataByte3 != null) args.push('--required-data-byte3', String(options.requiredDataByte3));
       console.log('[python-learn] START', c.cmd, args.join(' '));
 
       let stdout = '';
@@ -1110,7 +1227,15 @@ async function runPythonLearnDeviceId(portPath = '', gatewayType = 'auto', timeo
       child.stderr.on('data', d => {
         const text = d.toString('utf8');
         stderr += text;
-        for (const line of text.split(/\r?\n/).filter(Boolean)) console.log(line);
+        for (const line of text.split(/\r?\n/).filter(Boolean)) {
+          console.log(line);
+          if (line.startsWith('[python-learn-progress] ')) {
+            try {
+              const progress = JSON.parse(line.slice('[python-learn-progress] '.length));
+              if (typeof options.onProgress === 'function') options.onProgress(progress);
+            } catch (_) {}
+          }
+        }
       });
       child.on('error', e => {
         clearTimeout(timer);
@@ -1143,6 +1268,8 @@ async function runPythonLearnDeviceId(portPath = '', gatewayType = 'auto', timeo
 }
 
 
+let activeWriteSenderProcess = null;
+
 function getPythonWriteSendersScriptPath() {
   const fs = require('fs');
   const candidates = app.isPackaged
@@ -1158,7 +1285,7 @@ function getPythonWriteSendersScriptPath() {
   return candidates.find(p => p && fs.existsSync(p)) || candidates[0];
 }
 
-async function runPythonWriteSenders({ portPath = '', gatewayType = 'fam14', baudRate = 57600, entries = [] } = {}) {
+async function runPythonWriteSenders({ portPath = '', gatewayType = 'fam14', baudRate = 57600, entries = [] } = {}, { onProgress } = {}) {
   const { spawn } = require('child_process');
   const fs = require('fs');
   const os = require('os');
@@ -1211,13 +1338,31 @@ async function runPythonWriteSenders({ portPath = '', gatewayType = 'fam14', bau
 
       let stdout = '';
       let stderr = '';
+      let stderrLineBuffer = '';
+      let processedCount = 0;
       let child;
+      let cancelRequested = false;
+      const totalCount = entries.length;
+      const emitProgress = (progress) => {
+        if (typeof onProgress === 'function') {
+          try { onProgress({ total: totalCount, processed: processedCount, ...progress }); } catch (_) {}
+        }
+      };
       try {
         child = spawn(c.cmd, args, {
           cwd: getPythonScriptCwd(script),
           windowsHide: true,
           env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
         });
+        activeWriteSenderProcess = {
+          child,
+          requestCancel: () => {
+            cancelRequested = true;
+            emitProgress({ phase: 'canceling' });
+            try { child.kill(); } catch (_) {}
+          },
+        };
+        emitProgress({ phase: 'starting' });
       } catch (e) {
         attempts.push({ cmd: c.cmd, error: e.message || String(e) });
         return runOne(index + 1);
@@ -1231,15 +1376,45 @@ async function runPythonWriteSenders({ portPath = '', gatewayType = 'fam14', bau
       child.stderr.on('data', d => {
         const text = d.toString('utf8');
         stderr += text;
-        for (const line of text.split(/\r?\n/).filter(Boolean)) console.log(line);
+        stderrLineBuffer += text;
+        const lines = stderrLineBuffer.split(/\r?\n/);
+        stderrLineBuffer = lines.pop() || '';
+        for (const line of lines.filter(Boolean)) {
+          console.log(line);
+          if (!line.startsWith('[python-write-senders] ')) continue;
+          const message = line.slice('[python-write-senders] '.length).trim();
+          if (message.startsWith('connect ')) emitProgress({ phase: 'connecting', message });
+          else if (message.startsWith('bus locked')) emitProgress({ phase: 'scanning', message });
+          else if (
+            message.startsWith('Sender-ID ') ||
+            message.startsWith('Home-Assistant Sender-ID ') ||
+            message.startsWith('Fehler beim Schreiben ') ||
+            message.startsWith('Update für Gerät ')
+          ) {
+            processedCount = Math.min(totalCount, processedCount + 1);
+            emitProgress({ phase: 'writing', message });
+          }
+        }
       });
       child.on('error', e => {
         clearTimeout(timer);
+        if (activeWriteSenderProcess?.child === child) activeWriteSenderProcess = null;
+        if (cancelRequested) {
+          cleanup();
+          emitProgress({ phase: 'canceled' });
+          return resolve({ ok: false, canceled: true, error: 'Schreibvorgang abgebrochen.', events: [], processed: processedCount, total: totalCount });
+        }
         attempts.push({ cmd: c.cmd, error: e.message || String(e) });
         runOne(index + 1);
       });
       child.on('close', code => {
         clearTimeout(timer);
+        if (activeWriteSenderProcess?.child === child) activeWriteSenderProcess = null;
+        if (cancelRequested) {
+          cleanup();
+          emitProgress({ phase: 'canceled' });
+          return resolve({ ok: false, canceled: true, error: 'Schreibvorgang abgebrochen.', events: [], processed: processedCount, total: totalCount });
+        }
         attempts.push({ cmd: c.cmd, code, stderr: stderr.slice(-4000) });
         const jsonLine = stdout.trim().split(/\r?\n/).filter(Boolean).pop();
         if (jsonLine) {
@@ -1249,6 +1424,8 @@ async function runPythonWriteSenders({ portPath = '', gatewayType = 'fam14', bau
             result.pythonCommand = c.cmd;
             result.pythonStderr = stderr.slice(-12000);
             cleanup();
+            processedCount = totalCount;
+            emitProgress({ phase: 'done', message: result.message || '' });
             console.log('[python-write-senders] RESULT', JSON.stringify({ ok: result.ok, counts: result.counts, error: result.error }));
             return resolve(result);
           } catch (e) {
@@ -1287,7 +1464,7 @@ function parseLearnIdEsp3(buf) {
       const rorg = buf[dataStart];
       if ([0xF6, 0xD5, 0xA5, 0xD2].includes(rorg)) {
         const sender = buf.slice(dataStart + dataLen - 5, dataStart + dataLen - 1);
-        if (!allZero(sender)) return { id: fmtId(sender), rorg: rorg.toString(16).toUpperCase().padStart(2, '0'), protocol: 'esp3' };
+        if (!allZero(sender)) return { id: fmtId(sender), rorg: rorg.toString(16).toUpperCase().padStart(2, '0'), data_byte3: buf[dataStart + 1], protocol: 'esp3' };
       }
     }
   }
@@ -1303,14 +1480,14 @@ function parseLearnIdEsp2(buf) {
     const rorg = body[1];
     if ([0xF6, 0xD5, 0xA5, 0xD2].includes(rorg)) {
       const sender = body.slice(6, 10);
-      if (!allZero(sender)) return { id: fmtId(sender), rorg: rorg.toString(16).toUpperCase().padStart(2, '0'), protocol: 'esp2' };
+      if (!allZero(sender)) return { id: fmtId(sender), rorg: rorg.toString(16).toUpperCase().padStart(2, '0'), data_byte3: body[2], protocol: 'esp2' };
     }
 
     // Some translated/extended frames put the RORG at body[0]. Keep this as a safe fallback.
     const rorg0 = body[0];
     if ([0xF6, 0xD5, 0xA5, 0xD2].includes(rorg0)) {
       const sender = body.slice(5, 9);
-      if (!allZero(sender)) return { id: fmtId(sender), rorg: rorg0.toString(16).toUpperCase().padStart(2, '0'), protocol: 'esp2-alt' };
+      if (!allZero(sender)) return { id: fmtId(sender), rorg: rorg0.toString(16).toUpperCase().padStart(2, '0'), data_byte3: body[1], protocol: 'esp2-alt' };
     }
   }
   return null;
@@ -1381,6 +1558,153 @@ function listenForLearnTelegram(portPath, gatewayType, timeoutMs = 15000) {
   });
 }
 
+function parseFts14emRpsFrame(frame) {
+  const buf = Buffer.isBuffer(frame) ? frame : Buffer.from(frame || []);
+  if (buf.length !== 14 || !isValidFixedEsp2Frame(buf, 0)) return null;
+
+  const body = buf.slice(2, 13);
+  // FTS14EM sends Series-14 internal RPS telegrams (ESP2 ORG 0x05).
+  if (body[1] !== 0x05) return null;
+  if (body[3] !== 0x00 || body[4] !== 0x00 || body[5] !== 0x00) return null;
+
+  const data = body[2];
+  if (data !== 0x70 && data !== 0x00) return null;
+
+  const sender = body.slice(6, 10);
+  if (allZero(sender)) return null;
+
+  // For base-ID learning the user presses E1. The documented/implemented E1
+  // ranges are 00-00-10-01 .. 00-00-14-01. Restricting to those IDs prevents
+  // unrelated RPS traffic on the Series-14 bus from being learned by mistake.
+  if (sender[0] !== 0x00 || sender[1] !== 0x00 || sender[2] < 0x10 || sender[2] > 0x14 || sender[3] !== 0x01) {
+    return null;
+  }
+
+  return {
+    id: fmtId(sender),
+    rorg: '05',
+    dataByte3: data,
+    pressed: data === 0x70,
+    released: data === 0x00,
+  };
+}
+
+function listenForFts14emBaseIdViaFgw(portPath, timeoutMs = 30000, onProgress = null) {
+  return new Promise((resolve) => {
+    const portName = String(portPath || '').trim();
+    if (!portName) return resolve({ ok: false, error: 'Kein serieller Port eingetragen.' });
+
+    let port;
+    try {
+      const { SerialPort } = require('serialport');
+      port = new SerialPort({ path: portName, baudRate: 57600, autoOpen: false });
+    } catch (e) {
+      return resolve({ ok: false, error: 'SerialPort Fehler: ' + (e.message || e) });
+    }
+
+    let buffer = Buffer.alloc(0);
+    let resolved = false;
+    let receivedFrames = 0;
+    let ftsFrames = 0;
+    const pressCounts = new Map();
+    const armed = new Map();
+    const lastCountedAt = new Map();
+
+    const finish = (result) => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timer);
+      const done = () => resolve({
+        ...result,
+        gatewayType: 'fgw14usb',
+        baudRate: 57600,
+        protocol: 'esp2-fgw14usb-raw',
+        receivedFrames,
+        ftsFrames,
+      });
+      try {
+        if (port?.isOpen) port.close(() => setTimeout(done, 80));
+        else done();
+      } catch (_) { done(); }
+    };
+
+    const handleParsed = (parsed) => {
+      if (!parsed) return;
+      ftsFrames += 1;
+      const id = parsed.id;
+      if (parsed.released) {
+        armed.set(id, true);
+        return;
+      }
+      if (!parsed.pressed) return;
+
+      const now = Date.now();
+      const wasArmed = armed.get(id) !== false;
+      const last = lastCountedAt.get(id) || 0;
+      if (!wasArmed && now - last < 250) return;
+
+      armed.set(id, false);
+      lastCountedAt.set(id, now);
+      const count = (pressCounts.get(id) || 0) + 1;
+      pressCounts.set(id, count);
+      if (typeof onProgress === 'function') {
+        try { onProgress({ id, count, required: 5 }); } catch (_) {}
+      }
+      console.log('[fts14em-fgw-learn] PRESS', id, `${count}/5`);
+
+      if (count >= 5) {
+        finish({ ok: true, id, rorg: '05', data_byte3: 0x70, repeat_count: count });
+      }
+    };
+
+    const processBuffer = () => {
+      while (!resolved && buffer.length >= 2) {
+        let start = -1;
+        for (let i = 0; i < buffer.length - 1; i += 1) {
+          if (buffer[i] === 0xA5 && buffer[i + 1] === 0x5A) { start = i; break; }
+        }
+        if (start < 0) {
+          buffer = buffer.slice(-1);
+          return;
+        }
+        if (start > 0) buffer = buffer.slice(start);
+        if (buffer.length < 14) return;
+        if (!isValidFixedEsp2Frame(buffer, 0)) {
+          buffer = buffer.slice(1);
+          continue;
+        }
+
+        const frame = buffer.slice(0, 14);
+        buffer = buffer.slice(14);
+        receivedFrames += 1;
+        handleParsed(parseFts14emRpsFrame(frame));
+      }
+    };
+
+    port.on('error', err => finish({ ok: false, error: 'Serieller Fehler: ' + (err.message || err) }));
+    port.on('data', chunk => {
+      const rx = chunk.toString('hex').match(/../g)?.join(' ') || '';
+      console.log('[fts14em-fgw-learn] RX', portName, rx);
+      buffer = Buffer.concat([buffer, chunk]);
+      if (buffer.length > 8192) buffer = buffer.slice(-4096);
+      processBuffer();
+    });
+
+    const timer = setTimeout(() => {
+      finish({
+        ok: false,
+        error: `Keine FTS14EM-E1-Basis-ID innerhalb von ${Math.round(timeoutMs / 1000)} Sekunden erkannt. ESP2-Rahmen: ${receivedFrames}, passende FTS14EM-Rahmen: ${ftsFrames}.`,
+      });
+    }, Math.max(5000, Number(timeoutMs) || 30000));
+
+    port.open(err => {
+      if (err) return finish({ ok: false, error: `Port ${portName} konnte nicht geöffnet werden: ${err.message || err}` });
+      console.log('[fts14em-fgw-learn] LISTEN', portName, '57600 baud');
+    });
+  });
+}
+
+
 // ─────────────────────────────────────────────────────────────────
 // IPC HANDLERS
 // ─────────────────────────────────────────────────────────────────
@@ -1404,6 +1728,30 @@ ipcMain.handle('learn-device-id', async (_, portPath, gatewayType, timeoutMs) =>
   } catch (e) {
     console.error('[learn-device-id]', e);
     return { ok: false, error: 'ID-Auto-Detect fehlgeschlagen: ' + (e.message || e) };
+  }
+});
+
+
+ipcMain.handle('learn-fts14em-base-id', async (event, portPath, gatewayType, timeoutMs) => {
+  try {
+    const type = String(gatewayType || '').toLowerCase();
+    const onProgress = progress => event.sender.send('fts14em-learn-progress', progress);
+
+    // FAM14 and FGW14-USB are both wired ESP2 gateways and must use the same
+    // RS485SerialInterfaceV2 receive path.  The Python listener keeps the two
+    // modes separate for their gateway-specific timing/echo behavior.  Do not
+    // bypass eltakobus with a raw SerialPort listener here: that was the FIX69
+    // regression which prevented FTS14EM learning through FGW14-USB.
+    const result = await runPythonLearnDeviceId(portPath, gatewayType, timeoutMs || 30000, {
+      repeatCount: 5,
+      requiredRorg: '05',
+      requiredDataByte3: 0x70,
+      onProgress,
+    });
+    return result;
+  } catch (e) {
+    console.error('[learn-fts14em-base-id]', e);
+    return { ok: false, error: 'FTS14EM-Basis-ID-Erkennung fehlgeschlagen: ' + (e.message || e) };
   }
 });
 
@@ -1473,16 +1821,89 @@ ipcMain.handle('disconnect-gateway', async (_, payload) => {
   }
 });
 
-ipcMain.handle('write-sender-ids-to-devices', async (_, payload) => {
+ipcMain.handle('write-sender-ids-to-devices', async (event, payload) => {
   try {
-    return await runPythonWriteSenders(payload || {});
+    return await runPythonWriteSenders(payload || {}, {
+      onProgress: (progress) => {
+        try { event.sender.send('write-sender-progress', progress); } catch (_) {}
+      },
+    });
   } catch (e) {
     console.error('[write-sender-ids-to-devices]', e);
     return { ok: false, error: 'Sender-ID Schreiben fehlgeschlagen: ' + (e.message || e) };
   }
 });
 
+ipcMain.handle('cancel-write-sender-ids', async () => {
+  if (!activeWriteSenderProcess) return { ok: false, running: false };
+  try {
+    activeWriteSenderProcess.requestCancel();
+    return { ok: true, running: true };
+  } catch (e) {
+    return { ok: false, running: true, error: e.message || String(e) };
+  }
+});
 
+
+
+
+ipcMain.on('open-device-database', () => createDeviceDatabaseWindow());
+ipcMain.on('close-device-database', () => {
+  if (deviceDatabaseWindow && !deviceDatabaseWindow.isDestroyed()) deviceDatabaseWindow.close();
+});
+ipcMain.handle('open-device-database-file', async () => {
+  const result = await dialog.showOpenDialog(deviceDatabaseWindow || mainWindow, {
+    title: t('menu.deviceDbImport'),
+    properties: ['openFile'],
+    filters: [
+      { name: 'Gerätedatenbank', extensions: ['yaml', 'yml', 'json'] },
+      { name: 'Alle Dateien', extensions: ['*'] },
+    ],
+  });
+  if (result.canceled || !result.filePaths?.[0]) return null;
+  const filePath = result.filePaths[0];
+  return { filePath, fileName: path.basename(filePath), content: await fs.readFile(filePath, 'utf8') };
+});
+
+ipcMain.handle('save-device-database-file', async (_event, content) => {
+  const result = await dialog.showSaveDialog(deviceDatabaseWindow || mainWindow, {
+    title: t('menu.deviceDbExport'),
+    defaultPath: 'eedtoy-device-database.yaml',
+    filters: [
+      { name: 'YAML', extensions: ['yaml', 'yml'] },
+      { name: 'JSON', extensions: ['json'] },
+      { name: 'Alle Dateien', extensions: ['*'] },
+    ],
+  });
+  if (result.canceled || !result.filePath) return null;
+  await fs.writeFile(result.filePath, String(content ?? ''), 'utf8');
+  return result.filePath;
+});
+
+ipcMain.handle('load-device-database', async () => loadDeviceDatabase());
+ipcMain.handle('save-device-database', async (_event, database) => {
+  try {
+    const saved = await saveDeviceDatabase(database);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('device-database-changed', saved);
+    }
+    return { ok: true, database: saved, filePath: deviceDatabaseFilePath() };
+  } catch (error) {
+    console.error('[save-device-database]', error);
+    return { ok: false, error: error?.message || String(error), filePath: deviceDatabaseFilePath() };
+  }
+});
+ipcMain.on('device-database-saved', async (_event, database) => {
+  try {
+    const saved = await saveDeviceDatabase(database);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('device-database-changed', saved);
+    }
+    if (deviceDatabaseWindow && !deviceDatabaseWindow.isDestroyed()) deviceDatabaseWindow.close();
+  } catch (error) {
+    console.error('[device-database-saved]', error);
+  }
+});
 
 process.on('uncaughtException', error => console.error('[uncaughtException]', error));
 process.on('unhandledRejection', error => console.error('[unhandledRejection]', error));

@@ -240,6 +240,186 @@ async def _ensure_programmed_fhk_controller(
     return True
 
 
+
+
+def _is_fd2g14_entry(entry: Dict[str, Any]) -> bool:
+    label = f"{_entry_device_type(entry)} {_clean_label(entry.get('name'))}".upper()
+    return "FD2G14" in label
+
+
+def _fd2g14_targets(fam14_base_id_int: int, sender_map: Dict[str, List[Dict[str, Any]]]) -> Dict[int, Dict[int, Dict[str, Any]]]:
+    """Group the 16 logical FD2G14 YAML channels by their PCT14 base address."""
+    items = []
+    for device_id, entries in sender_map.items():
+        value = _id_to_int(device_id)
+        if value is None:
+            continue
+        offset = value - fam14_base_id_int
+        if not (1 <= offset <= 254):
+            continue
+        for entry in entries:
+            if _is_fd2g14_entry(entry):
+                items.append((offset, device_id, entry))
+    if not items:
+        return {}
+
+    by_offset = {offset: (device_id, entry) for offset, device_id, entry in items}
+    remaining = set(by_offset)
+    result: Dict[int, Dict[int, Dict[str, Any]]] = {}
+    while remaining:
+        base = min(remaining)
+        channels: Dict[int, Dict[str, Any]] = {}
+        for channel in range(16):
+            offset = base + channel
+            item = by_offset.get(offset)
+            if item is None:
+                continue
+            device_id, entry = item
+            channels[channel] = {"device_id": device_id, "entry": entry}
+            remaining.discard(offset)
+        result[base] = channels
+    return result
+
+
+async def enumerate_bus_grimm(bus: Any):
+    """Enumerate Series-14 devices exactly like Grimm's eltakotool.
+
+    A multi-channel device is discovered once at its physical base address and
+    its complete address range is skipped afterwards. This is important for the
+    FD2G14/FDG14 family, which reports size=16 and can have an additional
+    compatibility response inside that range.
+    """
+    from eltakobus.device import create_busobject
+
+    skip_until = 0
+    for address in range(1, 255):
+        if address <= skip_until:
+            continue
+        try:
+            dev = await create_busobject(bus=bus, id=address)
+            if dev is None:
+                continue
+            size = max(1, int(getattr(dev, "size", 1) or 1))
+            skip_until = address + size - 1
+            yield dev
+        except TimeoutError:
+            continue
+        except Exception as exc:
+            log("Grimm bus scan failed", address, repr(exc))
+
+
+def _is_real_fd2g14(dev: Any) -> bool:
+    """Return True only for a real FD2G14 discovery object."""
+    if type(dev).__name__.upper() == "FD2G14":
+        return True
+    response = getattr(dev, "discovery_response", None)
+    model = bytes(getattr(response, "model", b"") or b"")
+    size = int(getattr(dev, "size", 0) or 0)
+    return model[:2] == bytes((0x04, 0x82)) and size == 16
+
+
+async def ensure_fd2g14_from_yaml(
+    bus: Any,
+    fam14_base_id_int: int,
+    sender_map: Dict[str, List[Dict[str, Any]]],
+    processed_ids: Set[str],
+) -> List[Dict[str, Any]]:
+    """Program FD2G14 through Grimm's real FD2G14/FDG14 BusObject path.
+
+    The sixteen YAML IDs describe the logical DALI groups. They are *not* used
+    as raw memory-access addresses. We discover the physical FD2G14 on the bus,
+    then call its DimmerStyle.ensure_programmed() for channels 0..15. Grimm's
+    implementation writes A5-38-08 as sender + 00 + function 32 + group + 00.
+    """
+    from eltakobus.eep import EEP
+    try:
+        from eltakobus import AddressExpression
+    except Exception:
+        from eltakobus.util import AddressExpression
+
+    events: List[Dict[str, Any]] = []
+    targets = _fd2g14_targets(fam14_base_id_int, sender_map)
+    if not targets:
+        return events
+
+    # Normally there is one imported FD2G14 block. Scan once and keep all real
+    # FD2G14 objects so multiple gateways can still be handled deterministically.
+    discovered: List[Any] = []
+    async for dev in enumerate_bus_grimm(bus):
+        response = getattr(dev, "discovery_response", None)
+        model = bytes(getattr(response, "model", b"") or b"")
+        log("Grimm discovery", type(dev).__name__, "address", getattr(dev, "address", "?"), "size", getattr(dev, "size", "?"), "model", model[:2].hex("-").upper())
+        if _is_real_fd2g14(dev):
+            discovered.append(dev)
+
+    used_devices: Set[int] = set()
+    for yaml_base, channels in sorted(targets.items()):
+        pending = {ch: item for ch, item in channels.items() if item["device_id"] not in processed_ids}
+        if not pending:
+            continue
+
+        # Prefer an FD2G14 whose actual physical base matches the PCT14 base,
+        # but do not require that match. The discovery model/size is authoritative.
+        dev = next((d for d in discovered if int(getattr(d, "address", -1)) == yaml_base and id(d) not in used_devices), None)
+        if dev is None:
+            dev = next((d for d in discovered if id(d) not in used_devices), None)
+
+        if dev is None:
+            for channel in sorted(pending):
+                item = pending[channel]
+                entry = item["entry"]
+                device_id = item["device_id"]
+                sender_id = norm_id(entry.get("sender", {}).get("id", ""))
+                msg = (
+                    f"FD2G14 {device_id}: beim vollständigen Series-14-Bus-Scan wurde "
+                    "kein FD2G14 mit Discovery-Modell 04-82 und Größe 16 gefunden."
+                )
+                events.append({"status": "error", "device_id": device_id, "device_type": "FD2G14", "sender_id": sender_id, "sender_eep": "A5-38-08", "message": msg})
+                processed_ids.add(device_id)
+            continue
+
+        used_devices.add(id(dev))
+        real_address = int(getattr(dev, "address", 0) or 0)
+        log("FD2G14 matched", "yaml-base", yaml_base, "physical-base", real_address, "size", getattr(dev, "size", "?"))
+
+        for channel in sorted(pending):
+            item = pending[channel]
+            device_id = item["device_id"]
+            entry = item["entry"]
+            sender_id = norm_id(entry.get("sender", {}).get("id", ""))
+            sender_eep = str(entry.get("sender", {}).get("eep", "")).strip().upper()
+            display_name = _device_display_name(entry, "FD2G14", device_id)
+            if not sender_id or sender_eep != "A5-38-08":
+                continue
+
+            try:
+                sender_address = AddressExpression.parse(sender_id)
+                profile = EEP.find("A5-38-08")
+                changed = await dev.ensure_programmed(channel, sender_address, profile)
+                await asyncio.sleep(0.05)
+                if changed:
+                    status = "updated"
+                    message = (
+                        f"Home-Assistant Sender-ID {sender_id} für EEP {sender_eep} in {display_name} "
+                        f"über FD2G14-Basisadresse {real_address} geschrieben."
+                    )
+                else:
+                    status = "exists"
+                    message = f"Sender-ID {sender_id} für EEP {sender_eep} in {display_name} existiert bereits."
+            except Exception as exc:
+                status = "error"
+                message = (
+                    f"Fehler beim Schreiben von {sender_id} ({sender_eep}) in {display_name} "
+                    f"über FD2G14-Basisadresse {real_address}: {type(exc).__name__}: {exc}"
+                )
+
+            events.append({"status": status, "device_id": device_id, "device_type": "FD2G14", "sender_id": sender_id, "sender_eep": sender_eep, "message": message})
+            processed_ids.add(device_id)
+            log(message)
+
+    return events
+
+
 async def ensure_programmed_for_device(fam14_base_id_int: int, dev: Any, sender_map: Dict[str, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
     from eltakobus.device import DimmerStyle, HasProgrammableRPS
     from eltakobus.eep import EEP
@@ -268,7 +448,7 @@ async def ensure_programmed_for_device(fam14_base_id_int: int, dev: Any, sender_
             display_name = _device_display_name(entry, dev_type, device_ext_id)
             is_frgbw = sender_eep == "07-37-F7" or device_eep == "07-37-F7" or "FRGBW" in combined_label.upper()
             is_fsr14ssr = "FSR14SSR" in combined_label.upper()
-            is_fhk = any(token in combined_label.upper() for token in ("FHK14", "F4HK14", "FAE14SSR"))
+            is_fhk = any(token in combined_label.upper() for token in ("FHK14", "F4HK14", "FAE14SSR", "FAE14LPR"))
             if not sender_id or not sender_eep:
                 continue
             retry = 3
@@ -355,6 +535,9 @@ async def write_senders(port: str, sender_map_path: str, baud_rate: int = 57600,
             device_events = await ensure_programmed_for_device(fam14_base_id_int, dev, sender_map)
             events.extend(device_events)
             processed_ids.update(e.get("device_id", "") for e in device_events)
+
+        fd2g_events = await ensure_fd2g14_from_yaml(bus, fam14_base_id_int, sender_map, processed_ids)
+        events.extend(fd2g_events)
 
         for device_id, entries in sender_map.items():
             if device_id in processed_ids:

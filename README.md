@@ -2,7 +2,7 @@
 
 EEDTOY ist ein Desktop-Konfigurator für EnOcean-Geräte, ELTAKO-Gateways, PCT14-Import und den YAML-Export für Home Assistant.
 
-> **Hinweis:** EEDTOY wird privat entwickelt und ist kein offizielles Produkt der ELTAKO GmbH. ELTAKO-Produktnamen werden ausschließlich zur Beschreibung der Gerätekompatibilität verwendet.
+> **Hinweis:** EEDTOY wird privat von D. Zirnbauer entwickelt und ist kein offizielles Produkt der ELTAKO GmbH. ELTAKO-Produktnamen werden ausschließlich zur Beschreibung der Gerätekompatibilität verwendet.
 
 ## Funktionen
 
@@ -33,10 +33,10 @@ Sicherheitsprobleme bitte über eine private GitHub Security Advisory melden. De
 
 ## Rechte und Marken
 
-Copyright © 2026 D. Zirnbauer. Der Quellcode steht unter der Lizenz **GPL-3.0-or-later**. Siehe [LICENSE](LICENSE), [NOTICE.md](NOTICE.md) und [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Copyright © 2026 D. Zirnbauer. Der Quellcode steht unter der Lizenz **GPL-3.0-or-later**. Siehe [LICENSE](LICENSE).
 
 ELTAKO ist eine Marke der ELTAKO GmbH. Dieses Projekt ist weder mit der ELTAKO GmbH verbunden noch von ihr herausgegeben oder bestätigt.
 
 ## Versionshinweise
 
-Die Änderungen der aktuellen Version stehen in [CHANGELOG.md](CHANGELOG.md). Frühere interne Versionsnotizen wurden unter [docs/CHANGELOG_LEGACY.md](docs/CHANGELOG_LEGACY.md) archiviert.
+Die Änderungen der aktuellen Version stehen in [CHANGELOG.md](CHANGELOG.md).

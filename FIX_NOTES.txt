@@ -1,0 +1,12 @@
+EEDTOY v1.0.96 – finaler Freigabestand
+
+- Windows basiert auf dem geprüften FIX70-Stand.
+- macOS enthält zusätzlich die geprüften FIX71-/FIX72-Korrekturen.
+- FTS14EM-Lernen über FGW14-USB verwendet den Python-/eltakobus-RS485-Pfad
+  bei 57600 Baud und verlangt fünf Betätigungen desselben E1-Eingangs.
+- FAM-USB verwendet unter macOS die direkte ESP2-AB-58-Base-ID-Abfrage.
+- Bei macOS-Portpaaren wird Interface 1 bevorzugt; Interface 0 wird nicht
+  wissentlich als FAM-USB-Datenport verwendet. Unterstützt werden sowohl
+  B0/B1- als auch 0/1-Bezeichnungen ohne fest codierte Seriennummer.
+- FAM14, FGW14-USB, Senderprogrammierung, Gerätedatenbank und YAML-Export
+  bleiben mit dem geprüften v1.0.96-Gesamtstand erhalten.

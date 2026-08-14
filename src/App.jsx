@@ -1,108 +1,338 @@
 import { useEffect, useRef, useState } from "react";
-import { getStoredLanguage, storeLanguage, translate, translateDeviceLabel, translateGroup, translatePlatform, translateRuntimeText } from "./i18n.js";
+import { getStoredLanguage, storeLanguage, translate, translateDeviceLabel, translateDeviceName, translateGroup, translatePlatform, translateRuntimeText } from "./i18n.js";
 
-const APP_VERSION = "1.0.95";
+const APP_VERSION = "1.0.96";
+
+
+function serializeDeviceDatabaseYaml(database) {
+  const lines = [
+    "eedtoy_device_database: true",
+    "schema_version: 1",
+    "devices:",
+  ];
+  for (const [key, value] of Object.entries(deviceDatabaseEntriesOnly(database))) {
+    lines.push(`  - key: ${JSON.stringify(key)}`);
+    lines.push(`    value: ${JSON.stringify(value)}`);
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+function parseDeviceDatabaseYaml(text) {
+  const result = {};
+  let currentKey = null;
+  for (const rawLine of String(text || "").split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    if (line.startsWith("- key:")) {
+      currentKey = JSON.parse(line.slice(line.indexOf(":") + 1).trim());
+      continue;
+    }
+    if (line.startsWith("value:") && currentKey != null) {
+      const value = JSON.parse(line.slice(line.indexOf(":") + 1).trim());
+      if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid device entry");
+      result[currentKey] = value;
+      currentKey = null;
+    }
+  }
+  if (!Object.keys(result).length) throw new Error("No devices found");
+  result[DEVICE_DB_MODE_KEY] = DEVICE_DB_MODE_AUTHORITATIVE;
+  result[DEVICE_DB_SCHEMA_KEY] = DEVICE_DB_SCHEMA_VERSION;
+  return result;
+}
 
 // ─────────────────────────────────────────────────────────────────
 // EEP Database — Eltako Home Assistant Integration
 // ─────────────────────────────────────────────────────────────────
-const EEP_DB = {
+const DEFAULT_EEP_DB = {
   // ── Taster / Schalter ────────────────────────────────────────
   "F6-02-01-2CH": { group:"Taster / Schalter", label:"F2T55 – Taster 2-Kanal EU (F6-02-01)", platform:"binary_sensor", eep_out:"F6-02-01", eltako:"F2T55 2-Kanal" },
   "F6-02-01-4CH": { group:"Taster / Schalter", label:"FT55, F4T55E – Taster 4-Kanal EU (F6-02-01)", platform:"binary_sensor", eep_out:"F6-02-01", eltako:"FT55, F4T55E 4-Kanal" },
-  "F6-01-01": { group:"Taster / Schalter", label:"FNSN55EB, FNS65EB – Näherungsschalter (F6-01-01)", platform:"binary_sensor", device_classes:["presence"], default_dc:"presence", eltako:"FNSN55EB, FNS65EB" },
+  "F6-01-01": { group:"Taster / Schalter", label:"FNSN55EB, FNS65EB – Näherungsschalter (F6-01-01)", eep_out:"F6-01-01", platform:"binary_sensor", device_classes:["presence"], default_dc:"presence", eltako:"FNSN55EB, FNS65EB", needs_sender:false },
+  "F6-02-01-FTS14EM-UT": { group:"Taster / Schalter", label:"FTS14EM UT", platform:"binary_sensor", eep_out:"F6-02-01", device_family:"FTS14EM", operating_mode:"UT", id_count:10, eltako:"FTS14EM UT" },
+  "F6-02-01-FTS14EM-RT": { group:"Taster / Schalter", label:"FTS14EM RT", platform:"binary_sensor", eep_out:"F6-02-01", device_family:"FTS14EM", operating_mode:"RT", id_count:10, eltako:"FTS14EM RT" },
 
   // ── Kontakte ──────────────────────────────────────────────────
-  "D5-00-01": { group:"Kontakt", label:"FTK, FTKB, FFKB – Fenster-/Türkontakt (D5-00-01)", platform:"binary_sensor", device_classes:["window","door","opening"], default_dc:"window", eltako:"FTK, FTKB, FFKB" },
-  "F6-10-00-FFG7B": { group:"Kontakt", label:"FTKE, FFTE, FFG7B – Fensterkontakt / Fenstergriff (F6-10-00)", platform:"sensor", eep_out:"F6-10-00", ffg7b_three_state:true, eltako:"FTKE, FFTE, FFG7B" },
-  "A5-14-09-FFG7B": { group:"Kontakt", label:"FFG7B – Fensterkontakt / Fenstergriff (A5-14-09)", platform:"sensor", eep_out:"A5-14-09", ffg7b_three_state:true, eltako:"FFG7B" },
+  "D5-00-01": { group:"Kontakt", label:"FTK, FTKB, FFKB, FTKB-gr – Fenster-/Türkontakt (D5-00-01)", platform:"binary_sensor", eep_out:"D5-00-01", teach_in_telegram:"00-00-00-00", device_classes:["window","door","opening"], default_dc:"window", eltako:"FTK, FTKB, FFKB, FTKB-gr" },
+  "F6-10-00-FFG7B": { group:"Kontakt", label:"FTKE, FFTE, FFG7B – Fensterkontakt / Fenstergriff (F6-10-00)", platform:"sensor", eep_out:"F6-10-00", teach_in_telegram:"F0", ffg7b_three_state:true, eltako:"FTKE, FFTE, FFG7B" },
+  "A5-14-09-FFG7B": { group:"Kontakt", label:"FFG7B – Fensterkontakt / Fenstergriff (A5-14-09)", platform:"sensor", eep_out:"A5-14-09", teach_in_telegram:"50-48-0D-80", ffg7b_three_state:true, eltako:"FFG7B" },
 
   // ── Bewegungsmelder ───────────────────────────────────────────
-  "A5-07-01": { group:"Bewegungsmelder", label:"FBH55ESB, FB55EB – Bewegungsmelder (A5-07-01)", platform:"binary_sensor", eep_out:"A5-07-01", device_classes:["motion","occupancy"], default_dc:"motion", eltako:"FBH55ESB, FB55EB" },
-  "A5-08-01-FBH-FBHT": { group:"Bewegungsmelder", label:"FBH55ESB / FBHT55ESB – Bewegung + Helligkeit automatisch (A5-08-01)", platform:"sensor", eep_out:"A5-08-01", eltako:"FBH55ESB, FBHT55ESB", fbht_temperature:true },
+  "A5-07-01": { group:"Bewegungsmelder", label:"FBH55ESB, FB55EB – Bewegungsmelder (A5-07-01)", platform:"binary_sensor", eep_out:"A5-07-01", teach_in_telegram:"1C-08-0D-80", device_classes:["motion","occupancy"], default_dc:"motion", eltako:"FBH55ESB, FB55EB" },
+  "A5-08-01-FBH-FBHT": { group:"Bewegungsmelder", label:"FBH55ESB / FBHT55ESB – Bewegung + Helligkeit automatisch (A5-08-01)", platform:"sensor", eep_out:"A5-08-01", teach_in_telegram:"20-08-0D-85", eltako:"FBH55ESB, FBHT55ESB", fbht_temperature:true },
 
   // ── Rauch / Hitze ─────────────────────────────────────────────
-  "A5-30-01": { group:"Rauch / Hitze", label:"FRWB – Rauchmelder (A5-30-01)", platform:"binary_sensor", device_classes:["smoke"], default_dc:"smoke", eltako:"FRWB" },
-  "A5-30-03": { group:"Rauch / Hitze", label:"FHMB – Rauch-/Hitzemelder (A5-30-03)", platform:"binary_sensor", device_classes:["smoke","heat"], default_dc:"smoke", eltako:"FHMB" },
+  "A5-30-03-FRWB": { group:"Rauch / Hitze", label:"FRWB – Rauchmelder (A5-30-03)", platform:"binary_sensor", eep_out:"A5-30-03", teach_in_telegram:"C0-18-2D-80", device_classes:["smoke"], default_dc:"smoke", eltako:"FRWB" },
+  "A5-30-03-FHMB": { group:"Rauch / Hitze", label:"FHMB – Rauch-/Hitzemelder (A5-30-03)", platform:"binary_sensor", eep_out:"A5-30-03", teach_in_telegram:"C0-18-2D-80", device_classes:["smoke","heat"], default_dc:"smoke", eltako:"FHMB" },
 
   // ── Temperatur / Feuchte ──────────────────────────────────────
-  "A5-04-01": { group:"Temperatur / Feuchte", label:"FFT60SB – Temperatur + Feuchte 0…40 °C (A5-04-01)", platform:"sensor", eltako:"FFT60SB" },
-  "A5-04-02-FLGTF": { group:"Temperatur / Feuchte", label:"FLGTF – Temperatur + Feuchte −20…60 °C / 0…100 % (A5-04-02)", platform:"sensor", eep_out:"A5-04-02", eltako:"FLGTF" },
+  "A5-04-02-FFT60SB": { group:"Temperatur / Feuchte", label:"FFT60SB – Temperatur + Feuchte −20…60 °C (A5-04-02)", platform:"sensor", eep_out:"A5-04-02", teach_in_telegram:"10-10-0D-87", eltako:"FFT60SB" },
+  "A5-04-03-FFT60SB": { group:"Temperatur / Feuchte", label:"FFT60SB – Temperatur + Feuchte −20…60 °C (A5-04-03)", platform:"sensor", eep_out:"A5-04-03", teach_in_telegram:"10-18-0D-80", eltako:"FFT60SB" },
+  "A5-04-02-FTFSB": { group:"Temperatur / Feuchte", label:"FTFSB – Temperatur + Feuchte −20…60 °C (A5-04-02)", platform:"sensor", eep_out:"A5-04-02", teach_in_telegram:"10-10-0D-87", eltako:"FTFSB" },
+  "A5-04-03-FTFSB": { group:"Temperatur / Feuchte", label:"FTFSB – Temperatur + Feuchte −20…60 °C (A5-04-03)", platform:"sensor", eep_out:"A5-04-03", teach_in_telegram:"10-18-0D-80", eltako:"FTFSB" },
+  "A5-04-02-FLGTF": { group:"Temperatur / Feuchte", label:"FLGTF – Temperatur + Feuchte −20…60 °C / 0…100 % (A5-04-02)", platform:"sensor", eep_out:"A5-04-02", teach_in_telegram:"10-10-0D-87", eltako:"FLGTF" },
 
   // ── Luftqualität ──────────────────────────────────────────────
-  "A5-09-0C-FLGTF": { group:"Luftqualität", label:"FLGTF – TVOC + Temperatur + Feuchte automatisch (A5-09-0C + A5-04-02)", platform:"sensor", eep_out:"A5-09-0C", eltako:"FLGTF" },
-  "A5-09-04-FCO2TF65": { group:"Luftqualität", label:"FCO2TF65 – CO2 + Temperatur + Feuchte (A5-09-04)", platform:"sensor", eep_out:"A5-09-04", eltako:"FCO2TF65" },
+  "A5-09-0C-FLGTF": { group:"Luftqualität", label:"FLGTF – TVOC + Temperatur + Feuchte automatisch (A5-09-0C + A5-04-02)", platform:"sensor", eep_out:"A5-09-0C", teach_in_telegram:"24-60-0D-80", eltako:"FLGTF" },
+  "A5-09-04-FCO2TF65": { group:"Luftqualität", label:"FCO2TF65 – CO2 + Temperatur + Feuchte (A5-09-04)", platform:"sensor", eep_out:"A5-09-04", teach_in_telegram:"24-20-0D-80", eltako:"FCO2TF65" },
 
   // ── Raumregler / Klima ────────────────────────────────────────
-  "A5-10-06": { group:"Raumregler / Klima", label:"FUTH65D / FHK14 / F4HK14 / FAE14SSR – Heizung/Klima Temperatur + Sollwert + Fan (A5-10-06)", platform:"climate", needs_sender:true, sender_eep:"A5-10-06", eltako:"FUTH65D, FHK14, F4HK14, FAE14SSR" },
-  "A5-10-10": { group:"Raumregler / Klima", label:"FUTH65D – Raumregler Temperatur + Feuchte + Sollwert (A5-10-10)", platform:"sensor", eltako:"FUTH65D" },
-  "A5-10-12": { group:"Raumregler / Klima", label:"FUTH65D – Raumregler Temperatur + Feuchte + Belegung (A5-10-12)", platform:"sensor", eltako:"FUTH65D" },
-  "A5-10-06-FUTH55ED-FHK": { group:"Raumregler / Klima", label:"FUTH55ED – FHK-Datenübermittlung (A5-10-06)", platform:"sensor", eep_out:"A5-10-06", futh55ed_mode:"fhk", teach_in_telegram:"40-30-0D-87", eltako:"FUTH55ED" },
-  "A5-20-01-FUTH55ED-FKS-KP": { group:"Raumregler / Klima", label:"FUTH55ED – FKS Kieback & Peter (A5-20-01)", platform:"sensor", eep_out:"A5-20-01", futh55ed_mode:"fks_kp", bidirectional:true, eltako:"FUTH55ED" },
-  "A5-20-04-FUTH55ED-FKS-HORA": { group:"Raumregler / Klima", label:"FUTH55ED – FKS-H Hora (A5-20-04)", platform:"sensor", eep_out:"A5-20-04", futh55ed_mode:"fks_hora", bidirectional:true, eltako:"FUTH55ED" },
-  "A5-38-08-FUTH55ED-TF61R": { group:"Raumregler / Klima", label:"FUTH55ED – 2-Punkt-Regler TF61R / FR62 (A5-38-08)", platform:"binary_sensor", eep_out:"A5-38-08", futh55ed_mode:"two_point", teach_in_telegram:"E0-40-0D-80", eltako:"FUTH55ED" },
+  "A5-10-06": { group:"Raumregler / Klima", label:"FHK14 / F4HK14 / FAE14SSR – Heizung/Klima Temperatur + Sollwert + Fan (A5-10-06)", platform:"climate", eep_out:"A5-10-06", needs_sender:true, teach_in_telegram:"40-30-0D-87", sender_eep:"A5-10-06", eltako:"FHK14, F4HK14, FAE14SSR" },
+  "A5-10-06-FAE14LPR": { group:"Raumregler / Klima", label:"FAE14LPR – Heizung/Klima wie FAE14SSR (A5-10-06)", platform:"climate", eep_out:"A5-10-06", needs_sender:true, sender_eep:"A5-10-06", teach_in_telegram:"40-30-0D-87", device_family:"FAE14LPR", bidirectional:true, min_target_temperature:16, max_target_temperature:25, eltako:"FAE14LPR" },
+  "A5-10-06-FUTH55": { group:"Raumregler / Klima", label:"FUTH55 / FUTH55ED / FUTH65D – Temperaturregler + Sollwert (A5-10-06)", platform:"climate", eep_out:"A5-10-06", needs_sender:true, sender_eep:"A5-10-06", futh55ed_mode:"fhk", teach_in_telegram:"40-30-0D-87", min_target_temperature:12, max_target_temperature:28, eltako:"FUTH55, FUTH55ED, FUTH65D", note:"Für die Sollwertsteuerung muss die Home-Assistant-Sender-ID im FUTH55 eingelernt werden." },
+  "A5-10-12-FUTH55-HYGROSTAT": { group:"Raumregler / Klima", label:"FUTH55 / FUTH55ED / FUTH65D – Hygrostat: Temperatur + Feuchte + Sollwert (A5-10-12)", platform:"sensor", eep_out:"A5-10-12", futh55ed_mode:"hygrostat", teach_in_telegram:"40-90-0D-80", eltako:"FUTH55, FUTH55ED, FUTH65D" },
   "A5-10-06-FTR-FHK": { group:"Raumregler / Klima", label:"FTR55/65-Familie – Betriebsart FHK: Soll- und Isttemperatur (A5-10-06)", platform:"sensor", eep_out:"A5-10-06", room_controller_mode:"fhk", teach_in_telegram:"40-30-0D-87", min_target_temperature:12, max_target_temperature:28, frost_temperature:8, eltako:"FTR65DSB, FTR55DSB, FTR55EHB, FTR55ESB, FTR65HB, FTRF65HB, FTR55HB, FTR65SB, FTRF65SB, FTR55SB" },
   "A5-38-08-FTR-TF61": { group:"Raumregler / Klima", label:"FTR55/65-Familie – Betriebsart TF61: Heizanforderung EIN/AUS (A5-38-08)", platform:"binary_sensor", eep_out:"A5-38-08", room_controller_mode:"tf61", teach_in_telegram:"E0-40-0D-80", hysteresis:1, eltako:"FTR65DSB, FTR55DSB, FTR55EHB, FTR55ESB, FTR65HB, FTRF65HB, FTR55HB, FTR65SB, FTRF65SB, FTR55SB" },
-  "A5-10-12-FUTH55ED-HYGROSTAT": { group:"Raumregler / Klima", label:"FUTH55ED – Hygrostat (A5-10-12)", platform:"sensor", eep_out:"A5-10-12", futh55ed_mode:"hygrostat", teach_in_telegram:"40-90-0D-80", eltako:"FUTH55ED" },
 
   // ── Heizung / Stellantrieb ───────────────────────────────────
-  "A5-20-01-FKS-SV": { group:"Heizung / Stellantrieb", label:"FKS-SV – Smart Valve / Heizkörper-Stellantrieb (A5-20-01)", platform:"climate", needs_sender:true, sender_eep:"A5-20-01", eep_out:"A5-20-01", fks_sv_device:true, eltako:"FKS-SV" },
+  "A5-20-01-FKS-SV": { group:"Heizung / Stellantrieb", label:"FKS-SV – Smart Valve / Heizkörper-Stellantrieb (A5-20-01)", platform:"climate", needs_sender:true, teach_in_telegram:"80-08-0D-80", sender_eep:"A5-20-01", eep_out:"A5-20-01", fks_sv_device:true, eltako:"FKS-SV" },
 
   // ── Zähler ────────────────────────────────────────────────────
-  "A5-12-01": { group:"Zähler", label:"FWZ12, FWZ14, DSZ14 – Funk-/Wechselstromzähler kWh (A5-12-01)", platform:"sensor", eltako:"FWZ12, FWZ14, DSZ14" },
-  "A5-12-01-F3Z14D": { group:"Zähler", label:"F3Z14D – 3-Kanal-S0-Drehstromzähler (A5-12-01)", platform:"sensor", eep_out:"A5-12-01", meter_tariffs:"[1]", eltako:"F3Z14D" },
+  "A5-12-01": { group:"Zähler", label:"FWZ12, FWZ14, DSZ14 – Funk-/Wechselstromzähler kWh (A5-12-01)", platform:"sensor", eep_out:"A5-12-01", teach_in_telegram:"48-08-0D-80", eltako:"FWZ12, FWZ14, DSZ14" },
+  "A5-12-01-F3Z14D": { group:"Zähler", label:"F3Z14D – 3-Kanal-S0-Drehstromzähler (A5-12-01)", platform:"sensor", eep_out:"A5-12-01", teach_in_telegram:"48-08-0D-80", meter_tariffs:"[1]", eltako:"F3Z14D" },
 
   // ── Wetterstation ─────────────────────────────────────────────
-  "A5-13-01": { group:"Wetterstation", label:"FWS61, FWG14MS – Wetterstation Wind + Regen + Temperatur (A5-13-01)", platform:"sensor", eltako:"FWS61, FWG14MS" },
+  "A5-13-01": { group:"Wetterstation", label:"FWS61, FWG14MS – Wetterstation Wind + Regen + Temperatur (A5-13-01)", platform:"sensor", eep_out:"A5-13-01", teach_in_telegram:"4C-08-0D-80", eltako:"FWS61, FWG14MS" },
 
   // ── Licht / Dimmer ────────────────────────────────────────────
-  "A5-38-08-FUD14": { group:"Licht / Dimmer", label:"FUD14 – Dimmaktor (A5-38-08)", platform:"light", needs_sender:true, sender_eep:"A5-38-08", eep_out:"A5-38-08", eltako:"FUD14" },
-  "A5-38-08-FDG14": { group:"Licht / Dimmer", label:"FDG14 – DALI-Gateway / Dimmaktor (A5-38-08)", platform:"light", needs_sender:true, sender_eep:"A5-38-08", eep_out:"A5-38-08", dimming_speed:0, eltako:"FDG14" },
-  "A5-38-08-FUD71": { group:"Licht / Dimmer", label:"FUD71 – Dimmaktor (A5-38-08)", platform:"light", needs_sender:true, sender_eep:"A5-38-08", eep_out:"A5-38-08", eltako:"FUD71" },
-  "A5-38-08-FD2G14": { group:"Licht / Dimmer", label:"FD2G14 – DALI-Gateway (A5-38-08)", platform:"light", needs_sender:true, sender_eep:"A5-38-08", eep_out:"A5-38-08", eltako:"FD2G14" },
-  "A5-38-08-FUD61NP-230V": { group:"Licht / Dimmer", label:"FUD61NP-230V – Dimmaktor (A5-38-08)", platform:"light", needs_sender:true, sender_eep:"A5-38-08", eep_out:"A5-38-08", eltako:"FUD61NP-230V" },
-  "A5-38-08-FUD61NPN-230V": { group:"Licht / Dimmer", label:"FUD61NPN-230V – Dimmer/Relais (A5-38-08)", platform:"light", needs_sender:true, sender_eep:"A5-38-08", eep_out:"A5-38-08", eltako:"FUD61NPN-230V" },
-  "A5-38-08-FD62NP-230V": { group:"Licht / Dimmer", label:"FD62NP-230V – Dimmer/Relais (A5-38-08)", platform:"light", needs_sender:true, sender_eep:"A5-38-08", eep_out:"A5-38-08", eltako:"FD62NP-230V" },
-  "A5-38-08-FD62NPN-230V": { group:"Licht / Dimmer", label:"FD62NPN-230V – Dimmer/Relais (A5-38-08)", platform:"light", needs_sender:true, sender_eep:"A5-38-08", eep_out:"A5-38-08", eltako:"FD62NPN-230V" },
+  "A5-38-08-FUD14": { group:"Licht / Dimmer", label:"FUD14 – Dimmaktor (A5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"A5-38-08", eltako:"FUD14" },
+  "A5-38-08-FDG14": { group:"Licht / Dimmer", label:"FDG14 – DALI-Gateway / Dimmaktor (A5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"A5-38-08", dimming_speed:0, eltako:"FDG14" },
+  "A5-38-08-FUD71": { group:"Licht / Dimmer", label:"FUD71 – Dimmaktor (A5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"A5-38-08", eltako:"FUD71" },
+  "A5-38-08-FD2G14": { group:"Licht / Dimmer", label:"FD2G14 – DALI-Gateway (A5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"A5-38-08", eltako:"FD2G14" },
+  "A5-38-08-FUD61NP-230V": { group:"Licht / Dimmer", label:"FUD61NP-230V – Dimmaktor (A5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"A5-38-08", eltako:"FUD61NP-230V" },
+  "A5-38-08-FUD61NPN-230V": { group:"Licht / Dimmer", label:"FUD61NPN-230V – Dimmer/Relais (A5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"A5-38-08", eltako:"FUD61NPN-230V" },
+  "A5-38-08-FD62NP-230V": { group:"Licht / Dimmer", label:"FD62NP-230V – Dimmer/Relais (A5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"A5-38-08", eltako:"FD62NP-230V" },
+  "A5-38-08-FD62NPN-230V": { group:"Licht / Dimmer", label:"FD62NPN-230V – Dimmer/Relais (A5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"A5-38-08", eltako:"FD62NPN-230V" },
 
   // ── Licht / RGBW ──────────────────────────────────────────────
-  "07-37-F7-FRGBW14": { group:"Licht / RGBW", label:"FRGBW14 – RGBW/Farbsteuerung freies Profil (07-37-F7)", platform:"light", needs_sender:true, sender_eep:"07-37-F7", eep_out:"07-37-F7", eltako:"FRGBW14", rgbw:true },
-  "07-37-F7-FRGBW71L": { group:"Licht / RGBW", label:"FRGBW71L – RGBW/Farbsteuerung freies Profil (07-37-F7)", platform:"light", needs_sender:true, sender_eep:"07-37-F7", eep_out:"07-37-F7", eltako:"FRGBW71L", rgbw:true },
+  "07-3F-7F-FRGBW14": { group:"Licht / RGBW", label:"FRGBW14 – RGBW/Farbsteuerung freies Profil (07-3F-7F)", platform:"light", needs_sender:true, teach_in_telegram:"FF-F8-0D-87", sender_eep:"07-3F-7F", eep_out:"07-3F-7F", eltako:"FRGBW14", rgbw:true },
+  "07-3F-7F-FRGBW71L": { group:"Licht / RGBW", label:"FRGBW71L – RGBW/Farbsteuerung freies Profil (07-3F-7F)", platform:"light", needs_sender:true, teach_in_telegram:"FF-F8-0D-87", sender_eep:"07-3F-7F", eep_out:"07-3F-7F", eltako:"FRGBW71L", rgbw:true },
 
   // ── Licht / Relais ────────────────────────────────────────────
-  "M5-38-08-FSR14-2X": { group:"Licht / Relais", label:"FSR14-2x – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR14-2x" },
-  "M5-38-08-FSR14-4X": { group:"Licht / Relais", label:"FSR14-4x – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR14-4x" },
-  "M5-38-08-FSR71-2X-230V": { group:"Licht / Relais", label:"FSR71-2x-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR71-2x-230V" },
-  "M5-38-08-FSR71NP-2X-230V": { group:"Licht / Relais", label:"FSR71NP-2x-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR71NP-2x-230V" },
-  "M5-38-08-FSR71NP-4X-230V": { group:"Licht / Relais", label:"FSR71NP-4x-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR71NP-4x-230V" },
-  "M5-38-08-FMZ14": { group:"Licht / Relais", label:"FMZ14 – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, sender_eep:"F6-02-01", eep_out:"M5-38-08", eltako:"FMZ14" },
-  "M5-38-08-FSR61-230V": { group:"Licht / Relais", label:"FSR61-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR61-230V" },
-  "M5-38-08-FSR61NP-230V": { group:"Licht / Relais", label:"FSR61NP-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR61NP-230V" },
-  "M5-38-08-FSR61-8-24VUC": { group:"Licht / Relais", label:"FSR61/8-24V UC – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR61/8-24V UC" },
-  "M5-38-08-FSR61G-230V": { group:"Licht / Relais", label:"FSR61G-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR61G-230V" },
-  "M5-38-08-FSR61LN-230V": { group:"Licht / Relais", label:"FSR61LN-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR61LN-230V" },
-  "M5-38-08-FLC61NP-230V": { group:"Licht / Relais", label:"FLC61NP-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FLC61NP-230V" },
-  "M5-38-08-FR62-230V": { group:"Licht / Relais", label:"FR62-230V – Relais/Steckdosenaktor (M5-38-08)", platform:"light", needs_sender:true, sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FR62-230V" },
-  "M5-38-08-FR62NP-230V": { group:"Licht / Relais", label:"FR62NP-230V – Relais/Steckdosenaktor (M5-38-08)", platform:"light", needs_sender:true, sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FR62NP-230V" },
-  "M5-38-08-FL62-230V": { group:"Licht / Relais", label:"FL62-230V – Relais/Steckdosenaktor (M5-38-08)", platform:"light", needs_sender:true, sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FL62-230V" },
-  "M5-38-08-FL62NP-230V": { group:"Licht / Relais", label:"FL62NP-230V – Relais/Steckdosenaktor (M5-38-08)", platform:"light", needs_sender:true, sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FL62NP-230V" },
+  "M5-38-08-FSR14-2X": { group:"Licht / Relais", label:"FSR14-2x – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR14-2x" },
+  "M5-38-08-FSR14-4X": { group:"Licht / Relais", label:"FSR14-4x – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR14-4x" },
+  "M5-38-08-F4SR14-LED": { group:"Licht / Relais", label:"F4SR14-LED – 4-Kanal Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"F4SR14-LED", channels:4 },
+  "M5-38-08-FSR71-2X-230V": { group:"Licht / Relais", label:"FSR71-2x-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR71-2x-230V" },
+  "M5-38-08-FSR71NP-2X-230V": { group:"Licht / Relais", label:"FSR71NP-2x-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR71NP-2x-230V" },
+  "M5-38-08-FSR71NP-4X-230V": { group:"Licht / Relais", label:"FSR71NP-4x-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR71NP-4x-230V", device_family:"FSR71NP-4X-230V", channels:4 },
+  "M5-38-08-FMZ14": { group:"Licht / Relais", label:"FMZ14 – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"F6-02-01", eep_out:"M5-38-08", eltako:"FMZ14" },
+  "M5-38-08-FSR61-230V": { group:"Licht / Relais", label:"FSR61-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR61-230V" },
+  "M5-38-08-FSR61NP-230V": { group:"Licht / Relais", label:"FSR61NP-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR61NP-230V" },
+  "M5-38-08-FSR61-8-24VUC": { group:"Licht / Relais", label:"FSR61/8-24V UC – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR61/8-24V UC" },
+  "M5-38-08-FSR61G-230V": { group:"Licht / Relais", label:"FSR61G-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR61G-230V" },
+  "M5-38-08-FSR61LN-230V": { group:"Licht / Relais", label:"FSR61LN-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR61LN-230V" },
+  "M5-38-08-FLC61NP-230V": { group:"Licht / Relais", label:"FLC61NP-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FLC61NP-230V" },
+  "M5-38-08-FR62-230V": { group:"Licht / Relais", label:"FR62-230V – Relais/Steckdosenaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FR62-230V" },
+  "M5-38-08-FR62NP-230V": { group:"Licht / Relais", label:"FR62NP-230V – Relais/Steckdosenaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FR62NP-230V" },
+  "M5-38-08-FL62-230V": { group:"Licht / Relais", label:"FL62-230V – Relais/Steckdosenaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FL62-230V" },
+  "M5-38-08-FL62NP-230V": { group:"Licht / Relais", label:"FL62NP-230V – Relais/Steckdosenaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FL62NP-230V" },
 
   // ── Jalousie / Rollladen ──────────────────────────────────────
-  "G5-3F-7F-FSB14": { group:"Jalousie / Rollladen", label:"FSB14, FSB14/12-24V DC – Jalousie / Rollladen (G5-3F-7F)", platform:"cover", needs_sender:true, sender_eep:"H5-3F-7F", eep_out:"G5-3F-7F", device_classes:["shutter","blind","awning","curtain"], default_dc:"shutter", eltako:"FSB14, FSB14/12-24V DC" },
-  "G5-3F-7F-FSB61-230V": { group:"Jalousie / Rollladen", label:"FSB61-230V – Jalousie / Rollladen (G5-3F-7F)", platform:"cover", needs_sender:true, sender_eep:"H5-3F-7F", eep_out:"G5-3F-7F", device_classes:["shutter","blind","awning","curtain"], default_dc:"shutter", eltako:"FSB61-230V" },
-  "G5-3F-7F-FSB71-230V": { group:"Jalousie / Rollladen", label:"FSB71-230V – Jalousie / Rollladen (G5-3F-7F)", platform:"cover", needs_sender:true, sender_eep:"H5-3F-7F", eep_out:"G5-3F-7F", device_classes:["shutter","blind","awning","curtain"], default_dc:"shutter", eltako:"FSB71-230V" },
-  "G5-3F-7F-FSB61NP-230V": { group:"Jalousie / Rollladen", label:"FSB61NP-230V – Jalousie / Rollladen (G5-3F-7F)", platform:"cover", needs_sender:true, sender_eep:"H5-3F-7F", eep_out:"G5-3F-7F", device_classes:["shutter","blind","awning","curtain"], default_dc:"shutter", eltako:"FSB61NP-230V" },
-  "G5-3F-7F-FJ62-12-36VDC": { group:"Jalousie / Rollladen", label:"FJ62/12-36V DC – Jalousie / Rollladen (G5-3F-7F)", platform:"cover", needs_sender:true, sender_eep:"H5-3F-7F", eep_out:"G5-3F-7F", device_classes:["shutter","blind","awning","curtain"], default_dc:"shutter", eltako:"FJ62/12-36V DC" },
-  "G5-3F-7F-FJ62NP-230V": { group:"Jalousie / Rollladen", label:"FJ62NP-230V – Jalousie / Rollladen (G5-3F-7F)", platform:"cover", needs_sender:true, sender_eep:"H5-3F-7F", eep_out:"G5-3F-7F", device_classes:["shutter","blind","awning","curtain"], default_dc:"shutter", eltako:"FJ62NP-230V" },
+  "G5-3F-7F-FSB14": { group:"Jalousie / Rollladen", label:"FSB14, FSB14/12-24V DC – Jalousie / Rollladen (G5-3F-7F)", platform:"cover", needs_sender:true, teach_in_telegram:"FF-F8-0D-80", sender_eep:"H5-3F-7F", eep_out:"G5-3F-7F", device_classes:["shutter","blind","awning","curtain"], default_dc:"shutter", eltako:"FSB14, FSB14/12-24V DC" },
+  "G5-3F-7F-FSB61-230V": { group:"Jalousie / Rollladen", label:"FSB61-230V – Jalousie / Rollladen (G5-3F-7F)", platform:"cover", needs_sender:true, teach_in_telegram:"FF-F8-0D-80", sender_eep:"H5-3F-7F", eep_out:"G5-3F-7F", device_classes:["shutter","blind","awning","curtain"], default_dc:"shutter", eltako:"FSB61-230V" },
+  "G5-3F-7F-FSB71-230V": { group:"Jalousie / Rollladen", label:"FSB71-230V – Jalousie / Rollladen (G5-3F-7F)", platform:"cover", needs_sender:true, teach_in_telegram:"FF-F8-0D-80", sender_eep:"H5-3F-7F", eep_out:"G5-3F-7F", device_classes:["shutter","blind","awning","curtain"], default_dc:"shutter", eltako:"FSB71-230V" },
+  "G5-3F-7F-FSB61NP-230V": { group:"Jalousie / Rollladen", label:"FSB61NP-230V – Jalousie / Rollladen (G5-3F-7F)", platform:"cover", needs_sender:true, teach_in_telegram:"FF-F8-0D-80", sender_eep:"H5-3F-7F", eep_out:"G5-3F-7F", device_classes:["shutter","blind","awning","curtain"], default_dc:"shutter", eltako:"FSB61NP-230V" },
+  "G5-3F-7F-FJ62-12-36VDC": { group:"Jalousie / Rollladen", label:"FJ62/12-36V DC – Jalousie / Rollladen (G5-3F-7F)", platform:"cover", needs_sender:true, teach_in_telegram:"FF-F8-0D-80", sender_eep:"H5-3F-7F", eep_out:"G5-3F-7F", device_classes:["shutter","blind","awning","curtain"], default_dc:"shutter", eltako:"FJ62/12-36V DC" },
+  "G5-3F-7F-FJ62NP-230V": { group:"Jalousie / Rollladen", label:"FJ62NP-230V – Jalousie / Rollladen (G5-3F-7F)", platform:"cover", needs_sender:true, teach_in_telegram:"FF-F8-0D-80", sender_eep:"H5-3F-7F", eep_out:"G5-3F-7F", device_classes:["shutter","blind","awning","curtain"], default_dc:"shutter", eltako:"FJ62NP-230V" },
 
   // ── Funk-Modul ────────────────────────────────────────────────
   "F6-02-01-FSM60B-BA1": { group:"Funk-Modul", label:"FSM60B Betriebsart 1 (F6-02-01)", platform:"binary_sensor", eep_out:"F6-02-01", eltako:"FSM60B Betriebsart 1" },
   "F6-02-01-FSM60B-BA2": { group:"Funk-Modul", label:"FSM60B Betriebsart 2 (F6-02-01)", platform:"binary_sensor", eep_out:"F6-02-01", eltako:"FSM60B Betriebsart 2" },
   "A5-30-03-FSM60B-BA3": { group:"Funk-Modul", label:"FSM60B Betriebsart 3 (A5-30-03)", platform:"binary_sensor", eep_out:"A5-30-03", device_classes:["moisture"], default_dc:"moisture", eltako:"FSM60B Betriebsart 3" },
   "A5-30-01-FSM60B-BA4": { group:"Funk-Modul", label:"FSM60B Betriebsart 4 (A5-30-01)", platform:"switch", eep_out:"A5-30-01", eltako:"FSM60B Betriebsart 4" },
+
+  // ── F4USM61B Universal-Sendemodul ────────────────────────────
+  "F6-02-01-F4USM61B-M1": { group:"Funk-Modul", label:"F4USM61B – Modus 1: 4-fach-Taster (F6-02-01)", platform:"binary_sensor", eep_out:"F6-02-01", eltako:"F4USM61B Modus 1", device_family:"F4USM61B", operating_mode:1, battery_status:true, battery_eep:"A5-07-01", id_count:1, channels:1, invert:false },
+  "A5-38-08-F4USM61B-M2": { group:"Funk-Modul", label:"F4USM61B – Modus 2: 2 × EIN/AUS (A5-38-08)", platform:"binary_sensor", eep_out:"A5-38-08", eltako:"F4USM61B Modus 2", device_family:"F4USM61B", operating_mode:2, battery_status:true, battery_eep:"A5-07-01", id_count:2, channels:2, invert:false },
+  "A5-08-01-F4USM61B-M3": { group:"Funk-Modul", label:"F4USM61B – Modus 3: 2 × Bewegung (A5-08-01)", platform:"sensor", eep_out:"A5-08-01", eltako:"F4USM61B Modus 3", device_family:"F4USM61B", operating_mode:3, id_count:2, channels:2, invert:false },
+  "D5-00-01-F4USM61B-M4": { group:"Funk-Modul", label:"F4USM61B – Modus 4: 2 × Fenster-/Türkontakt (D5-00-01)", platform:"binary_sensor", eep_out:"D5-00-01", device_classes:["window","door","opening"], default_dc:"window", eltako:"F4USM61B Modus 4", device_family:"F4USM61B", operating_mode:4, battery_status:true, battery_eep:"A5-07-01", id_count:2, channels:2, invert:false },
+  "F6-02-01-F4USM61B-M5": { group:"Funk-Modul", label:"F4USM61B – Modus 5: 2 × 2-fach-Taster (F6-02-01)", platform:"binary_sensor", eep_out:"F6-02-01", eltako:"F4USM61B Modus 5", device_family:"F4USM61B", operating_mode:5, battery_status:true, battery_eep:"A5-07-01", id_count:2, channels:2, invert:false },
+  "A5-08-01-F4USM61B-M6": { group:"Funk-Modul", label:"F4USM61B – Modus 6: Bewegung invertiert (A5-08-01)", platform:"sensor", eep_out:"A5-08-01", eltako:"F4USM61B Modus 6", device_family:"F4USM61B", operating_mode:6, id_count:2, channels:2, invert:true },
+  "D5-00-01-F4USM61B-M7": { group:"Funk-Modul", label:"F4USM61B – Modus 7: Fenster-/Türkontakt invertiert (D5-00-01)", platform:"binary_sensor", eep_out:"D5-00-01", device_classes:["window","door","opening"], default_dc:"window", eltako:"F4USM61B Modus 7", device_family:"F4USM61B", operating_mode:7, battery_status:true, battery_eep:"A5-07-01", id_count:2, channels:2, invert:true },
+  "A5-07-01-F4USM61B-M8": { group:"Funk-Modul", label:"F4USM61B – Modus 8: 2 × Bewegungsmelder (A5-07-01)", platform:"binary_sensor", eep_out:"A5-07-01", device_classes:["motion","occupancy"], default_dc:"motion", eltako:"F4USM61B Modus 8", device_family:"F4USM61B", operating_mode:8, id_count:2, channels:2, invert:false },
 };
 
-const GROUPS = [...new Set(Object.values(EEP_DB).map(e => e.group))];
+const DEVICE_DB_STORAGE_KEY = "eedtoy.customDeviceDatabase.v1";
+const DEVICE_DB_DELETED_KEYS = "__deleted_keys";
+const DEVICE_DB_MODE_KEY = "__eedtoy_database_mode";
+const DEVICE_DB_SCHEMA_KEY = "__eedtoy_database_schema";
+const DEVICE_DB_SCHEMA_VERSION = 51;
+const DEVICE_DB_MODE_AUTHORITATIVE = "authoritative";
+const PROFILE_KEY_ALIASES = {
+  "07-37-F7-FRGBW14": "07-3F-7F-FRGBW14",
+  "07-3F-F7-FRGBW14": "07-3F-7F-FRGBW14",
+  "07-37-F7-FRGBW71L": "07-3F-7F-FRGBW71L",
+  "07-3F-F7-FRGBW71L": "07-3F-7F-FRGBW71L",
+  "A5-10-12-FUTH55ED-HYGROSTAT": "A5-10-12-FUTH55-HYGROSTAT",
+  "A5-10-12-FUTH65D-HYGROSTAT": "A5-10-12-FUTH55-HYGROSTAT",
+  "F6-02-01-FAE14LPR": "A5-10-06-FAE14LPR",
+};
+
+function deviceDatabaseEntriesOnly(database) {
+  const source = database && typeof database === "object" && !Array.isArray(database) ? database : {};
+  return Object.fromEntries(Object.entries(source).filter(([key]) => ![DEVICE_DB_DELETED_KEYS, DEVICE_DB_MODE_KEY, DEVICE_DB_SCHEMA_KEY].includes(key)));
+}
+
+function mergeDeviceDatabase(defaults, custom) {
+  const stored = custom && typeof custom === "object" && !Array.isArray(custom) ? { ...custom } : {};
+
+  // Once the user has saved the editor, the saved database is the complete and
+  // authoritative database. Defaults are no longer merged at startup. This is
+  // what makes additions, edits, key renames and deletions survive restarts.
+  if (stored[DEVICE_DB_MODE_KEY] === DEVICE_DB_MODE_AUTHORITATIVE) {
+    return deviceDatabaseEntriesOnly(stored);
+  }
+
+  // Compatibility for databases created by older EEDTOY versions. Those files
+  // were sparse overlays and therefore still need the former merge once. The
+  // next explicit Save converts them to authoritative format.
+  const deletedKeys = Array.isArray(stored[DEVICE_DB_DELETED_KEYS]) ? stored[DEVICE_DB_DELETED_KEYS] : [];
+  const legacyEntries = deviceDatabaseEntriesOnly(stored);
+  const merged = { ...defaults, ...legacyEntries };
+  for (const key of deletedKeys) delete merged[String(key || "").toUpperCase()];
+  return merged;
+}
+function migrateCustomDeviceDatabase(input) {
+  const database = input && typeof input === "object" && !Array.isArray(input) ? { ...input } : {};
+
+  // One-time schema migration for FIX44: the FTFSB profiles were missing from
+  // the built-in database in FIX43. Add them once to existing authoritative
+  // databases, then record the schema so a later deliberate deletion stays deleted.
+  const schemaVersion = Number(database[DEVICE_DB_SCHEMA_KEY] || 0);
+  if (database[DEVICE_DB_MODE_KEY] === DEVICE_DB_MODE_AUTHORITATIVE) {
+    if (schemaVersion < DEVICE_DB_SCHEMA_VERSION) {
+      for (const key of ["A5-04-02-FTFSB", "A5-04-03-FTFSB"]) {
+        if (!database[key]) database[key] = { ...DEFAULT_EEP_DB[key] };
+      }
+      // FIX45: Older databases could store the FUTH55ED/FUTH65D model-specific
+      // database key as the YAML EEP. Consolidate those aliases to the verified
+      // profile and enforce the actual EnOcean EEP A5-10-12.
+      for (const oldKey of ["A5-10-12-FUTH55ED-HYGROSTAT", "A5-10-12-FUTH65D-HYGROSTAT"]) {
+        if (database[oldKey]) {
+          database["A5-10-12-FUTH55-HYGROSTAT"] = {
+            ...DEFAULT_EEP_DB["A5-10-12-FUTH55-HYGROSTAT"],
+            ...database[oldKey],
+            eep_out: "A5-10-12",
+            futh55ed_mode: "hygrostat",
+          };
+          delete database[oldKey];
+        }
+      }
+      if (database["A5-10-12-FUTH55-HYGROSTAT"]) {
+        database["A5-10-12-FUTH55-HYGROSTAT"] = {
+          ...database["A5-10-12-FUTH55-HYGROSTAT"],
+          eep_out: "A5-10-12",
+          futh55ed_mode: "hygrostat",
+        };
+      }
+
+      // FIX46/FIX48: Teach-in telegrams are editable profile data. Populate
+      // newly verified defaults once when upgrading an older authoritative
+      // database. After schema 48 has been stored, later user edits (including
+      // clearing a value) remain untouched.
+      const fix48TeachInKeys = new Set([
+        "D5-00-01", "F6-10-00-FFG7B", "A5-14-09-FFG7B",
+        "A5-07-01", "A5-08-01-FBH-FBHT", "A5-30-03-FHMB",
+        "A5-04-02-FLGTF", "A5-09-0C-FLGTF", "A5-09-04-FCO2TF65",
+        "A5-12-01", "A5-12-01-F3Z14D", "A5-13-01",
+      ]);
+      for (const [key, defaultProfile] of Object.entries(DEFAULT_EEP_DB)) {
+        const defaultTeachIn = String(defaultProfile?.teach_in_telegram || "").trim();
+        if (!defaultTeachIn) continue;
+        if (!database[key] && fix48TeachInKeys.has(key)) {
+          database[key] = { ...defaultProfile };
+          continue;
+        }
+        if (!database[key]) continue;
+        const currentTeachIn = String(database[key]?.teach_in_telegram || "").trim();
+        if (!Object.prototype.hasOwnProperty.call(database[key], "teach_in_telegram") ||
+            (schemaVersion < 48 && fix48TeachInKeys.has(key) && !currentTeachIn)) {
+          database[key] = { ...database[key], teach_in_telegram: defaultTeachIn };
+        }
+      }
+      // FIX63: FAE14LPR is a two-channel climate actuator and uses the same
+      // A5-10-06 controller programming path as FAE14SSR. Migrate the former
+      // F6-02-01 sensor-only profile once so existing authoritative databases
+      // receive the corrected profile without requiring a database reset.
+      if (schemaVersion < 51) {
+        const oldFae = database["F6-02-01-FAE14LPR"];
+        database["A5-10-06-FAE14LPR"] = {
+          ...DEFAULT_EEP_DB["A5-10-06-FAE14LPR"],
+          ...(oldFae || database["A5-10-06-FAE14LPR"] || {}),
+          platform: "climate",
+          eep_out: "A5-10-06",
+          needs_sender: true,
+          sender_eep: "A5-10-06",
+          device_family: "FAE14LPR",
+          bidirectional: true,
+        };
+        delete database["F6-02-01-FAE14LPR"];
+      }
+
+      // FIX50: The documented first-ID offset was a manual typo. F4USM61B
+      // channel 1 always starts at the original learned ID; remove the obsolete
+      // field from every persisted F4USM61B profile.
+      for (const [key, profile] of Object.entries(database)) {
+        if (String(profile?.device_family || "").toUpperCase() !== "F4USM61B") continue;
+        if (Object.prototype.hasOwnProperty.call(profile, "id_offset_start")) {
+          const cleaned = { ...profile };
+          delete cleaned.id_offset_start;
+          database[key] = cleaned;
+        }
+      }
+      database[DEVICE_DB_SCHEMA_KEY] = DEVICE_DB_SCHEMA_VERSION;
+    }
+    return database;
+  }
+  const oldFrwb = database["A5-30-01"];
+  if (oldFrwb && String(oldFrwb.eltako || oldFrwb.label || "").toUpperCase().includes("FRWB")) {
+    delete database["A5-30-01"];
+  }
+  const oldShared = database["A5-30-03"];
+  if (oldShared) {
+    const text = String(oldShared.eltako || oldShared.label || "").toUpperCase();
+    if (text.includes("FHMB")) database["A5-30-03-FHMB"] = { ...oldShared, eep_out: "A5-30-03" };
+    else if (text.includes("FRWB")) database["A5-30-03-FRWB"] = { ...oldShared, eep_out: "A5-30-03" };
+    delete database["A5-30-03"];
+  }
+
+  // FIX42: Migrate legacy/mistyped RGBW free-profile keys to 07-3F-7F.
+  for (const [oldKey, newKey] of Object.entries(PROFILE_KEY_ALIASES)) {
+    if (database[oldKey]) {
+      database[newKey] = { ...database[oldKey], eep_out:"07-3F-7F", sender_eep:"07-3F-7F" };
+      delete database[oldKey];
+    }
+  }
+
+  // FIX30: Older device databases contained several obsolete FUTH55/FUTH55ED/
+  // FUTH65D operating modes. Keep exactly the two verified profiles and remove
+  // stale duplicates during startup/import, otherwise old persisted entries
+  // reappear even though the built-in database was corrected.
+  const allowedFuthKeys = new Set(["A5-10-06-FUTH55", "A5-10-12-FUTH55-HYGROSTAT"]);
+  for (const [key, entry] of Object.entries(database)) {
+    if ([DEVICE_DB_DELETED_KEYS, DEVICE_DB_MODE_KEY, DEVICE_DB_SCHEMA_KEY].includes(key)) continue;
+    const text = `${key} ${entry?.label || ""} ${entry?.eltako || ""}`.toUpperCase();
+    if (text.includes("FUTH") && !allowedFuthKeys.has(key)) delete database[key];
+  }
+
+  // FIX36: FTS14EM UT/RT are authoritative built-in profiles. Remove stale
+  // persisted variants so older databases cannot hide or rename these entries.
+  for (const key of Object.keys(database)) {
+    if ([DEVICE_DB_DELETED_KEYS, DEVICE_DB_MODE_KEY, DEVICE_DB_SCHEMA_KEY].includes(key)) continue;
+    const entry = database[key] || {};
+    const text = `${key} ${entry.label || ""} ${entry.eltako || ""}`.toUpperCase();
+    if (text.includes("FTS14EM")) delete database[key];
+  }
+  return database;
+}
+function loadCustomDeviceDatabase() {
+  try {
+    const raw = window.localStorage.getItem(DEVICE_DB_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return migrateCustomDeviceDatabase(parsed);
+  } catch (_) { return {}; }
+}
+let EEP_DB = mergeDeviceDatabase(DEFAULT_EEP_DB, loadCustomDeviceDatabase());
+
 
 const PC = { binary_sensor:"#22c55e", sensor:"#0ea5e9", light:"#f59e0b", switch:"#a78bfa", cover:"#fb923c", climate:"#f43f5e" };
 const PI = { binary_sensor:"🔔", sensor:"📊", light:"💡", switch:"🔌", cover:"🪟", climate:"🌡️" };
@@ -121,12 +351,134 @@ const GENERIC_EEP_PROFILES = {
   "A5-20-01": { platform:"climate", needs_sender:true, sender_eep:"A5-20-01", eep_out:"A5-20-01" },
   "A5-20-04": { platform:"sensor", needs_sender:false, eep_out:"A5-20-04" },
   "A5-14-09": { platform:"sensor", needs_sender:false, eep_out:"A5-14-09", ffg7b_three_state:true },
-  "07-37-F7": { platform:"light", needs_sender:true, sender_eep:"07-37-F7", eep_out:"07-37-F7" },
+  "07-3F-7F": { platform:"light", needs_sender:true, sender_eep:"07-3F-7F", eep_out:"07-3F-7F" },
+  "07-37-F7": { platform:"light", needs_sender:true, sender_eep:"07-3F-7F", eep_out:"07-3F-7F" },
+  "07-3F-F7": { platform:"light", needs_sender:true, sender_eep:"07-3F-7F", eep_out:"07-3F-7F" },
 };
 
 function profileFor(eep) {
-  const key = String(eep || "");
-  return EEP_DB[key] || GENERIC_EEP_PROFILES[key] || {};
+  const key = String(eep || "").toUpperCase();
+  const resolvedKey = PROFILE_KEY_ALIASES[key] || key;
+  return EEP_DB[resolvedKey] || GENERIC_EEP_PROFILES[resolvedKey] || {};
+}
+
+function normalizeProfileSearchText(value) {
+  return String(value || "")
+    .toUpperCase()
+    .replace(/Ä/g, "AE")
+    .replace(/Ö/g, "OE")
+    .replace(/Ü/g, "UE")
+    .replace(/ß/g, "SS")
+    .replace(/[^A-Z0-9]+/g, " ")
+    .trim();
+}
+
+function resolveProfileKeyForDevice(device) {
+  if (!device || typeof device !== "object") return "";
+
+  const storedProfileKey = String(device.profile_key || "").toUpperCase();
+  const aliasedProfileKey = PROFILE_KEY_ALIASES[storedProfileKey] || storedProfileKey;
+  if (EEP_DB[aliasedProfileKey]) return aliasedProfileKey;
+
+  const storedEep = String(device.eep || "");
+  if (EEP_DB[storedEep]) return storedEep;
+
+  const descriptor = normalizeProfileSearchText([
+    device.device_type,
+    device.model,
+    device.eltako,
+    device.device_family,
+    device.name,
+  ].filter(Boolean).join(" "));
+  const storedPlatform = String(device.platform || "").toLowerCase();
+  const storedSenderEep = String(device.sender_eep || "").toUpperCase();
+
+  const candidates = Object.entries(EEP_DB).filter(([key, profile]) => {
+    const outputEep = String(profile.eep_out || key).toUpperCase();
+    return outputEep === storedEep.toUpperCase();
+  });
+
+  let bestKey = "";
+  let bestScore = -1;
+  for (const [key, profile] of candidates) {
+    let score = 0;
+    const profilePlatform = String(profile.platform || "").toLowerCase();
+    const profileSenderEep = String(profile.sender_eep || "").toUpperCase();
+    const profileFamily = normalizeProfileSearchText(profile.device_family);
+    const profileNames = [profile.eltako, profile.label]
+      .filter(Boolean)
+      .flatMap(value => String(value).split(/[,/]/))
+      .map(normalizeProfileSearchText)
+      .filter(value => value.length >= 3);
+
+    if (storedPlatform && profilePlatform === storedPlatform) score += 20;
+    if (storedSenderEep && profileSenderEep === storedSenderEep) score += 15;
+    if (profileFamily && descriptor.includes(profileFamily)) score += 80;
+    for (const name of profileNames) {
+      if (descriptor === name) score += 160;
+      else if (descriptor.includes(name)) score += 100;
+      else if (name.includes(descriptor) && descriptor.length >= 4) score += 60;
+    }
+    // Prefer a device-specific database entry over a generic EEP fallback.
+    if (key !== storedEep) score += 5;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestKey = key;
+    }
+  }
+
+  // A unique EEP candidate is safe even for older projects without model data.
+  if (candidates.length === 1) return candidates[0][0];
+  // For ambiguous EEPs require an identifying model/name match. Never silently
+  // fall back to the first select option (F2T55).
+  return bestScore >= 60 ? bestKey : "";
+}
+
+function normalizeLoadedDeviceProfile(device) {
+  const normalized = { ...emptyForm, ...(device || {}) };
+  const profileKey = resolveProfileKeyForDevice(normalized);
+  return profileKey ? { ...normalized, eep: profileKey, profile_key: profileKey } : normalized;
+}
+
+// Apply the current device-database profile before editing or YAML export.
+// Project-specific values (IDs, custom name, room, channel, timings, sender ID)
+// remain untouched; profile-controlled values always come from the current DB.
+function applyCurrentDatabaseProfile(device) {
+  const normalized = normalizeLoadedDeviceProfile(device);
+  const profileKey = resolveProfileKeyForDevice(normalized);
+  if (!profileKey) return normalized;
+  const profile = EEP_DB[profileKey] || {};
+  const instanceValues = {
+    dev_id: normalized.dev_id,
+    sender_id: normalized.sender_id,
+    name: normalized.name,
+    room: normalized.room,
+    channel: normalized.channel,
+    base_id: normalized.base_id,
+    id_range: normalized.id_range,
+    input_number: normalized.input_number,
+    physical_unique_id: normalized.physical_unique_id,
+    time_opens: normalized.time_opens,
+    time_closes: normalized.time_closes,
+    device_class: normalized.device_class,
+    meter_tariffs: normalized.meter_tariffs,
+    min_target_temperature: normalized.min_target_temperature,
+    max_target_temperature: normalized.max_target_temperature,
+  };
+  return {
+    ...normalized,
+    ...profile,
+    ...Object.fromEntries(Object.entries(instanceValues).filter(([, value]) => value !== undefined && value !== null && value !== "")),
+    profile_key: profileKey,
+    eep: profileKey,
+    platform: profile.platform || normalized.platform,
+    sender_eep: profile.sender_eep || "",
+    device_family: profile.device_family || "",
+    device_type: profile.eltako || normalized.device_type,
+    model: profile.eltako || normalized.model,
+    eltako: profile.eltako || normalized.eltako,
+  };
 }
 
 function deviceTypeForDevice(device) {
@@ -137,7 +489,7 @@ function deviceTypeForDevice(device) {
 function isRgbwDevice(device) {
   const p = profileFor(device?.eep);
   const typeText = `${deviceTypeForDevice(device)} ${device?.name || ""} ${device?.eep || ""}`.toUpperCase();
-  return Boolean(p.rgbw || typeText.includes("FRGBW") || String(device?.eep || "").toUpperCase() === "07-37-F7");
+  return Boolean(p.rgbw || typeText.includes("FRGBW") || ["07-3F-7F","07-37-F7","07-3F-F7"].includes(String(device?.eep || "").toUpperCase()));
 }
 
 function orderedGatewayBlocks(gateway, extraGateways = []) {
@@ -153,6 +505,32 @@ function gatewayKey(gw) {
 }
 
 
+const FTS14EM_ID_RANGES = [
+  { value: "1", label: "1", baseId: "00-00-10-01" },
+  { value: "101", label: "101", baseId: "00-00-11-01" },
+  { value: "201", label: "201", baseId: "00-00-12-01" },
+  { value: "301", label: "301", baseId: "00-00-13-01" },
+  { value: "401", label: "401", baseId: "00-00-14-01" },
+];
+
+function fts14emBaseIdForRange(range) {
+  return FTS14EM_ID_RANGES.find(item => item.value === String(range || "1"))?.baseId || "00-00-10-01";
+}
+
+function fts14emRangeForBaseId(id) {
+  const normalized = normalizeId(id);
+  return FTS14EM_ID_RANGES.find(item => item.baseId === normalized)?.value || "";
+}
+
+function addFts14emInputOffset(id, offset) {
+  const normalized = normalizeId(id);
+  const match = normalized.match(/^00-00-(10|11|12|13|14)-01$/);
+  if (!match) return "";
+  const inputNumber = Number(offset || 0) + 1;
+  if (inputNumber < 1 || inputNumber > 10) return "";
+  return `00-00-${match[1]}-${String(inputNumber).padStart(2, "0")}`;
+}
+
 function addIdOffset(id, offset) {
   const clean = String(id || "").replace(/-/g, "");
   if (!/^[0-9a-fA-F]{8}$/.test(clean)) return "";
@@ -161,8 +539,10 @@ function addIdOffset(id, offset) {
 }
 
 function exportEepForDevice(device) {
-  const profile = profileFor(device?.eep);
-  return profile.eep_out ?? String(device?.eep || "").replace(/-sw$/, "");
+  const rawEep = String(device?.eep || "").toUpperCase();
+  if (/^A5-10-12-FUTH(?:55|55ED|65D).*HYGROSTAT$/.test(rawEep)) return "A5-10-12";
+  const profile = profileFor(rawEep);
+  return profile.eep_out ?? rawEep.replace(/-SW$/, "");
 }
 
 function isFlgtfDevice(device) {
@@ -337,11 +717,121 @@ function expandFlgtfExportDevices(devices) {
   return result;
 }
 
+
+function expandMultiIdExportDevices(devices) {
+  const result = [];
+  for (const device of devices || []) {
+    const profile = profileFor(device?.eep);
+    const family = String(profile.device_family || device?.device_family || "").toUpperCase();
+
+    if (family === "FTS14EM") {
+      const baseName = String(device.name || "FTS14EM").replace(/\s+E(?:ingang\s*)?\d+$/i, "").trim();
+      const baseId = normalizeId(device.dev_id);
+      const mode = String(device.operating_mode || profile.operating_mode || "UT").toUpperCase();
+      for (let index = 0; index < 10; index += 1) {
+        const id = addFts14emInputOffset(device.dev_id, index);
+        if (!id) continue;
+        result.push({
+          ...device,
+          dev_id: id,
+          name: `${baseName} E${index + 1}`,
+          device_type: "FTS14EM",
+          model: "FTS14EM",
+          eltako: "FTS14EM",
+          device_family: "FTS14EM",
+          operating_mode: mode,
+          base_id: baseId,
+          id_range: String(device.id_range || fts14emRangeForBaseId(baseId) || "1"),
+          input_number: index + 1,
+          invert: Boolean(device.invert),
+        });
+      }
+      continue;
+    }
+
+    const normalizedDeviceName = String(device?.name || device?.device_type || device?.model || device?.eltako || "")
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "");
+    const isFsr71FourChannel = family === "FSR71NP-4X-230V"
+      || family === "FSR71-4X-230V"
+      || normalizedDeviceName.includes("FSR714X230V")
+      || normalizedDeviceName.includes("FSR71NP4X230V");
+
+    if (isFsr71FourChannel) {
+      const baseName = "FSR71NP-4x-230V";
+      const channelCount = 4;
+      for (let index = 0; index < channelCount; index += 1) {
+        const channelDeviceId = addIdOffset(device.dev_id, index);
+        const channelSenderId = addIdOffset(device.sender_id, index);
+        if (!channelDeviceId || !channelSenderId) continue;
+        result.push({
+          ...device,
+          dev_id: channelDeviceId,
+          sender_id: channelSenderId,
+          name: `${baseName} Kanal ${index + 1}`,
+          device_type: baseName,
+          model: baseName,
+          eltako: baseName,
+          device_family: "FSR71NP-4X-230V",
+          channel: index + 1,
+          base_id: normalizeId(device.dev_id),
+          sender_base_id: normalizeId(device.sender_id),
+        });
+      }
+      continue;
+    }
+
+    const isF4usm = family === "F4USM61B";
+    if (!isF4usm) {
+      result.push(device);
+      continue;
+    }
+
+    const modeFromProfileKey = Number(String(device?.eep || "").match(/-F4USM61B-M([1-8])$/i)?.[1] || 0);
+    const operatingMode = Number(device?.operating_mode || modeFromProfileKey || profile.operating_mode || 0);
+
+    // F4USM61B channel IDs always start at the original learned ID.
+    // Channel 1 = Base-ID, channel 2 = Base-ID + 1.
+    const defaultCount = operatingMode === 1 ? 1 : 2;
+    const configuredCount = device?.id_count ?? profile.id_count ?? defaultCount;
+    const count = Math.max(1, Math.min(2, Number(configuredCount)));
+    const baseName = String(device.name || profile.eltako || "F4USM61B").replace(/\s+Kanal\s+\d+$/i, "").trim();
+
+    const baseId = normalizeId(device.dev_id);
+    const physicalId = normalizeId(device.physical_unique_id);
+    const usesSeparateBatteryId = [1, 2, 4, 5, 7].includes(operatingMode);
+
+    for (let index = 0; index < count; index += 1) {
+      const id = addIdOffset(device.dev_id, index);
+      if (!id) continue;
+      result.push({
+        ...device,
+        dev_id: id,
+        name: count > 1 ? `${baseName} Kanal ${index + 1}` : baseName,
+        device_type: "F4USM61B",
+        model: "F4USM61B",
+        eltako: "F4USM61B",
+        device_family: "F4USM61B",
+        operating_mode: operatingMode,
+        base_id: baseId,
+        physical_unique_id: usesSeparateBatteryId ? physicalId : undefined,
+        invert: false,
+        channel: index + 1,
+      });
+    }
+  }
+  return result;
+}
+
 // ─── YAML Generator — grimmpp eltako: format ─────────────────────
 function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", language = "de") {
   if (!devices.length) return "";
-  const deduplication = deduplicateExportDevices(devices);
-  const exportDevices = expandFlgtfExportDevices(deduplication.devices);
+  // Resolve every device against the current database at export time. This makes
+  // edits to EEP, sender EEP, platform and profile options immediately effective
+  // for already imported or loaded projects instead of exporting stale snapshots.
+  const currentDevices = devices.map(applyCurrentDatabaseProfile);
+  const deduplication = deduplicateExportDevices(currentDevices);
+  const exportDevices = expandMultiIdExportDevices(expandFlgtfExportDevices(deduplication.devices));
 
   const byPlat = {};
   for (const d of exportDevices) {
@@ -376,16 +866,46 @@ function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", la
 
     const ORDER = ["light","switch","cover","sensor","binary_sensor","climate"];
     for (const plat of ORDER) {
-      if (!byPlat[plat]) continue;
-      out += `      ${plat}:\n`;
-      for (const d of byPlat[plat]) {
+      const platformDevices = (byPlat[plat] || []).filter(d => {
         const p = profileFor(d.eep);
-        const eepOut = p.eep_out ?? d.eep.replace(/-sw$/, "");
+        const family = String(p.device_family || d.device_family || "").toUpperCase();
+        return !(family === "FTS14EM" && String(gw.type || "").toLowerCase() === "fam-usb");
+      });
+      if (!platformDevices.length) continue;
+      out += `      ${plat}:\n`;
+      for (const d of platformDevices) {
+        const p = profileFor(d.eep);
+        const eepOut = exportEepForDevice(d);
         const exportDevId = deviceIdForGateway(d, gw, pct14BaseId);
         const exportSenderId = senderIdForGateway(d, gw, pct14BaseId);
         out += `      - id: "${exportDevId}"\n`;
         out += `        eep: "${eepOut}"\n`;
         out += `        name: "${d.name}"\n`;
+        const deviceFamily = String(p.device_family || d.device_family || "").toUpperCase();
+        if (deviceFamily === "FTS14EM") {
+          out += `        device_family: FTS14EM\n`;
+          out += `        operating_mode: "${String(d.operating_mode || p.operating_mode || "UT").toUpperCase()}"\n`;
+          if (d.base_id) out += `        base_id: "${d.base_id}"\n`;
+          if (d.id_range) out += `        id_range: "${d.id_range}"\n`;
+          if (d.input_number) out += `        input_number: ${Number(d.input_number)}\n`;
+          if (d.invert) out += `        inverted: true\n`;
+        }
+        if (deviceFamily === "FAE14LPR") {
+          out += `        device_family: FAE14LPR\n`;
+        }
+        if (deviceFamily === "FSR71NP-4X-230V" || deviceFamily === "FSR71-4X-230V") {
+          out += `        device_family: FSR71NP-4x-230V\n`;
+          if (d.channel) out += `        channel: ${Number(d.channel)}\n`;
+        }
+        if (deviceFamily === "F4USM61B") {
+          const operatingMode = Number(d.operating_mode || p.operating_mode || 0);
+          out += `        device_family: F4USM61B\n`;
+          if (operatingMode) out += `        operating_mode: ${operatingMode}\n`;
+          if (d.base_id) out += `        base_id: "${d.base_id}"\n`;
+          if (d.physical_unique_id) out += `        physical_unique_id: "${d.physical_unique_id}"\n`;
+          // F4USM61B inversion is defined exclusively by operating_mode in the HA integration.
+          // Do not export a generic inverted flag, which can cause double inversion.
+        }
         if (p.fbht_temperature) out += `        fbht_temperature: true\n`;
         if (p.ffg7b_three_state) out += `        ffg7b_three_state: true\n`;
         if (p.futh55ed_mode) out += `        futh55ed_mode: "${p.futh55ed_mode}"\n`;
@@ -397,15 +917,6 @@ function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", la
         if (p.room_controller_mode && p.min_target_temperature != null) out += `        min_target_temperature: ${p.min_target_temperature}\n`;
         if (p.room_controller_mode && p.max_target_temperature != null) out += `        max_target_temperature: ${p.max_target_temperature}\n`;
         if (p.bidirectional) out += `        bidirectional: true\n`;
-        if (isRgbwDevice(d)) {
-          if (language === "en") {
-            out += `        # FRGBW status sync: write the HA sender ID to the actuator and process incoming 07-37-F7 bus telegrams in the HA integration.\n`;
-            out += `        # This keeps the ELTAKO GFA5 app and Home Assistant synchronized.\n`;
-          } else {
-            out += `        # FRGBW-Statussync: HA-Sender-ID in den Aktor schreiben und eingehende 07-37-F7-Bustelegramme in der HA-Integration auswerten.\n`;
-            out += `        # Dadurch bleiben Eltako-GFA5-App und Home Assistant statusseitig synchron.\n`;
-          }
-        }
         // Die Grimm-Integration erwartet hier keine freie comment-Eigenschaft.
         // Zur Nachvollziehbarkeit bleibt sie als YAML-Kommentar erhalten.
         if (d.room)        out += `        #comment: "${d.room}"\n`;
@@ -421,7 +932,7 @@ function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", la
         if (p.needs_sender) {
           out += `        sender:\n`;
           out += `          id: "${exportSenderId || d.sender_id || "00-00-B0-01"}"\n`;
-          out += `          eep: "${d.sender_eep || p.sender_eep || eepOut}"\n`;
+          out += `          eep: "${p.sender_eep || d.sender_eep || eepOut}"\n`;
         }
         if (plat === "cover") {
           out += `        time_closes: ${d.time_closes || 25}\n`;
@@ -582,14 +1093,20 @@ function textOf(node, selector, fallback = "") {
 function getPct14Mapping(modelName) {
   const name = (modelName || "").toUpperCase();
   if (name.startsWith("FGW14")) return { gateway:"fgw14usb" };
-  if (name.startsWith("FSB14")) return { eep:"G5-3F-7F", platform:"cover", time_opens:"25", time_closes:"25" };
-  if (name.startsWith("FD2G14")) return { eep:"A5-38-08", platform:"light", dali:true };
+  if (name.startsWith("FSB14")) return { eep:"G5-3F-7F-FSB14", platform:"cover", time_opens:"25", time_closes:"25" };
+  if (name.startsWith("FD2G14")) return { eep:"A5-38-08-FD2G14", platform:"light", dali:true };
   if (name.startsWith("FDG14")) return { eep:"A5-38-08-FDG14", platform:"light", dali:true };
-  if (name.startsWith("FRGBW14") || name.startsWith("FRGBW71")) return { eep:"07-37-F7", platform:"light", sender_eep:"07-37-F7", channels:1, rgbw:true };
-  if (name.startsWith("FUD14")) return { eep:"A5-38-08", platform:"light" };
-  if (name.startsWith("F4SR14")) return { eep:"M5-38-08", platform:"light" };
-  if (name.startsWith("FSR14")) return { eep:"M5-38-08", platform:"light" };
-  if (name.startsWith("FMZ14")) return { eep:"M5-38-08", platform:"light", sender_eep:"F6-02-01" };
+  if (name.startsWith("FRGBW14")) return { eep:"07-3F-7F-FRGBW14", platform:"light", sender_eep:"07-3F-7F", channels:1, rgbw:true };
+  if (name.startsWith("FRGBW71")) return { eep:"07-3F-7F-FRGBW71L", platform:"light", sender_eep:"07-3F-7F", channels:1, rgbw:true };
+  if (name.startsWith("FUD14")) return { eep:"A5-38-08-FUD14", platform:"light" };
+  if (name.startsWith("F4SR14")) return { eep:"M5-38-08-F4SR14-LED", platform:"light" };
+  if (name.startsWith("FSR14SSR")) return { eep:"M5-38-08-FSR14-2X", platform:"light" };
+  if (name.startsWith("FSR14-4") || name.startsWith("FSR14_4")) return { eep:"M5-38-08-FSR14-4X", platform:"light" };
+  if (name.startsWith("FSR14-2") || name.startsWith("FSR14_2")) return { eep:"M5-38-08-FSR14-2X", platform:"light" };
+  if (name.startsWith("FSR14")) return { eep:"M5-38-08-FSR14-2X", platform:"light" };
+  if (name.startsWith("FMZ14")) return { eep:"M5-38-08-FMZ14", platform:"light", sender_eep:"F6-02-01" };
+  if (name.startsWith("FAE14LPR")) return { eep:"A5-10-06-FAE14LPR", platform:"climate", min_target_temperature:16, max_target_temperature:25 };
+  if (name.startsWith("FTS14EM")) return { eep:"F6-02-01-FTS14EM-UT", platform:"binary_sensor", fts14em:true };
   if (name.startsWith("FHK14") || name.startsWith("F4HK14") || name.startsWith("FAE14SSR")) return { eep:"A5-10-06", platform:"climate", min_target_temperature:16, max_target_temperature:25 };
   if (name.startsWith("FWG14MS")) return { eep:"A5-13-01", platform:"sensor", weather:true };
   if (name.startsWith("F3Z14D")) return { eep:"A5-12-01-F3Z14D", platform:"sensor", channels:3, meter_tariffs:"[1]" };
@@ -659,6 +1176,31 @@ function parsePct14Xml(text, currentBaseId = "", options = {}, language = "de") 
       continue;
     }
 
+    // FTS14EM is not a conventional Series-14 multi-channel actuator. PCT14's
+    // device address is the configured FTS14EM basis ID; EEDTOY stores one base
+    // entry and expands it to E1...E10 during YAML export. Treating addressrange
+    // as ordinary channels would multiply the device to 100 exported entries.
+    if (mapping.fts14em) {
+      const rawDeviceText = String(device.textContent || "").toUpperCase();
+      const operatingMode = /(^|[^A-Z])RT([^A-Z]|$)/.test(rawDeviceText) ? "RT" : "UT";
+      const profileKey = "F6-02-01-FTS14EM-UT";
+      const modelName = normalizePct14ModelName(model, language);
+      imported.push({
+        ...emptyForm,
+        name: `${modelName} ${operatingMode}`,
+        dev_id: busIdFromAddress(address),
+        eep: profileKey,
+        platform: "binary_sensor",
+        device_type: "FTS14EM",
+        model: "FTS14EM",
+        eltako: "FTS14EM",
+        device_family: "FTS14EM",
+        operating_mode: operatingMode,
+        room: `PCT14 ${language === "en" ? "address" : "Adresse"} ${address} · ${language === "en" ? "Base ID" : "Basis-ID"} · ${operatingMode}`,
+      });
+      continue;
+    }
+
     const senderByChannel = new Map();
     for (const entry of Array.from(device.querySelectorAll("rangeofid > entry"))) {
       const raw = textOf(entry, "entry_id", "");
@@ -723,7 +1265,81 @@ function parsePct14Xml(text, currentBaseId = "", options = {}, language = "de") 
 }
 
 // ─── Empty form ───────────────────────────────────────────────────
-const emptyForm = { name:"", dev_id:"", eep:"A5-04-02", room:"", device_class:"", sender_id:"", sender_eep:"", time_opens:"", time_closes:"", min_target_temperature:"", max_target_temperature:"", device_type:"", model:"", eltako:"" };
+function firstAvailableProfileKey() {
+  return Object.keys(EEP_DB)[0] || "";
+}
+
+function createEmptyForm(preferredProfileKey = "") {
+  const resolvedPreferred = PROFILE_KEY_ALIASES[String(preferredProfileKey || "").toUpperCase()] || String(preferredProfileKey || "");
+  const profileKey = EEP_DB[resolvedPreferred] ? resolvedPreferred : firstAvailableProfileKey();
+  return { name:"", dev_id:"", physical_unique_id:"", eep:profileKey, room:"", device_class:"", sender_id:"", sender_eep:"", time_opens:"", time_closes:"", min_target_temperature:"", max_target_temperature:"", device_type:"", model:"", eltako:"", id_range:"1" };
+}
+
+const emptyForm = createEmptyForm();
+function preferredGatewayPortForAutoDetect(ports, gatewayType) {
+  const list = Array.isArray(ports) ? ports.filter(port => port && port.path) : [];
+  const type = String(gatewayType || "").toLowerCase();
+  const records = list.map(port => ({
+    port,
+    path: String(port.path || ""),
+    pathLower: String(port.path || "").toLowerCase(),
+    manufacturerLower: String(port.manufacturer || "").toLowerCase(),
+  }));
+
+  // Never prefer generic UART/Bluetooth pseudo ports when a real USB gateway
+  // can be identified from the same list that is shown in the manual selector.
+  const usable = records.filter(item =>
+    !item.pathLower.includes("bluetooth") &&
+    !item.pathLower.includes("blth") &&
+    !/(^|[./_-])urt\d*($|[./_-])/i.test(item.path)
+  );
+
+  if (type === "fam-usb") {
+    const enocean = usable.filter(item =>
+      item.manufacturerLower.includes("enocean") &&
+      item.pathLower.includes("serial")
+    );
+
+    // A FAM-USB exposes two EnOcean serial interfaces. Depending on the macOS
+    // driver/device generation the pair can be named ...B0/...B1 or simply
+    // ...0/...1 (for example ...200/...201). Interface 1 is the usable
+    // data/programmer port. Detect the pair from the actual port list instead
+    // of hard-coding any customer/device serial number.
+    const pairedInterface1 = enocean.find(item => {
+      if (/b1$/i.test(item.path)) {
+        const prefix = item.path.slice(0, -2);
+        return enocean.some(other => other.path !== item.path && other.path.toLowerCase() === `${prefix}B0`.toLowerCase());
+      }
+      if (/1$/.test(item.path)) {
+        const prefix = item.path.slice(0, -1);
+        return enocean.some(other => other.path !== item.path && other.path === `${prefix}0`);
+      }
+      return false;
+    });
+    if (pairedInterface1) return pairedInterface1.path;
+
+    // Keep compatibility with devices where only interface 1 is enumerated.
+    const interface1 = enocean.find(item => /b1$/i.test(item.path))
+      || enocean.find(item => /1$/.test(item.path));
+    if (interface1) return interface1.path;
+
+    // Never knowingly select interface 0. If we cannot identify interface 1,
+    // report no automatic match and leave the manual selector available.
+    const nonInterface0 = enocean.find(item => !/b0$/i.test(item.path) && !/0$/.test(item.path));
+    return nonInterface0 ? nonInterface0.path : "";
+  }
+
+  if (type === "fam14" || type === "fgw14usb") {
+    const ftdi = usable.find(item =>
+      item.manufacturerLower.includes("ftdi") &&
+      item.pathLower.includes("serial")
+    );
+    return ftdi ? ftdi.path : "";
+  }
+
+  return "";
+}
+
 const emptyGW   = { type:"fam-usb", base_id:"", serial_path:"", lan_address:"" };
 
 // ─── App ──────────────────────────────────────────────────────────
@@ -755,15 +1371,25 @@ export default function App() {
   const [writingSenders, setWritingSenders] = useState(false);
   const [writeSenderMsg, setWriteSenderMsg] = useState("");
   const [writeSenderLog, setWriteSenderLog] = useState([]);
+  const [writeSenderProgress, setWriteSenderProgress] = useState({ processed:0, total:0, phase:"idle", message:"" });
   const [projectMsg, setProjectMsg] = useState("");
   const [projectFileName, setProjectFileName] = useState("");
   const [projectFilePath, setProjectFilePath] = useState("");
+  const [deviceDbOpen, setDeviceDbOpen] = useState(false);
+  const [deviceDbEntries, setDeviceDbEntries] = useState(() => Object.entries(EEP_DB).filter(([key]) => ![DEVICE_DB_DELETED_KEYS, DEVICE_DB_MODE_KEY, DEVICE_DB_SCHEMA_KEY].includes(key)).map(([key, value]) => ({ key, ...value })));
+  const deviceDbEntriesRef = useRef(deviceDbEntries);
+  const [deviceDbSelected, setDeviceDbSelected] = useState(0);
+  const [deviceDbRevision, setDeviceDbRevision] = useState(0);
+  const [deviceDbContextMenu, setDeviceDbContextMenu] = useState(null);
+  const deviceDbImportRef = useRef(null);
   const [language, setLanguage] = useState(getStoredLanguage);
   const t = (key, variables = {}) => translate(language, key, variables);
   const runtimeText = (value) => translateRuntimeText(language, value);
   const projectActionsRef = useRef({ open: null, save: null, saveAs: null });
 
   const isElectron = typeof window !== "undefined" && window.electronAPI?.isElectron;
+  const isDeviceDatabaseWindow = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("window") === "device-database";
+  void deviceDbRevision;
 
   const buildProjectDocument = () => ({
     project_format: "eedtoy-project",
@@ -848,7 +1474,7 @@ export default function App() {
     const project = result.project || {};
     const state = project.state || {};
     const loadedGateway = state.gateway && typeof state.gateway === "object" ? { ...emptyGW, ...state.gateway } : emptyGW;
-    const loadedDevices = Array.isArray(state.devices) ? state.devices : [];
+    const loadedDevices = Array.isArray(state.devices) ? state.devices.map(normalizeLoadedDeviceProfile) : [];
     const loadedGateways = Array.isArray(state.extraGateways) ? state.extraGateways : [];
     const loadedImportFam14Gateway = state.importFam14Gateway !== false;
     const loadedImportFgw14Gateway = state.importFgw14Gateway !== false;
@@ -877,7 +1503,12 @@ export default function App() {
     setGateway(loadedGateway);
     setDevices(loadedDevices);
     setExtraGateways(loadedGateways);
-    setForm(state.form && typeof state.form === "object" ? { ...emptyForm, ...state.form } : emptyForm);
+    // A saved form is only meaningful while a real device is actively being edited.
+    // For an empty/add form always start with a valid current database key; never
+    // resurrect a stale raw EEP such as A5-04-02 as an unknown profile.
+    setForm(loadedEditIdx !== null
+      ? normalizeLoadedDeviceProfile(loadedDevices[loadedEditIdx])
+      : createEmptyForm());
     setEditIdx(loadedEditIdx);
     setYaml(loadedYaml);
     setGeneratedGatewayBlocks(loadedGatewayBlocks);
@@ -915,6 +1546,25 @@ export default function App() {
     if (!isElectron) return undefined;
     let disposed = false;
 
+    window.electronAPI.loadDeviceDatabase?.().then((storedDatabase) => {
+      if (disposed) return;
+      const stored = migrateCustomDeviceDatabase(storedDatabase);
+      if (JSON.stringify(stored) !== JSON.stringify(storedDatabase || {})) {
+        window.electronAPI.saveDeviceDatabase?.(stored).catch(() => {});
+        try { window.localStorage.setItem(DEVICE_DB_STORAGE_KEY, JSON.stringify(stored)); } catch {}
+      }
+      let migrated = stored;
+      if (!Object.keys(stored).length) {
+        // No persisted Electron device database: start from the current built-in
+        // defaults. Do not resurrect an outdated database from localStorage.
+        migrated = {};
+        try { window.localStorage.removeItem(DEVICE_DB_STORAGE_KEY); } catch {}
+      }
+      EEP_DB = mergeDeviceDatabase(DEFAULT_EEP_DB, migrated);
+      replaceDeviceDbEntries(Object.entries(EEP_DB).filter(([key]) => ![DEVICE_DB_DELETED_KEYS, DEVICE_DB_MODE_KEY, DEVICE_DB_SCHEMA_KEY].includes(key)).map(([key, value]) => ({ key, ...value })));
+      setDeviceDbRevision(value => value + 1);
+    }).catch(() => {});
+
     window.electronAPI.getLanguage().then((value) => {
       if (disposed) return;
       const next = value === "en" ? "en" : "de";
@@ -926,17 +1576,30 @@ export default function App() {
       if (action === "open-project") projectActionsRef.current.open?.();
       if (action === "save-project") projectActionsRef.current.save?.();
       if (action === "save-project-as") projectActionsRef.current.saveAs?.();
+      if (action === "device-database") window.electronAPI?.openDeviceDatabase?.();
+      if (action === "device-db-import" && isDeviceDatabaseWindow) openDeviceDatabaseImportDialog();
+      if (action === "device-db-export" && isDeviceDatabaseWindow) exportDeviceDatabase();
     });
     const cleanupLanguage = window.electronAPI.onLanguageChanged((value) => {
       const next = value === "en" ? "en" : "de";
       setLanguage(next);
       storeLanguage(next);
     });
+    const cleanupDeviceDatabase = window.electronAPI.onDeviceDatabaseChanged?.((customDatabase) => {
+      const custom = migrateCustomDeviceDatabase(customDatabase);
+      EEP_DB = mergeDeviceDatabase(DEFAULT_EEP_DB, custom);
+      try {
+        window.localStorage.setItem(DEVICE_DB_STORAGE_KEY, JSON.stringify(custom));
+      } catch {}
+      replaceDeviceDbEntries(Object.entries(EEP_DB).filter(([key]) => ![DEVICE_DB_DELETED_KEYS, DEVICE_DB_MODE_KEY, DEVICE_DB_SCHEMA_KEY].includes(key)).map(([key, value]) => ({ key, ...value })));
+      setDeviceDbRevision(value => value + 1);
+    });
 
     return () => {
       disposed = true;
       cleanupMenu?.();
       cleanupLanguage?.();
+      cleanupDeviceDatabase?.();
     };
   }, [isElectron]);
 
@@ -979,23 +1642,49 @@ export default function App() {
     if (!isElectron) return;
     setDetecting(true);
     setDetectMsg(t("status.detectAllPorts"));
-    const result = await window.electronAPI.detectGateway(gateway.serial_path);
+
+    // macOS auto-detect deliberately reuses the exact same Base-ID read path
+    // as the manual "Base-ID auslesen" button. Only the physical USB port is
+    // selected automatically here. This prevents the generic v1.0.95 auto
+    // detector from continuing to unrelated UART pseudo ports after the real
+    // gateway candidate was already identified from Electron's port list.
+    const detectedPorts = await window.electronAPI.listPorts();
+    if (Array.isArray(detectedPorts)) setPorts(detectedPorts);
+
+    const preferredPort = preferredGatewayPortForAutoDetect(detectedPorts, gateway.type);
+    if (!preferredPort) {
+      setDetecting(false);
+      setDetectMsg("✗ Kein passender serieller Port für den gewählten Gateway-Typ gefunden.");
+      setTimeout(() => setDetectMsg(""), 12000);
+      return;
+    }
+
+    const gw = GATEWAY_TYPES.find(g => g.value === gateway.type);
+    const baud = gw?.baud || 57600;
+    // On macOS the FAM-USB auto path must not depend on the embedded Python
+    // detector.  The port has already been identified as the EnOcean B1
+    // interface above, so query its Base-ID directly with the native ESP2
+    // AB-58 request.  Manual Base-ID reading remains unchanged.
+    const proto = gateway.type === "fam-usb" ? "esp2-fam-usb" : (gw?.proto || "auto");
+    const result = await window.electronAPI.readBaseId(preferredPort, baud, proto);
     setDetecting(false);
 
-    if (result.ports) setPorts(result.ports);
-
     if (result.ok) {
-      const gw = result.gateway;
       setGateway(g => ({
         ...g,
-        type: gw.type,
-        serial_path: gw.serial_path,
-        base_id: gw.base_id,
+        serial_path: result.portPath || preferredPort,
+        base_id: result.baseId || "",
       }));
-      setDetectMsg(t("status.gatewayDetected", { label: gw.label, port: gw.serial_path, baseId: gw.base_id, protocol: gw.protocol, baud: gw.baudRate, bridge: result.bridge ? `, ${result.bridge}` : "" }));
+      setDetectMsg(t("status.gatewayDetected", {
+        label: gw?.label || gateway.type,
+        port: result.portPath || preferredPort,
+        baseId: result.baseId || "",
+        protocol: result.protocol || proto,
+        baud: result.baudRate || baud,
+        bridge: result.bridge ? `, ${result.bridge}` : "",
+      }));
     } else {
-      const tried = result.attempts?.length ? t("status.testedVariants", { count: result.attempts.length }) : "";
-      setDetectMsg("✗ " + runtimeText(result.error) + tried);
+      setDetectMsg("✗ " + runtimeText(result.error || "Gateway konnte auf dem automatisch gewählten Port nicht erkannt werden."));
     }
     setTimeout(() => setDetectMsg(""), 12000);
   };
@@ -1057,16 +1746,136 @@ export default function App() {
     }
   };
 
+  const handleLearnFts14emBaseId = async () => {
+    if (!isElectron) {
+      setLearnMsg(t("status.learnDesktopOnly"));
+      return;
+    }
+    if (!gateway.serial_path?.trim()) {
+      setLearnMsg(t("status.learnMissingPort"));
+      return;
+    }
+    if (!["fam14", "fgw14usb"].includes(String(gateway.type || "").toLowerCase())) {
+      setLearnMsg(language === "en"
+        ? "✗ FTS14EM telegrams are available only through the ELTAKO RS485 bus (FGW14-USB/FAM14)."
+        : "✗ FTS14EM-Telegramme sind nur über den ELTAKO-RS485-Bus (FGW14-USB/FAM14) verfügbar.");
+      return;
+    }
+
+    const selectedProfile = profileFor(form.eep);
+    if (String(selectedProfile.device_family || "").toUpperCase() !== "FTS14EM") {
+      return handleLearnDeviceId();
+    }
+
+    setLearningId(true);
+    setLearnMsg(language === "en"
+      ? "Press the same button connected to E1 five times. Detected presses: 0/5"
+      : "Dieselbe an E1 angeschlossene Taste fünfmal drücken. Erkannte Betätigungen: 0/5");
+
+    let removeProgressListener = null;
+    if (window.electronAPI.onFts14emLearnProgress) {
+      removeProgressListener = window.electronAPI.onFts14emLearnProgress(progress => {
+        const count = Math.min(5, Number(progress?.count || 0));
+        const id = progress?.id ? ` (${progress.id})` : "";
+        setLearnMsg(language === "en"
+          ? `Press the same E1 button five times. Detected presses: ${count}/5${id}`
+          : `Dieselbe E1-Taste fünfmal drücken. Erkannte Betätigungen: ${count}/5${id}`);
+      });
+    }
+
+    let result;
+    try {
+      result = await window.electronAPI.learnFts14emBaseId(
+        gateway.serial_path,
+        gateway.type,
+        30000
+      );
+    } finally {
+      if (typeof removeProgressListener === "function") removeProgressListener();
+      setLearningId(false);
+    }
+
+    if (!(result?.ok && result.id)) {
+      setLearnMsg("✗ " + runtimeText(result?.error || t("status.noDeviceId")));
+      setTimeout(() => setLearnMsg(""), 15000);
+      return;
+    }
+
+    const detectedId = normalizeId(result.id);
+    const duplicateIndex = devices.findIndex(existing =>
+      String(existing.device_family || profileFor(existing.eep).device_family || "").toUpperCase() === "FTS14EM" &&
+      normalizeId(existing.dev_id) === detectedId
+    );
+    if (duplicateIndex >= 0) {
+      setForm(f => ({ ...f, dev_id: detectedId }));
+      setLearnMsg(language === "en"
+        ? `✗ FTS14EM base ID ${detectedId} is already present. Nothing was added.`
+        : `✗ Die FTS14EM-Basis-ID ${detectedId} ist bereits vorhanden. Es wurde nichts hinzugefügt.`);
+      setTimeout(() => setLearnMsg(""), 15000);
+      return;
+    }
+
+    // Detection only fills the form. The user must explicitly confirm by
+    // clicking Add, so noisy bus traffic can never create entries by itself.
+    setForm(f => ({ ...f, dev_id: detectedId, id_range: fts14emRangeForBaseId(detectedId) || f.id_range || "1" }));
+    setErrors({});
+    setLearnMsg(language === "en"
+      ? `✓ Device ID detected: ${detectedId}`
+      : `✓ Geräte-ID erkannt: ${detectedId}`);
+    setTimeout(() => setLearnMsg(""), 20000);
+  };
+
+  const handleLearnF4usmPhysicalId = async () => {
+    if (!isElectron) {
+      setLearnMsg(t("status.learnDesktopOnly"));
+      return;
+    }
+    if (!gateway.serial_path?.trim()) {
+      setLearnMsg(t("status.learnMissingPort"));
+      return;
+    }
+    setLearningId(true);
+    setLearnMsg(language === "en"
+      ? "Set all jumpers and press E2 now. Waiting for the F4USM61B battery ID..."
+      : "Alle Jumper stecken und jetzt E2 betätigen. Warte auf die F4USM61B-Batterie-ID ...");
+    const result = await window.electronAPI.learnDeviceId(gateway.serial_path, gateway.type, 30000);
+    setLearningId(false);
+    if (result.ok && result.id) {
+      setForm(f => ({ ...f, physical_unique_id: result.id }));
+      setLearnMsg(language === "en" ? `Battery ID detected: ${result.id}` : `Batterie-ID erkannt: ${result.id}`);
+      setTimeout(() => setLearnMsg(""), 12000);
+    } else {
+      setLearnMsg("✗ " + runtimeText(result.error || t("status.noDeviceId")));
+      setTimeout(() => setLearnMsg(""), 12000);
+    }
+  };
+
   const profile = profileFor(form.eep);
 
   const changeEep = (eep) => {
     const p = profileFor(eep);
+    const family = String(p.device_family || "").toUpperCase();
+    const isF4usm = family === "F4USM61B";
+    const isFts14em = family === "FTS14EM";
+    const operatingMode = isF4usm ? Number(p.operating_mode || 0) : (isFts14em ? String(p.operating_mode || "UT").toUpperCase() : 0);
     setForm(f => ({
       ...f,
       eep,
       device_class: p.default_dc ?? "",
       sender_eep: p.sender_eep ?? "",
-      sender_id: p.needs_sender ? (f.sender_id || autoSenderIdForGateway(gateway, devices)) : ""
+      sender_id: p.needs_sender ? (f.sender_id || autoSenderIdForGateway(gateway, devices)) : "",
+      // Snapshot all F4USM61B mode metadata into the device form. This avoids
+      // stale values (for example operating_mode 6) surviving a profile change.
+      device_family: isF4usm ? "F4USM61B" : (isFts14em ? "FTS14EM" : ""),
+      operating_mode: operatingMode,
+      id_range: isFts14em ? (f.id_range || "1") : "1",
+      dev_id: isFts14em ? (f.dev_id || fts14emBaseIdForRange(f.id_range || "1")) : f.dev_id,
+      id_count: isF4usm ? Number(p.id_count || (operatingMode === 1 ? 1 : 2)) : undefined,
+      channels: isF4usm ? Number(p.channels || (operatingMode === 1 ? 1 : 2)) : undefined,
+      invert: false,
+      battery_status: isF4usm ? Boolean(p.battery_status) : false,
+      battery_eep: isF4usm ? String(p.battery_eep || "") : "",
+      physical_unique_id: isF4usm && [1, 2, 4, 5, 7].includes(operatingMode) ? f.physical_unique_id : "",
     }));
     setErrors({});
   };
@@ -1077,6 +1886,17 @@ export default function App() {
     if (!f.dev_id.trim()) e.dev_id = t("validation.required");
     else if (!/^[0-9a-fA-F]{2}(-[0-9a-fA-F]{2}){3}$/.test(f.dev_id.trim()))
       e.dev_id = "Format: FF-AA-BB-CC";
+    const selectedProfile = profileFor(f.eep);
+    if (String(selectedProfile.device_family || "").toUpperCase() === "FTS14EM" && !addFts14emInputOffset(f.dev_id, 0)) {
+      e.dev_id = language === "en"
+        ? "Use an FTS14EM E1 base ID from 00-00-10-01 to 00-00-14-01."
+        : "Eine FTS14EM-E1-Basis-ID von 00-00-10-01 bis 00-00-14-01 verwenden.";
+    }
+    const selectedMode = Number(selectedProfile.operating_mode || 0);
+    if (String(selectedProfile.device_family || "").toUpperCase() === "F4USM61B" && [1, 2, 4, 5, 7].includes(selectedMode)) {
+      if (!String(f.physical_unique_id || "").trim()) e.physical_unique_id = language === "en" ? "Learn or enter the battery ID." : "Batterie-ID einlernen oder eingeben.";
+      else if (!/^[0-9a-fA-F]{2}(-[0-9a-fA-F]{2}){3}$/.test(String(f.physical_unique_id).trim())) e.physical_unique_id = "Format: FF-AA-BB-CC";
+    }
     if (profile.needs_sender) {
       if (!f.sender_id.trim()) e.sender_id = t("validation.senderBaseIdMissing");
       else if (!/^[0-9a-fA-F]{2}(-[0-9a-fA-F]{2}){3}$/.test(f.sender_id.trim()))
@@ -1087,14 +1907,29 @@ export default function App() {
 
   const handleAdd = () => {
     const autoSender = profile.needs_sender ? autoSenderIdForGateway(gateway, devices) : "";
+    const selectedFamily = String(profile.device_family || "").toUpperCase();
+    const isF4usmProfile = selectedFamily === "F4USM61B";
+    const isFts14emProfile = selectedFamily === "FTS14EM";
+    const selectedOperatingMode = isF4usmProfile
+      ? Number(profile.operating_mode || form.operating_mode || 0)
+      : (isFts14emProfile ? String(profile.operating_mode || form.operating_mode || "UT").toUpperCase() : 0);
     const entry = {
       ...form,
+      profile_key: form.eep,
       sender_id: profile.needs_sender ? (form.sender_id.trim() || autoSender) : "",
       sender_eep: profile.needs_sender ? (form.sender_eep || profile.sender_eep || "") : "",
       platform: profile.platform ?? "sensor",
       device_type: form.device_type || profile.eltako || "",
       model: form.model || profile.eltako || "",
-      eltako: form.eltako || profile.eltako || ""
+      eltako: form.eltako || profile.eltako || "",
+      device_family: isF4usmProfile ? "F4USM61B" : (isFts14emProfile ? "FTS14EM" : (form.device_family || "")),
+      operating_mode: selectedOperatingMode,
+      id_range: isFts14emProfile ? String(form.id_range || fts14emRangeForBaseId(form.dev_id) || "1") : form.id_range,
+      id_count: isF4usmProfile ? Number(form.id_count ?? profile.id_count ?? (selectedOperatingMode === 1 ? 1 : 2)) : (isFts14emProfile ? 10 : form.id_count),
+      channels: isF4usmProfile ? Number(form.channels ?? profile.channels ?? (selectedOperatingMode === 1 ? 1 : 2)) : form.channels,
+      invert: isF4usmProfile ? false : Boolean(form.invert),
+      battery_status: isF4usmProfile ? Boolean(profile.battery_status) : Boolean(form.battery_status),
+      battery_eep: isF4usmProfile ? String(profile.battery_eep || "") : String(form.battery_eep || ""),
     };
     const e = validate(entry);
     const duplicateIndex = devices.findIndex((existing, index) =>
@@ -1115,8 +1950,8 @@ export default function App() {
 
     if (editIdx !== null) setEditIdx(null);
 
-    const nextEmpty = { ...emptyForm, eep: form.eep };
-    const nextProfile = profileFor(form.eep);
+    const nextEmpty = createEmptyForm(form.eep);
+    const nextProfile = profileFor(nextEmpty.eep);
     if (nextProfile.needs_sender) {
       nextEmpty.sender_eep = nextProfile.sender_eep ?? "";
       nextEmpty.sender_id = autoSenderIdForGateway(gateway, nextDevices);
@@ -1195,15 +2030,15 @@ export default function App() {
     }
   };
 
-  const handleEdit   = (i) => { setForm({...devices[i]}); setEditIdx(i); setErrors({}); window.scrollTo({top:0,behavior:"smooth"}); };
-  const handleDelete = (i) => { setDevices(d => d.filter((_,j)=>j!==i)); if(editIdx===i){setEditIdx(null);setForm(emptyForm);} };
+  const handleEdit   = (i) => { setForm(normalizeLoadedDeviceProfile(devices[i])); setEditIdx(i); setErrors({}); window.scrollTo({top:0,behavior:"smooth"}); };
+  const handleDelete = (i) => { setDevices(d => d.filter((_,j)=>j!==i)); if(editIdx===i){setEditIdx(null);setForm(createEmptyForm());} };
   const handleDeleteAllDevices = () => {
     if (!devices.length) return;
     const ok = window.confirm(t("import.deleteConfirm", { count: devices.length }));
     if (!ok) return;
     setDevices([]);
     setEditIdx(null);
-    setForm(emptyForm);
+    setForm(createEmptyForm());
     setErrors({});
     setImportMsg(t("import.listCleared"));
     setTimeout(() => setImportMsg(""), 6000);
@@ -1264,6 +2099,44 @@ export default function App() {
   const busWriteHint = t("senderWrite.hint");
   const canWriteSenderIds = !writingSenders && busWriteGatewayConnected && senderProgrammingEntries.length > 0;
 
+  useEffect(() => {
+    if (!isElectron || !window.electronAPI?.onWriteSenderProgress) return undefined;
+    return window.electronAPI.onWriteSenderProgress((progress) => {
+      setWriteSenderProgress(previous => ({ ...previous, ...(progress || {}) }));
+    });
+  }, [isElectron]);
+
+  const handleCancelWriteSenderIds = async () => {
+    if (!isElectron || !writingSenders || !window.electronAPI?.cancelWriteSenderIds) return;
+    setWriteSenderProgress(previous => ({ ...previous, phase:"canceling" }));
+    await window.electronAPI.cancelWriteSenderIds();
+  };
+
+  const handleDisconnectWriteGateway = async () => {
+    if (!isElectron || disconnectingGateway || !window.electronAPI?.disconnectGateway) return;
+    const port = busWritePort;
+    if (!port || !hasRs485Gateway) return;
+
+    setDisconnectingGateway(true);
+    if (writingSenders && window.electronAPI?.cancelWriteSenderIds) {
+      setWriteSenderProgress(previous => ({ ...previous, phase:"canceling" }));
+      await window.electronAPI.cancelWriteSenderIds();
+      await new Promise(resolve => setTimeout(resolve, 1200));
+    }
+
+    const result = await window.electronAPI.disconnectGateway({
+      portPath: port,
+      gatewayType: "fam14",
+      baudRate: 57600,
+    });
+    setDisconnectingGateway(false);
+    if (result.ok) {
+      setWriteSenderMsg(t("status.disconnectSuccess"));
+    } else {
+      setWriteSenderMsg(t("status.disconnectFailed", { error: runtimeText(result.error || t("project.unknownError")) }));
+    }
+  };
+
   const handleWriteSenderIds = async () => {
     if (!isElectron) {
       setWriteSenderMsg(t("senderWrite.desktopOnly"));
@@ -1295,6 +2168,7 @@ export default function App() {
 
     setWritingSenders(true);
     setWriteSenderLog([]);
+    setWriteSenderProgress({ processed:0, total:senderProgrammingEntries.length, phase:"starting", message:"" });
     setWriteSenderMsg(t("senderWrite.progress", { count: senderProgrammingEntries.length }));
     const result = await window.electronAPI.writeSenderIdsToDevices({
       portPath: port,
@@ -1305,6 +2179,11 @@ export default function App() {
     });
     setWritingSenders(false);
     setWriteSenderLog(result.events || []);
+    if (result?.canceled) {
+      setWriteSenderProgress(previous => ({ ...previous, phase:"canceled" }));
+      setWriteSenderMsg(`Abgebrochen nach ${result.processed || 0} von ${result.total || senderProgrammingEntries.length} Sender-IDs.`);
+      return;
+    }
     if (result.ok) {
       const c = result.counts || {};
       setWriteSenderMsg(t("senderWrite.done", { updated: c.updated || 0, exists: c.exists || 0, unsupported: c.unsupported || 0, errors: c.error || 0 }));
@@ -1312,6 +2191,344 @@ export default function App() {
       setWriteSenderMsg("✗ " + runtimeText(result.error || t("senderWrite.failed")));
     }
   };
+
+  const replaceDeviceDbEntries = (updater) => {
+    setDeviceDbEntries(previous => {
+      const next = typeof updater === "function" ? updater(previous) : updater;
+      deviceDbEntriesRef.current = next;
+      return next;
+    });
+  };
+  const updateDeviceDbField = (field, value) => {
+    replaceDeviceDbEntries(entries => entries.map((entry, index) => index === deviceDbSelected ? { ...entry, [field]: value } : entry));
+  };
+  const addDeviceDbEntry = () => {
+    const entry = { key:`CUSTOM-${Date.now()}`, group:"Temperatur / Feuchte", label:"Neues Gerät", platform:"sensor", eep_out:"A5-04-02", eltako:"Neues Gerät" };
+    replaceDeviceDbEntries(entries => [...entries, entry]);
+    setDeviceDbSelected(deviceDbEntries.length);
+  };
+  const duplicateDeviceDbEntry = () => {
+    const source = deviceDbEntries[deviceDbSelected];
+    if (!source) return;
+    const copy = { ...source, key:`${source.key}-COPY-${Date.now()}`, label:`${source.label} (Kopie)` };
+    replaceDeviceDbEntries(entries => [...entries, copy]);
+    setDeviceDbSelected(deviceDbEntries.length);
+  };
+  const deleteDeviceDbEntry = () => {
+    if (!deviceDbEntries[deviceDbSelected]) return;
+    if (!window.confirm(language === "en" ? "Delete selected device?" : "Ausgewähltes Gerät löschen?")) return;
+    replaceDeviceDbEntries(entries => entries.filter((_, index) => index !== deviceDbSelected));
+    setDeviceDbSelected(index => Math.max(0, index - 1));
+  };
+  const buildDeviceDatabasePayload = (entries) => {
+    const database = {};
+    const seenKeys = new Set();
+    for (const entry of entries) {
+      const { key, ...value } = entry || {};
+      const normalizedKey = String(key || "").trim().toUpperCase();
+      if (!normalizedKey || !String(value.label || "").trim() || !String(value.platform || "").trim()) continue;
+      if (seenKeys.has(normalizedKey)) {
+        throw new Error(language === "en"
+          ? `Database key is used more than once: ${normalizedKey}`
+          : `Datenbankschlüssel ist mehrfach vergeben: ${normalizedKey}`);
+      }
+      seenKeys.add(normalizedKey);
+      const normalized = {
+        ...value,
+        group: String(value.group || "").trim(),
+        label: String(value.label || "").trim(),
+        platform: String(value.platform || "sensor").trim(),
+        eep_out: String(value.eep_out || "").trim().toUpperCase(),
+        eltako: String(value.eltako || "").trim(),
+        default_dc: String(value.default_dc || "").trim(),
+        teach_in_telegram: String(value.teach_in_telegram || "").trim().toUpperCase(),
+        sender_eep: String(value.sender_eep || "").trim().toUpperCase(),
+        needs_sender: Boolean(value.needs_sender),
+        rgbw: Boolean(value.rgbw),
+        bidirectional: Boolean(value.bidirectional),
+        device_family: String(value.device_family || "").trim().toUpperCase(),
+        operating_mode: Number(value.operating_mode || 0),
+        id_count: Math.max(1, Number(value.id_count || 1)),
+        channels: Math.max(1, Number(value.channels || 1)),
+        invert: Boolean(value.invert),
+        battery_status: Boolean(value.battery_status),
+        battery_eep: String(value.battery_eep || "").trim().toUpperCase(),
+      };
+      if (normalized.default_dc) {
+        const currentClasses = Array.isArray(value.device_classes) ? value.device_classes.filter(Boolean) : [];
+        normalized.device_classes = [...new Set([normalized.default_dc, ...currentClasses])];
+      }
+      database[normalizedKey] = normalized;
+    }
+    database[DEVICE_DB_MODE_KEY] = DEVICE_DB_MODE_AUTHORITATIVE;
+    database[DEVICE_DB_SCHEMA_KEY] = DEVICE_DB_SCHEMA_VERSION;
+    return database;
+  };
+
+
+  const f4usmModePresets = {
+    1:{ key:"F6-02-01-F4USM61B-M1", label:"F4USM61B – Modus 1: 4-fach-Taster (F6-02-01)", platform:"binary_sensor", eep_out:"F6-02-01", battery_status:true, battery_eep:"A5-07-01", id_count:1, channels:1, invert:false },
+    2:{ key:"A5-38-08-F4USM61B-M2", label:"F4USM61B – Modus 2: 2 × EIN/AUS (A5-38-08)", platform:"binary_sensor", eep_out:"A5-38-08", battery_status:true, battery_eep:"A5-07-01", id_count:2, channels:2, invert:false },
+    3:{ key:"A5-08-01-F4USM61B-M3", label:"F4USM61B – Modus 3: 2 × Bewegung (A5-08-01)", platform:"sensor", eep_out:"A5-08-01", id_count:2, channels:2, invert:false },
+    4:{ key:"D5-00-01-F4USM61B-M4", label:"F4USM61B – Modus 4: 2 × Fenster-/Türkontakt (D5-00-01)", platform:"binary_sensor", eep_out:"D5-00-01", default_dc:"window", device_classes:["window","door","opening"], battery_status:true, battery_eep:"A5-07-01", id_count:2, channels:2, invert:false },
+    5:{ key:"F6-02-01-F4USM61B-M5", label:"F4USM61B – Modus 5: 2 × 2-fach-Taster (F6-02-01)", platform:"binary_sensor", eep_out:"F6-02-01", battery_status:true, battery_eep:"A5-07-01", id_count:2, channels:2, invert:false },
+    6:{ key:"A5-08-01-F4USM61B-M6", label:"F4USM61B – Modus 6: Bewegung invertiert (A5-08-01)", platform:"sensor", eep_out:"A5-08-01", id_count:2, channels:2, invert:true },
+    7:{ key:"D5-00-01-F4USM61B-M7", label:"F4USM61B – Modus 7: Fenster-/Türkontakt invertiert (D5-00-01)", platform:"binary_sensor", eep_out:"D5-00-01", default_dc:"window", device_classes:["window","door","opening"], battery_status:true, battery_eep:"A5-07-01", id_count:2, channels:2, invert:true },
+    8:{ key:"A5-07-01-F4USM61B-M8", label:"F4USM61B – Modus 8: 2 × Bewegungsmelder (A5-07-01)", platform:"binary_sensor", eep_out:"A5-07-01", default_dc:"motion", device_classes:["motion","occupancy"], id_count:2, channels:2, invert:false },
+  };
+  const applyF4usmModePreset = (modeValue) => {
+    const mode = Number(modeValue || 1);
+    const preset = f4usmModePresets[mode] || f4usmModePresets[1];
+    replaceDeviceDbEntries(entries => entries.map((entry, index) => index === deviceDbSelected ? {
+      ...entry,
+      ...preset,
+      eltako:`F4USM61B Modus ${mode}`,
+      group:"Funk-Modul",
+      device_family:"F4USM61B",
+      operating_mode:mode,
+      needs_sender:false,
+      sender_eep:"",
+    } : entry));
+  };
+
+  const saveDeviceDatabase = async () => {
+    // Read from the synchronously maintained ref so the last edited field is
+    // included even when the user clicks Save immediately after changing it.
+    const snapshot = deviceDbEntriesRef.current.map(entry => ({ ...entry }));
+    const database = buildDeviceDatabasePayload(snapshot);
+    try {
+      const result = isElectron && window.electronAPI?.saveDeviceDatabase
+        ? await window.electronAPI.saveDeviceDatabase(database)
+        : { ok: true, database };
+      if (!result?.ok) throw new Error(result?.error || "save failed");
+
+      const persisted = result.database && typeof result.database === "object" ? result.database : database;
+      const verification = isElectron && window.electronAPI?.loadDeviceDatabase
+        ? await window.electronAPI.loadDeviceDatabase()
+        : persisted;
+      if (JSON.stringify(verification) !== JSON.stringify(persisted)) {
+        throw new Error(language === "en" ? "Read-back verification failed." : "Kontrolle nach dem Speichern fehlgeschlagen.");
+      }
+
+      window.localStorage.setItem(DEVICE_DB_STORAGE_KEY, JSON.stringify(persisted));
+      EEP_DB = mergeDeviceDatabase(DEFAULT_EEP_DB, persisted);
+      // Keep the editor state exactly as entered. Rebuilding the form from the
+      // merged database here made fields visibly jump back after confirming
+      // the save dialog, even though the JSON file had been written.
+      replaceDeviceDbEntries(snapshot);
+      setDeviceDbRevision(value => value + 1);
+      window.alert(language === "en"
+        ? `Device database saved and verified.\n${result.filePath || ""}`
+        : `Gerätedatenbank gespeichert und kontrolliert.\n${result.filePath || ""}`);
+    } catch (error) {
+      window.alert((language === "en" ? "Could not save device database: " : "Gerätedatenbank konnte nicht gespeichert werden: ") + (error?.message || error));
+    }
+  };
+  const closeDeviceDbContextMenu = () => setDeviceDbContextMenu(null);
+  const showDeviceDbContextMenu = (event, index = null) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (Number.isInteger(index)) setDeviceDbSelected(index);
+    const menuWidth = 235;
+    const menuHeight = index === null ? 145 : 285;
+    const x = Math.max(8, Math.min(event.clientX, window.innerWidth - menuWidth - 8));
+    const y = Math.max(8, Math.min(event.clientY, window.innerHeight - menuHeight - 8));
+    setDeviceDbContextMenu({ x, y, index });
+  };
+  const copyDeviceDbValue = async (value) => {
+    const text = String(value || "");
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.style.position = "fixed";
+      area.style.opacity = "0";
+      document.body.appendChild(area);
+      area.select();
+      document.execCommand("copy");
+      area.remove();
+    }
+    closeDeviceDbContextMenu();
+  };
+  const restoreSelectedDeviceDbEntry = () => {
+    const current = deviceDbEntriesRef.current[deviceDbSelected];
+    if (!current) return;
+    const standard = DEFAULT_EEP_DB[current.key];
+    if (!standard) {
+      window.alert(language === "en" ? "This custom device has no default value." : "Für dieses benutzerdefinierte Gerät gibt es keinen Standardwert.");
+      closeDeviceDbContextMenu();
+      return;
+    }
+    replaceDeviceDbEntries(entries => entries.map((item, index) => index === deviceDbSelected ? { key: current.key, ...standard } : item));
+    closeDeviceDbContextMenu();
+  };
+  const exportDeviceDatabase = async () => {
+    try {
+      const database = buildDeviceDatabasePayload(deviceDbEntriesRef.current);
+      const yamlText = serializeDeviceDatabaseYaml(database);
+      if (isElectron && window.electronAPI?.saveDeviceDatabaseFile) {
+        await window.electronAPI.saveDeviceDatabaseFile(yamlText);
+      } else {
+        const blob = new Blob([yamlText], { type: "application/yaml;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "eedtoy-device-database.yaml";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+      }
+    } catch (error) {
+      window.alert((language === "en" ? "Could not export device database: " : "Gerätedatenbank konnte nicht exportiert werden: ") + (error?.message || error));
+    }
+    closeDeviceDbContextMenu();
+  };
+
+  const applyImportedDeviceDatabase = (fileText) => {
+    let parsed;
+    try {
+      parsed = JSON.parse(fileText);
+    } catch {
+      parsed = parseDeviceDatabaseYaml(fileText);
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(language === "en" ? "Invalid database structure." : "Ungültige Datenbankstruktur.");
+    const migrated = migrateCustomDeviceDatabase(parsed);
+    const imported = Object.entries(deviceDatabaseEntriesOnly(migrated)).map(([key, value]) => ({ key, ...value }));
+    if (!imported.length) throw new Error(language === "en" ? "No devices found." : "Keine Geräte gefunden.");
+    replaceDeviceDbEntries(imported);
+    setDeviceDbSelected(0);
+  };
+
+  const openDeviceDatabaseImportDialog = async () => {
+    try {
+      if (isElectron && window.electronAPI?.openDeviceDatabaseFile) {
+        const selected = await window.electronAPI.openDeviceDatabaseFile();
+        if (!selected) return;
+        applyImportedDeviceDatabase(selected.content);
+      } else {
+        deviceDbImportRef.current?.click();
+      }
+    } catch (error) {
+      window.alert((language === "en" ? "Could not import device database: " : "Gerätedatenbank konnte nicht importiert werden: ") + (error?.message || error));
+    }
+    closeDeviceDbContextMenu();
+  };
+
+  const importDeviceDatabase = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      applyImportedDeviceDatabase(await file.text());
+    } catch (error) {
+      window.alert((language === "en" ? "Could not import device database: " : "Gerätedatenbank konnte nicht importiert werden: ") + (error?.message || error));
+    }
+    closeDeviceDbContextMenu();
+  };
+
+  const resetDeviceDatabase = async () => {
+    if (!window.confirm(language === "en" ? "Restore the default device database?" : "Standard-Gerätedatenbank wiederherstellen?")) return;
+    try {
+      if (isElectron && window.electronAPI?.saveDeviceDatabase) await window.electronAPI.saveDeviceDatabase({});
+      window.localStorage.removeItem(DEVICE_DB_STORAGE_KEY);
+      EEP_DB = { ...DEFAULT_EEP_DB };
+      replaceDeviceDbEntries(Object.entries(EEP_DB).filter(([key]) => ![DEVICE_DB_DELETED_KEYS, DEVICE_DB_MODE_KEY, DEVICE_DB_SCHEMA_KEY].includes(key)).map(([key, value]) => ({ key, ...value })));
+      setDeviceDbSelected(0);
+      setDeviceDbRevision(value => value + 1);
+    } catch (error) {
+      window.alert((language === "en" ? "Could not restore defaults: " : "Standarddaten konnten nicht wiederhergestellt werden: ") + (error?.message || error));
+    }
+  };
+
+  if (isDeviceDatabaseWindow) {
+    const entry = deviceDbEntries[deviceDbSelected] || {};
+    const platformOptions = ["sensor","binary_sensor","switch","light","cover","climate"];
+    const deviceClassOptions = {
+      sensor:["temperature","humidity","power","energy","voltage","current","wind_speed","carbon_dioxide","volatile_organic_compounds_parts","battery"],
+      binary_sensor:["door","window","opening","motion","occupancy","smoke","heat","moisture","battery","problem"],
+      switch:["switch","outlet"], light:[], cover:["shutter","blind","awning","curtain","garage"], climate:[]
+    };
+    const closeWindow = () => window.electronAPI?.closeDeviceDatabase?.() || window.close();
+    return <div className="dbWindow" onClick={closeDeviceDbContextMenu} onContextMenu={event=>{ if (event.target === event.currentTarget) showDeviceDbContextMenu(event, null); }}>
+      <style>{`
+        :root{font-family:Segoe UI,Arial,sans-serif;color:#1f2937;background:#eef2f5}*{box-sizing:border-box}body{margin:0;overflow:hidden}
+        .dbWindow{height:100vh;display:grid;grid-template-rows:auto 1fr auto;background:#eef2f5}
+        .dbHeader{padding:14px 18px;background:#fff;border-bottom:1px solid #d6dee6;display:flex;justify-content:space-between;align-items:center}
+        .dbHeader h1{font-size:18px;margin:0}.sub{font-size:12px;color:#64748b;margin-top:3px}
+        .dbBody{display:grid;grid-template-columns:minmax(300px,380px) minmax(520px,1fr);min-height:0}
+        .dbList{background:#f8fafc;border-right:1px solid #d6dee6;padding:12px;overflow:auto}
+        .dbEditor{padding:18px 22px;overflow:auto}.toolbar{display:flex;gap:8px;margin-bottom:12px}
+        button{font:inherit;border:1px solid #b9c7d3;border-radius:7px;background:#fff;padding:8px 12px;cursor:pointer}button.primary{background:#0079a9;color:#fff;border-color:#0079a9}button.danger{color:#b42318;border-color:#f0b7b2}
+        .deviceItem{display:block;width:100%;text-align:left;padding:9px 10px;margin-bottom:5px;border-radius:7px;background:#fff}.deviceItem.active{border:2px solid #0ea5e9;background:#e0f2fe}
+        .deviceTitle{font-weight:700;font-size:13px}.deviceMeta{font-size:11px;color:#64748b;margin-top:2px}
+        .formGrid{display:grid;grid-template-columns:repeat(2,minmax(240px,1fr));gap:14px 18px}.field label{display:block;font-size:12px;font-weight:650;margin-bottom:5px;color:#334155}
+        input,select{width:100%;height:38px;border:1px solid #b9c7d3;border-radius:6px;background:#fff;padding:7px 9px;font:inherit}
+        .dbFooter{padding:12px 18px;background:#fff;border-top:1px solid #d6dee6;display:flex;justify-content:space-between;align-items:center}.footerRight{display:flex;gap:8px}
+        .dbContextMenu{position:fixed;z-index:1000;width:235px;background:#fff;border:1px solid #b9c7d3;border-radius:8px;box-shadow:0 14px 35px rgba(15,23,42,.24);padding:6px}
+        .dbContextMenu button{width:100%;border:0;background:transparent;text-align:left;padding:8px 10px;border-radius:5px}.dbContextMenu button:hover{background:#e0f2fe}.dbContextMenu .separator{height:1px;background:#e2e8f0;margin:5px 2px}.dbContextMenu button.dangerItem{color:#b42318}
+        @media(max-width:900px){.dbBody{grid-template-columns:300px 1fr}.formGrid{grid-template-columns:1fr}}
+      `}</style>
+      <header className="dbHeader">
+        <div><h1>{language==="en"?"Device database":"Gerätedatenbank"}</h1><div className="sub">{language==="en"?"Changes are stored locally and survive EEDTOY updates.":"Änderungen werden lokal gespeichert und bleiben bei EEDTOY-Updates erhalten."}</div></div>
+        <button onClick={closeWindow}>✕</button>
+      </header>
+      <div className="dbBody">
+        <aside className="dbList" onContextMenu={event=>{ if (!event.target.closest(".deviceItem")) showDeviceDbContextMenu(event, null); }}>
+          <div className="toolbar"><button className="primary" onClick={addDeviceDbEntry}>+ {language==="en"?"New":"Neu"}</button><button onClick={duplicateDeviceDbEntry}>{language==="en"?"Duplicate":"Duplizieren"}</button></div>
+          {deviceDbEntries.map((item,index)=><button className={`deviceItem ${index===deviceDbSelected?"active":""}`} key={`${item.key}-${index}`} onClick={()=>setDeviceDbSelected(index)} onContextMenu={event=>showDeviceDbContextMenu(event,index)}><div className="deviceTitle">{item.eltako ? translateDeviceName(language, item.eltako) : translateDeviceLabel(language, item.label)}</div><div className="deviceMeta">{item.platform} · {item.eep_out||item.key}</div></button>)}
+        </aside>
+        <main className="dbEditor">
+          <div className="formGrid">
+            <div className="field"><label>{language==="en"?"Database key":"Datenbankschlüssel"}</label><input value={entry.key||""} onChange={e=>updateDeviceDbField("key",e.target.value.toUpperCase())}/></div>
+            <div className="field"><label>{language==="en"?"Device name":"Gerätename"}</label><input value={language==="en"?translateDeviceName(language,entry.eltako||""):(entry.eltako||"")} onChange={e=>updateDeviceDbField("eltako",e.target.value)}/></div>
+            <div className="field"><label>{language==="en"?"Display label":"Anzeigetext"}</label><input value={language==="en"?translateDeviceLabel(language,entry.label||""):(entry.label||"")} onChange={e=>updateDeviceDbField("label",e.target.value)}/></div>
+            <div className="field"><label>{language==="en"?"Category":"Kategorie"}</label><select value={entry.platform||"sensor"} onChange={e=>updateDeviceDbField("platform",e.target.value)}>{platformOptions.map(v=><option key={v} value={v}>{v}</option>)}</select></div>
+            <div className="field"><label>{language==="en"?"Group":"Gruppe"}</label><select value={entry.group||""} onChange={e=>updateDeviceDbField("group",e.target.value)}>{[...new Set(Object.values(DEFAULT_EEP_DB).map(v=>v.group))].map(v=><option key={v} value={v}>{translateGroup(language,v)}</option>)}</select></div>
+            <div className="field"><label>EEP</label><input value={entry.eep_out||""} onChange={e=>updateDeviceDbField("eep_out",e.target.value.toUpperCase())}/></div>
+            <div className="field"><label>{language==="en"?"Device class":"Geräteklasse"}</label><select value={entry.default_dc||""} onChange={e=>updateDeviceDbField("default_dc",e.target.value)}><option value="">—</option>{(deviceClassOptions[entry.platform]||[]).map(v=><option key={v}>{v}</option>)}</select></div>
+            <div className="field"><label>{language==="en"?"Teach-in telegram":"Lerntelegramm"}</label><input value={entry.teach_in_telegram||""} onChange={e=>updateDeviceDbField("teach_in_telegram",e.target.value.toUpperCase())}/></div>
+            <div className="field"><label>{language==="en"?"Sender required":"Sender erforderlich"}</label><select value={entry.needs_sender?"yes":"no"} onChange={e=>updateDeviceDbField("needs_sender",e.target.value==="yes")}><option value="no">{language==="en"?"No":"Nein"}</option><option value="yes">{language==="en"?"Yes":"Ja"}</option></select></div>
+            {entry.needs_sender&&<div className="field"><label>{language==="en"?"Sender EEP":"Sender-EEP"}</label><input value={entry.sender_eep||""} onChange={e=>updateDeviceDbField("sender_eep",e.target.value.toUpperCase())}/></div>}
+            {entry.platform==="cover"&&<><div className="field"><label>{language==="en"?"Channels":"Kanäle"}</label><input type="number" min="1" value={entry.channels||1} onChange={e=>updateDeviceDbField("channels",Number(e.target.value)||1)}/></div><div className="field"><label>{language==="en"?"Default opening time":"Standard-Öffnungszeit"}</label><input type="number" min="1" value={entry.time_opens||25} onChange={e=>updateDeviceDbField("time_opens",Number(e.target.value)||25)}/></div><div className="field"><label>{language==="en"?"Default closing time":"Standard-Schließzeit"}</label><input type="number" min="1" value={entry.time_closes||25} onChange={e=>updateDeviceDbField("time_closes",Number(e.target.value)||25)}/></div></>}
+            {entry.platform==="climate"&&<><div className="field"><label>{language==="en"?"Min. temperature":"Min. Temperatur"}</label><input type="number" step="0.5" value={entry.min_target_temperature??16} onChange={e=>updateDeviceDbField("min_target_temperature",Number(e.target.value))}/></div><div className="field"><label>{language==="en"?"Max. temperature":"Max. Temperatur"}</label><input type="number" step="0.5" value={entry.max_target_temperature??25} onChange={e=>updateDeviceDbField("max_target_temperature",Number(e.target.value))}/></div><div className="field"><label>{language==="en"?"Frost protection temperature":"Frostschutztemperatur"}</label><input type="number" step="0.5" value={entry.frost_temperature??8} onChange={e=>updateDeviceDbField("frost_temperature",Number(e.target.value))}/></div><div className="field"><label>{language==="en"?"Hysteresis":"Hysterese"}</label><input type="number" step="0.1" value={entry.hysteresis??1} onChange={e=>updateDeviceDbField("hysteresis",Number(e.target.value))}/></div></>}
+            {entry.platform==="light"&&<><div className="field"><label>RGBW</label><select value={entry.rgbw?"yes":"no"} onChange={e=>updateDeviceDbField("rgbw",e.target.value==="yes")}><option value="no">{language==="en"?"No":"Nein"}</option><option value="yes">{language==="en"?"Yes":"Ja"}</option></select></div><div className="field"><label>{language==="en"?"Dimming speed":"Dimmgeschwindigkeit"}</label><input type="number" min="0" value={entry.dimming_speed??0} onChange={e=>updateDeviceDbField("dimming_speed",Number(e.target.value))}/></div></>}
+            {entry.platform==="sensor" && (entry.group==="Zähler" || String(entry.eep_out||entry.key||"").startsWith("A5-12-"))&&<div className="field"><label>{language==="en"?"Meter tariffs":"Zählertarife"}</label><input value={entry.meter_tariffs||""} onChange={e=>updateDeviceDbField("meter_tariffs",e.target.value)} placeholder="[1]"/></div>}
+
+            {String(entry.device_family||"").toUpperCase()==="F4USM61B"&&<>
+              <div className="field"><label>{language==="en"?"Operating mode":"Betriebsart"}</label><select value={entry.operating_mode||1} onChange={e=>applyF4usmModePreset(e.target.value)}>{[1,2,3,4,5,6,7,8].map(mode=><option key={mode} value={mode}>{language==="en"?`Mode ${mode}`:`Modus ${mode}`}</option>)}</select></div>
+              <div className="field"><label>{language==="en"?"Radio IDs":"Anzahl Funk-IDs"}</label><input type="number" min="1" max="2" value={entry.id_count||1} onChange={e=>updateDeviceDbField("id_count",Number(e.target.value)||1)}/></div>
+              <div className="field"><label>{language==="en"?"Channels":"Kanäle"}</label><input type="number" min="1" max="2" value={entry.channels||1} onChange={e=>updateDeviceDbField("channels",Number(e.target.value)||1)}/></div>
+              <div className="field"><label>{language==="en"?"Inverted":"Invertiert"}</label><select value={entry.invert?"yes":"no"} onChange={e=>updateDeviceDbField("invert",e.target.value==="yes")}><option value="no">{language==="en"?"No":"Nein"}</option><option value="yes">{language==="en"?"Yes":"Ja"}</option></select></div>
+              <div className="field"><label>{language==="en"?"Device family":"Gerätefamilie"}</label><input value={entry.device_family||""} onChange={e=>updateDeviceDbField("device_family",e.target.value.toUpperCase())}/></div>
+            </>}
+          </div>
+          <div style={{marginTop:18}}><button className="danger" onClick={deleteDeviceDbEntry}>{language==="en"?"Delete device":"Gerät löschen"}</button></div>
+        </main>
+      </div>
+      <input ref={deviceDbImportRef} type="file" accept="application/yaml,text/yaml,.yaml,.yml,application/json,.json" hidden onChange={importDeviceDatabase}/>
+      {deviceDbContextMenu&&<div className="dbContextMenu" style={{left:deviceDbContextMenu.x,top:deviceDbContextMenu.y}} onClick={event=>event.stopPropagation()} onContextMenu={event=>event.preventDefault()}>
+        {deviceDbContextMenu.index===null?<>
+          <button onClick={()=>{addDeviceDbEntry();closeDeviceDbContextMenu();}}>+ {language==="en"?"New device":"Neues Gerät"}</button>
+          <div className="separator"/>
+          <button onClick={()=>{openDeviceDatabaseImportDialog();}}>{language==="en"?"Import database…":"Datenbank importieren…"}</button>
+          <button onClick={exportDeviceDatabase}>{language==="en"?"Export database…":"Datenbank exportieren…"}</button>
+        </>:<>
+          <button onClick={closeDeviceDbContextMenu}>{language==="en"?"Edit":"Bearbeiten"}</button>
+          <button onClick={()=>{duplicateDeviceDbEntry();closeDeviceDbContextMenu();}}>{language==="en"?"Duplicate":"Duplizieren"}</button>
+          <button onClick={()=>{addDeviceDbEntry();closeDeviceDbContextMenu();}}>+ {language==="en"?"New device":"Neues Gerät"}</button>
+          <div className="separator"/>
+          <button onClick={()=>copyDeviceDbValue(deviceDbEntriesRef.current[deviceDbSelected]?.key)}>{language==="en"?"Copy database key":"Datenbankschlüssel kopieren"}</button>
+          <button onClick={()=>copyDeviceDbValue(deviceDbEntriesRef.current[deviceDbSelected]?.eep_out)}>{language==="en"?"Copy EEP":"EEP kopieren"}</button>
+          <button onClick={restoreSelectedDeviceDbEntry}>{language==="en"?"Restore default":"Standardwert wiederherstellen"}</button>
+          <div className="separator"/>
+          <button className="dangerItem" onClick={()=>{deleteDeviceDbEntry();closeDeviceDbContextMenu();}}>{language==="en"?"Delete":"Löschen"}</button>
+        </>}
+      </div>}
+      <footer className="dbFooter"><button onClick={resetDeviceDatabase}>{language==="en"?"Restore defaults":"Standard wiederherstellen"}</button><div className="footerRight"><button onClick={closeWindow}>{language==="en"?"Cancel":"Abbrechen"}</button><button className="primary" onClick={saveDeviceDatabase}>{language==="en"?"Save":"Speichern"}</button></div></footer>
+    </div>;
+  }
 
   return (
     <div className="appShell">
@@ -1558,7 +2775,7 @@ export default function App() {
               {t("gateway.setup1")}<br/>
               {t("gateway.setup2")}<br/>
               {t("gateway.setup3")}<br/>
-              {t("gateway.setup4Before")} <code style={{color:"#245873"}}>/config/configuration.yaml</code> {t("gateway.setup4After")}
+              {t("gateway.setup4Before")}
             </div>
 
             <button className="btn pri" onClick={()=>setStep(2)}>{t("gateway.continueToDevices")}</button>
@@ -1630,14 +2847,65 @@ export default function App() {
                   {errors.name&&<div className="em">{errors.name}</div>}
                 </div>
                 <div>
+                  {String(profile.device_family || "").toUpperCase() === "FTS14EM" && (
+                    <>
+                      <label>{language === "en" ? "ID range" : "ID-Bereich"}</label>
+                      <select
+                        value={form.id_range || "1"}
+                        onChange={e => {
+                          const previousExpected = fts14emBaseIdForRange(form.id_range || "1");
+                          const nextRange = e.target.value;
+                          const nextExpected = fts14emBaseIdForRange(nextRange);
+                          setForm(f => ({
+                            ...f,
+                            id_range: nextRange,
+                            dev_id: !f.dev_id || normalizeId(f.dev_id) === previousExpected ? nextExpected : f.dev_id,
+                          }));
+                          setErrors({});
+                        }}
+                        style={{marginBottom:".5rem"}}
+                      >
+                        {FTS14EM_ID_RANGES.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
+                      </select>
+                    </>
+                  )}
                   <label>{t("devices.deviceId")}</label>
                   <div style={{display:"flex",gap:".35rem"}}>
-                    <input className={errors.dev_id?"err":""} value={form.dev_id} onChange={e=>{setForm(f=>({...f,dev_id:e.target.value})); setErrors({});}} placeholder="FF-AA-BB-CC" style={{flex:1,minWidth:170}}/>
-                    <button className="btn ghost" onClick={handleLearnDeviceId} disabled={learningId} title={t("devices.autoDetectTitle")} style={{width:"auto",whiteSpace:"nowrap",padding:".55rem .7rem"}}>
-                      {learningId ? "…" : t("devices.autoDetect")}
+                    <input className={errors.dev_id?"err":""} value={form.dev_id} onChange={e=>{setForm(f=>({...f,dev_id:e.target.value})); setErrors({});}} placeholder={String(profile.device_family || "").toUpperCase() === "FTS14EM" ? "00-00-10-01" : "FF-AA-BB-CC"} style={{flex:1,minWidth:170}}/>
+                    <button
+                      className="btn ghost"
+                      onClick={String(profile.device_family || "").toUpperCase() === "FTS14EM" ? handleLearnFts14emBaseId : handleLearnDeviceId}
+                      disabled={learningId}
+                      title={String(profile.device_family || "").toUpperCase() === "FTS14EM"
+                        ? (language === "en" ? "Press the same E1 button five times; detection only fills the ID field" : "Dieselbe E1-Taste fünfmal drücken; die Erkennung füllt nur das ID-Feld")
+                        : t("devices.autoDetectTitle")}
+                      style={{width:"auto",whiteSpace:"nowrap",padding:".55rem .7rem"}}
+                    >
+                      {learningId
+                        ? "…"
+                        : String(profile.device_family || "").toUpperCase() === "FTS14EM"
+                          ? (language === "en" ? "Detect base ID (5× E1)" : "Basis-ID erkennen (5× E1)")
+                          : t("devices.autoDetect")}
                     </button>
                   </div>
                   {errors.dev_id&&<div className="em">{errors.dev_id}</div>}
+                  {String(profile.device_family || "").toUpperCase() === "FTS14EM" && (
+                    <div style={{fontSize:".65rem",marginTop:".35rem",color:"#53616f",lineHeight:1.45}}>
+                      {language === "en"
+                        ? "Select the ID range, use FGW14-USB/FAM14 and press the same E1 button five times. Detection fills only the ID field; click Add to save the device."
+                        : "ID-Bereich auswählen, FGW14-USB/FAM14 verwenden und dieselbe E1-Taste fünfmal drücken. Die Erkennung füllt nur das ID-Feld; erst Hinzufügen speichert das Gerät."}
+                    </div>
+                  )}
+                  {String(profile.device_family || "").toUpperCase() === "F4USM61B" && [1,2,4,5,7].includes(Number(profile.operating_mode || 0)) && <>
+                    <label style={{marginTop:8}}>{language === "en" ? "Battery ID" : "Batterie-ID"}</label>
+                    <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                      <input className={errors.physical_unique_id?"err":""} value={form.physical_unique_id || ""} onChange={e=>{setForm(f=>({...f,physical_unique_id:e.target.value}));setErrors({});}} placeholder="05-A9-8E-FA" style={{flex:1,minWidth:170}}/>
+                      <button className="btn ghost" onClick={handleLearnF4usmPhysicalId} disabled={learningId} title={language === "en" ? "Set all jumpers, then press E2" : "Alle Jumper stecken, danach E2 betätigen"} style={{width:"auto",whiteSpace:"nowrap",padding:".55rem .7rem"}}>
+                        {learningId ? "…" : (language === "en" ? "Learn battery ID" : "Batterie-ID einlernen")}
+                      </button>
+                    </div>
+                    {errors.physical_unique_id&&<div className="em">{errors.physical_unique_id}</div>}
+                  </>}
                   {learnMsg&&<div style={{fontSize:".65rem",marginTop:".35rem",color:learnMsg.startsWith("✓")?"#22c55e":learnMsg.startsWith("✗")?"#f87171":"#2f6f8f",lineHeight:1.45}}>{learnMsg}</div>}
                 </div>
                 <div>
@@ -1650,7 +2918,10 @@ export default function App() {
               <div style={{marginBottom:".65rem"}}>
                 <label>{t("devices.deviceEep")}</label>
                 <select value={form.eep} onChange={e=>changeEep(e.target.value)}>
-                  {GROUPS.map(g=>(
+                  {!EEP_DB[form.eep] && form.eep && (
+                    <option value={form.eep} disabled>{language === "en" ? `Unknown saved profile (${form.eep})` : `Unbekanntes gespeichertes Profil (${form.eep})`}</option>
+                  )}
+                  {[...new Set(Object.values(EEP_DB).map(e => e.group))].map(g=>(
                     <optgroup key={g} label={`── ${translateGroup(language, g)}`}>
                       {Object.entries(EEP_DB).filter(([,v])=>v.group===g).map(([k,v])=>(
                         <option key={k} value={k}>{translateDeviceLabel(language, v.label)}</option>
@@ -1707,7 +2978,7 @@ export default function App() {
 
               <div style={{display:"flex",gap:".55rem"}}>
                 <button className="btn pri" onClick={handleAdd}>{editIdx!==null?t("common.save"):t("common.add")}</button>
-                {editIdx!==null&&<button className="btn ghost" onClick={()=>{setEditIdx(null);setForm(emptyForm);setErrors({});}}>{t("common.cancel")}</button>}
+                {editIdx!==null&&<button className="btn ghost" onClick={()=>{setEditIdx(null);setForm(createEmptyForm());setErrors({});}}>{t("common.cancel")}</button>}
               </div>
             </div>
 
@@ -1772,7 +3043,6 @@ export default function App() {
                   <div>
                     <label>{t("yaml.busComPort")}</label>
                     <input disabled={!hasRs485Gateway} value={writeBusPort || defaultBusWritePort} onChange={e=>setWriteBusPort(e.target.value)} placeholder={t("gateway.serialPortPlaceholder")} list="serial-port-list" style={{height:42,minHeight:42}}/>
-                    <div style={{fontSize:".62rem",color:"#6b7280",marginTop:".2rem"}}>{t("yaml.busComPortHelp")}</div>
                   </div>
                   <div>
                     <label>{t("yaml.senderIdsFromGateway")}</label>
@@ -1782,11 +3052,39 @@ export default function App() {
                   </div>
                   <div>
                     <label style={{visibility:"hidden"}}>{t("yaml.writeToActuators")}</label>
-                    <button className="btn pri" onClick={handleWriteSenderIds} disabled={!canWriteSenderIds} style={{whiteSpace:"nowrap",height:42,minHeight:42}} title={!busWriteGatewayConnected ? busWriteHint : ""}>
-                      {writingSenders ? t("yaml.writing") : t("yaml.writeToActuators")}
-                    </button>
+                    <div style={{display:"flex",flexDirection:"column",gap:".45rem"}}>
+                      <button className="btn pri" onClick={handleWriteSenderIds} disabled={!canWriteSenderIds} style={{whiteSpace:"nowrap",height:42,minHeight:42}} title={!busWriteGatewayConnected ? busWriteHint : ""}>
+                        {writingSenders ? t("yaml.writing") : t("yaml.writeToActuators")}
+                      </button>
+                      <button className="btn ghost" onClick={handleCancelWriteSenderIds} disabled={!writingSenders} style={{whiteSpace:"nowrap",height:36,minHeight:36}}>
+                        {t("common.cancel")}
+                      </button>
+                      <button className="btn ghost" onClick={handleDisconnectWriteGateway} disabled={disconnectingGateway || !busWriteGatewayConnected} style={{whiteSpace:"nowrap",height:36,minHeight:36}}>
+                        {disconnectingGateway ? t("gateway.disconnecting") : t("gateway.disconnect")}
+                      </button>
+                    </div>
                   </div>
                 </div>
+                {writingSenders&&(()=>{
+                  const total = Number(writeSenderProgress.total || senderProgrammingEntries.length || 0);
+                  const processed = Math.min(total, Number(writeSenderProgress.processed || 0));
+                  const percent = total > 0 ? Math.round((processed / total) * 100) : 0;
+                  const phaseText = writeSenderProgress.phase === "connecting" ? "RS485-Bus verbinden …"
+                    : writeSenderProgress.phase === "scanning" ? "Series-14-Geräte werden gesucht …"
+                    : writeSenderProgress.phase === "canceling" ? "Abbruch wird ausgeführt …"
+                    : writeSenderProgress.phase === "writing" ? (writeSenderProgress.message || "Sender-IDs werden geprüft/geschrieben …")
+                    : "Sender-IDs werden vorbereitet …";
+                  return <div style={{marginTop:".7rem"}}>
+                    <div style={{height:10,borderRadius:999,background:"#dbe5eb",overflow:"hidden"}}>
+                      <div style={{height:"100%",width:`${percent}%`,background:"#2f6f8f",transition:"width .18s ease"}}/>
+                    </div>
+                    <div style={{display:"flex",justifyContent:"space-between",gap:".75rem",fontSize:".68rem",color:"#53616f",marginTop:".35rem"}}>
+                      <span>{processed} von {total} Sender-IDs verarbeitet</span>
+                      <strong>{percent}%</strong>
+                    </div>
+                    <div style={{fontSize:".64rem",color:"#6b7280",marginTop:".25rem",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={phaseText}>{phaseText}</div>
+                  </div>;
+                })()}
               </div>
               {!busWriteGatewayConnected&&<div style={{fontSize:".68rem",marginTop:".65rem",padding:".5rem .7rem",borderRadius:5,background:"#fff7ed",color:"#9a3412",border:"1px solid #fed7aa"}}>{t("yaml.writeDisabled")}</div>}
               {writeSenderMsg&&<div style={{fontSize:".72rem",marginTop:".75rem",padding:".5rem .7rem",borderRadius:5,background:writeSenderMsg.startsWith("✓")?"#14532d22":writeSenderMsg.startsWith("✗")?"#450a0a22":"#eef5f8",color:writeSenderMsg.startsWith("✓")?"#166534":writeSenderMsg.startsWith("✗")?"#b42318":"#2f6f8f",border:"1px solid #c6d9e4"}}>{writeSenderMsg}</div>}
@@ -1835,6 +3133,49 @@ export default function App() {
         </div>
         </div>
       </main>
+      {deviceDbOpen && (() => {
+        const entry = deviceDbEntries[deviceDbSelected] || {};
+        const platformOptions = ["sensor","binary_sensor","switch","light","cover","climate"];
+        const deviceClassOptions = {
+          sensor:["temperature","humidity","power","energy","voltage","current","wind_speed","carbon_dioxide","volatile_organic_compounds_parts","battery"],
+          binary_sensor:["door","window","opening","motion","occupancy","smoke","heat","moisture","battery","problem"],
+          switch:["switch","outlet"], light:[], cover:["shutter","blind","awning","curtain","garage"], climate:[]
+        };
+        return <div className="modalOverlay" onMouseDown={e=>{if(e.target===e.currentTarget)setDeviceDbOpen(false)}}>
+          <div className="card" style={{width:"min(1180px,96vw)",height:"min(760px,92vh)",display:"grid",gridTemplateRows:"auto 1fr auto",padding:0,overflow:"hidden"}}>
+            <div style={{padding:"1rem 1.2rem",borderBottom:"1px solid var(--line)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div><strong>{language==="en"?"Device database":"Gerätedatenbank"}</strong><div style={{fontSize:".68rem",color:"#64748b"}}>{language==="en"?"Changes are stored locally and survive EEDTOY updates.":"Änderungen werden lokal gespeichert und bleiben bei EEDTOY-Updates erhalten."}</div></div>
+              <button className="btn ghost" onClick={()=>setDeviceDbOpen(false)}>✕</button>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"390px 1fr",minHeight:0}}>
+              <div style={{borderRight:"1px solid var(--line)",padding:".8rem",overflow:"auto"}}>
+                <div style={{display:"flex",gap:".4rem",marginBottom:".7rem"}}><button className="btn pri" onClick={addDeviceDbEntry}>+ {language==="en"?"New":"Neu"}</button><button className="btn ghost" onClick={duplicateDeviceDbEntry}>{language==="en"?"Duplicate":"Duplizieren"}</button></div>
+                {deviceDbEntries.map((item,index)=><button key={`${item.key}-${index}`} onClick={()=>setDeviceDbSelected(index)} style={{display:"block",width:"100%",textAlign:"left",padding:".55rem .65rem",marginBottom:".3rem",borderRadius:6,border:index===deviceDbSelected?"2px solid #0ea5e9":"1px solid var(--line)",background:index===deviceDbSelected?"#e0f2fe":"white",cursor:"pointer"}}><div style={{fontWeight:700,fontSize:".75rem"}}>{item.eltako||item.label}</div><div style={{fontSize:".62rem",color:"#64748b"}}>{item.platform} · {item.eep_out||item.key}</div></button>)}
+              </div>
+              <div style={{padding:"1rem 1.2rem",overflow:"auto"}}>
+                <div className="formGrid">
+                  <div><label>{language==="en"?"Database key":"Datenbankschlüssel"}</label><input value={entry.key||""} onChange={e=>updateDeviceDbField("key",e.target.value.toUpperCase())}/></div>
+                  <div><label>{language==="en"?"Device name":"Gerätename"}</label><input value={language==="en"?translateDeviceName(language,entry.eltako||""):(entry.eltako||"")} onChange={e=>updateDeviceDbField("eltako",e.target.value)}/></div>
+                  <div><label>{language==="en"?"Display label":"Anzeigetext"}</label><input value={language==="en"?translateDeviceLabel(language,entry.label||""):(entry.label||"")} onChange={e=>updateDeviceDbField("label",e.target.value)}/></div>
+                  <div><label>{language==="en"?"Category":"Kategorie"}</label><select value={entry.platform||"sensor"} onChange={e=>updateDeviceDbField("platform",e.target.value)}>{platformOptions.map(v=><option key={v} value={v}>{v}</option>)}</select></div>
+                  <div><label>{language==="en"?"Group":"Gruppe"}</label><select value={entry.group||""} onChange={e=>updateDeviceDbField("group",e.target.value)}>{[...new Set(Object.values(DEFAULT_EEP_DB).map(v=>v.group))].map(v=><option key={v} value={v}>{translateGroup(language,v)}</option>)}</select></div>
+                  <div><label>EEP</label><input value={entry.eep_out||""} onChange={e=>updateDeviceDbField("eep_out",e.target.value.toUpperCase())}/></div>
+                  <div><label>{language==="en"?"Device class":"Geräteklasse"}</label><select value={entry.default_dc||""} onChange={e=>updateDeviceDbField("default_dc",e.target.value)}><option value="">—</option>{(deviceClassOptions[entry.platform]||[]).map(v=><option key={v}>{v}</option>)}</select></div>
+                  <div><label>{language==="en"?"Teach-in telegram":"Lerntelegramm"}</label><input value={entry.teach_in_telegram||""} onChange={e=>updateDeviceDbField("teach_in_telegram",e.target.value.toUpperCase())}/></div>
+                  <div><label>{language==="en"?"Sender required":"Sender erforderlich"}</label><select value={entry.needs_sender?"yes":"no"} onChange={e=>updateDeviceDbField("needs_sender",e.target.value==="yes")}><option value="no">{language==="en"?"No":"Nein"}</option><option value="yes">{language==="en"?"Yes":"Ja"}</option></select></div>
+                  {entry.needs_sender&&<div><label>{language==="en"?"Sender EEP":"Sender-EEP"}</label><input value={entry.sender_eep||""} onChange={e=>updateDeviceDbField("sender_eep",e.target.value.toUpperCase())}/></div>}
+                  {entry.platform==="cover"&&<><div><label>{language==="en"?"Channels":"Kanäle"}</label><input type="number" min="1" value={entry.channels||1} onChange={e=>updateDeviceDbField("channels",Number(e.target.value)||1)}/></div><div><label>{language==="en"?"Default opening time":"Standard-Öffnungszeit"}</label><input type="number" min="1" value={entry.time_opens||25} onChange={e=>updateDeviceDbField("time_opens",Number(e.target.value)||25)}/></div><div><label>{language==="en"?"Default closing time":"Standard-Schließzeit"}</label><input type="number" min="1" value={entry.time_closes||25} onChange={e=>updateDeviceDbField("time_closes",Number(e.target.value)||25)}/></div></>}
+                  {entry.platform==="climate"&&<><div><label>{language==="en"?"Min. temperature":"Min. Temperatur"}</label><input type="number" step="0.5" value={entry.min_target_temperature??16} onChange={e=>updateDeviceDbField("min_target_temperature",Number(e.target.value))}/></div><div><label>{language==="en"?"Max. temperature":"Max. Temperatur"}</label><input type="number" step="0.5" value={entry.max_target_temperature??25} onChange={e=>updateDeviceDbField("max_target_temperature",Number(e.target.value))}/></div><div><label>{language==="en"?"Frost protection temperature":"Frostschutztemperatur"}</label><input type="number" step="0.5" value={entry.frost_temperature??8} onChange={e=>updateDeviceDbField("frost_temperature",Number(e.target.value))}/></div><div><label>{language==="en"?"Hysteresis":"Hysterese"}</label><input type="number" step="0.1" value={entry.hysteresis??1} onChange={e=>updateDeviceDbField("hysteresis",Number(e.target.value))}/></div></>}
+                  {entry.platform==="light"&&<><div><label>RGBW</label><select value={entry.rgbw?"yes":"no"} onChange={e=>updateDeviceDbField("rgbw",e.target.value==="yes")}><option value="no">{language==="en"?"No":"Nein"}</option><option value="yes">{language==="en"?"Yes":"Ja"}</option></select></div><div><label>{language==="en"?"Dimming speed":"Dimmgeschwindigkeit"}</label><input type="number" min="0" value={entry.dimming_speed??0} onChange={e=>updateDeviceDbField("dimming_speed",Number(e.target.value))}/></div></>}
+                  {entry.platform==="sensor" && (entry.group==="Zähler" || String(entry.eep_out||entry.key||"").startsWith("A5-12-"))&&<div><label>{language==="en"?"Meter tariffs":"Zählertarife"}</label><input value={entry.meter_tariffs||""} onChange={e=>updateDeviceDbField("meter_tariffs",e.target.value)} placeholder="[1]"/></div>}
+                </div>
+                <div style={{marginTop:"1rem"}}><button className="btn danger" onClick={deleteDeviceDbEntry}>{language==="en"?"Delete device":"Gerät löschen"}</button></div>
+              </div>
+            </div>
+            <div style={{padding:".8rem 1.2rem",borderTop:"1px solid var(--line)",display:"flex",justifyContent:"space-between"}}><button className="btn ghost" onClick={resetDeviceDatabase}>{language==="en"?"Restore defaults":"Standard wiederherstellen"}</button><div style={{display:"flex",gap:".5rem"}}><button className="btn ghost" onClick={()=>setDeviceDbOpen(false)}>{language==="en"?"Cancel":"Abbrechen"}</button><button className="btn pri" onClick={saveDeviceDatabase}>{language==="en"?"Save and reload":"Speichern und neu laden"}</button></div></div>
+          </div>
+        </div>;
+      })()}
     </div>
   );
 }

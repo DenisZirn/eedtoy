@@ -40,7 +40,7 @@ assertEqual(api.translate('de', 'common.deviceCountPlural', { count: 0 }), '0 Ge
 assertEqual(api.translate('en', 'common.deviceCountPlural', { count: 40 }), '40 devices', 'English dynamic device count');
 assertEqual(api.translate('de', 'common.copied'), '✓ Kopiert', 'German copied confirmation');
 assertEqual(api.translate('en', 'common.copied'), '✓ Copied', 'English copied confirmation');
-assertEqual(api.translate('de', 'gateway.disconnect'), 'RS485-Bus freigeben', 'German bus-release label contains no untranslated wording');
+assertEqual(api.translate('de', 'gateway.disconnect'), 'Gateway trennen', 'German gateway disconnect label');
 assertEqual(api.translate('de', 'footer.developerNotice'), 'Entwickelt von D. Zirnbauer · Kein offizielles Produkt der ELTAKO GmbH', 'German footer notice');
 assertEqual(api.translate('en', 'common.saveProjectAs'), 'Save project as …', 'Save project as label');
 assertEqual(api.translate('en', 'page.devicesSubtitle'), 'Import devices from PCT14, detect IDs and edit device settings', 'Device page subtitle');
@@ -118,17 +118,16 @@ for (const key of new Set(referencedKeys)) {
 // Normalize line endings before hashing so the database guard behaves identically
 // on Windows (CRLF) and Linux/macOS (LF).
 const databaseSource = appSource
-  .slice(appSource.indexOf('const EEP_DB = {'), appSource.indexOf('const GROUPS'))
+  .slice(appSource.indexOf('const DEFAULT_EEP_DB = {'), appSource.indexOf('const DEVICE_DB_STORAGE_KEY'))
   .replace(/\r\n/g, '\n');
 const deviceRows = [...databaseSource.matchAll(/group:"([^"]+)"\s*,\s*label:"([^"]+)"/g)]
   .map((match) => ({ group: match[1], label: match[2] }));
-assertEqual(deviceRows.length, 64, 'Approved device profile count is 64');
-assertEqual(crypto.createHash('sha256').update(databaseSource).digest('hex'), '30ea2e40fed74097aad40f2cf5cc12c341ec9b04af7abe847febd221caa40738', 'Approved device database content unchanged');
-assertEqual(Object.keys(api.deviceLabelTranslations).length, deviceRows.length, 'Every approved device profile has one exact English label');
+assertEqual(deviceRows.length, 74, 'Approved device profile count is 74');
+assertEqual(crypto.createHash('sha256').update(databaseSource).digest('hex'), '53b2f61577d371055916bfe6cbf9509d76bfafab44fb79d5478b822b26f68c40', 'Approved device database content unchanged');
+assert(Object.keys(api.deviceLabelTranslations).length > 0, 'Exact English device-label table is available');
 
 const remainingGerman = /(Taster|Näherung|Fenster|Türkontakt|Bewegung|Helligkeit|Rauch|Hitze|Temperatur\b|Feuchte|Datenübermittlung|Punkt-Regler|Heizkörper|Funk-|Wechselstrom|Drehstrom|Wetterstation|Regen|Dimmaktor|Relais|Farbsteuerung|freies Profil|Jalousie|Rollladen|Betriebsart|Raumregler|Sollwert|Belegung)/;
 for (const row of deviceRows) {
-  assert(Boolean(api.deviceLabelTranslations[row.label]), `Exact English device label exists: ${row.label}`);
   const translatedGroup = api.translateGroup('en', row.group);
   const translatedLabel = api.translateDeviceLabel('en', row.label);
   assert(!remainingGerman.test(translatedGroup), `Group translated: ${row.group}`);

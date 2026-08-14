@@ -1,64 +1,44 @@
 # Changelog
 
+## 1.0.96
+
+EEDTOY v1.0.96 ist ein umfangreiches Funktions-, Geräte- und Stabilitätsupdate.
+
+### Gerätedatenbank und Profile
+
+- Neu strukturierte, frei bearbeitbare und persistent gespeicherte Gerätedatenbank.
+- Geräte können angelegt, dupliziert, geändert, deaktiviert und gelöscht werden.
+- 74 freigegebene Geräteprofile mit Gerätekategorie, EEP, Home-Assistant-Plattform, Geräteklasse, Sender-EEP und gerätespezifischen Exportdaten.
+- Eindeutige Profilschlüssel verhindern falsche Zuordnungen beim Bearbeiten oder Laden älterer Projekte.
+- Lerntelegramme steuerbarer Geräte werden aus der aktiven Gerätedatenbank übernommen und bleiben benutzerdefiniert änderbar.
+- Ergänzte beziehungsweise korrigierte Profile unter anderem für FTFSB, FTS14EM, F4USM61B, FTR-/FHK-Geräte, FDG14, FRGBW14/FRGBW71L, FSR71-Varianten und weitere Series-14-Geräte.
+
+### Gateway-Erkennung und Geräteerfassung
+
+- Stabilere Erkennung von FAM14, FAM-USB und FGW14-USB unter Windows und macOS.
+- FAM-USB verwendet unter macOS die direkte ESP2-AB-58-Base-ID-Abfrage.
+- macOS erkennt FAM-USB-Portpaare unabhängig von der Seriennummer und bevorzugt zuverlässig Interface 1 bei B0/B1- sowie 0/1-Bezeichnungen.
+- FAM14 und FGW14-USB werden weiterhin über FTDI-/RS485-Schnittstellen erkannt.
+- FTS14EM-Basis-IDs können über FAM14 und FGW14-USB gelernt werden. Zur sicheren Erkennung sind fünf Betätigungen desselben E1-Eingangs erforderlich.
+
+### Senderprogrammierung und YAML
+
+- Benötigte Sender-IDs können gatewayübergreifend ermittelt, geprüft und in Series-14-Aktoren geschrieben werden.
+- Fortschrittsanzeige, Abbrechen und gezieltes Trennen des Gateways wurden ergänzt beziehungsweise verbessert.
+- Mehrere Sender pro Aktor und Kanal sowie dauerhafte, kollisionsfreie Sender-IDs werden unterstützt.
+- YAML-Export verwendet die aktuelle Gerätedatenbank und speichert keine lokalen seriellen Portpfade.
+- PCT14-Import und Projektmigration wurden für die neuen Profile und eindeutigen Datenbankschlüssel erweitert.
+
+### Oberfläche und Plattformen
+
+- Deutsche und englische Oberfläche vollständig über feste Übersetzungsschlüssel vereinheitlicht.
+- Windows-Installer enthält eine eingebettete Python-3.12-Laufzeit und benötigt keine vorhandene Python-Installation.
+- macOS-Builds für Apple Silicon und Intel enthalten jeweils eine passende eingebettete Python-Laufzeit und benötigen kein Homebrew.
+- Die Anwendung bleibt unter Windows und macOS derzeit nicht digital signiert; beim ersten Start kann deshalb eine Sicherheitswarnung erscheinen.
+
 ## 1.0.95
 
-- Ein Klick prüft und programmiert jetzt die erforderlichen Sender-IDs aller Gateways, die in die YAML exportiert werden.
-- FAM14 und FGW14-USB werden auf den gemeinsamen internen `00-00-B0-xx`-Sender dedupliziert.
-- Die Sender-ID eines FAM-USB wird weiterhin dynamisch aus dessen tatsächlicher Base-ID und dem Aktor-/Kanaloffset gebildet.
-- Mehrere erforderliche Sender für denselben Series-14-Aktorkanal bleiben in der Schreibliste erhalten und werden einzeln geprüft.
-- Bus-COM-Port, Gatewayübersicht und Schreibschaltfläche sind im YAML-Schreibbereich auf gleicher Höhe dargestellt.
-- Python-Regressionstest für mehrere Sender pro Aktorkanal in den normalen Testlauf aufgenommen.
-
-## 1.0.94
-
-- Automatische Gateway-Erkennung für FAM14, FAM-USB und FGW14-USB stabilisiert.
-- Echtes COM-Port-Dropdown für mehrere erkannte serielle Schnittstellen ergänzt.
-- Bereits ausgewählter COM-Port bleibt bei einer erneuten Suche erhalten.
-- Manuelle COM-Port-Eingabe bleibt als Rückfall verfügbar.
-- Python 3.12 und alle benötigten Module werden vollständig im Windows-Installer mitgeliefert.
-- Vorhandene Python-Installationen werden nicht verwendet oder verändert.
-- Der CI-Build installiert den erzeugten Windows-Installer auf einem sauberen Runner und prüft die eingebettete Laufzeit aus dem tatsächlichen Installationsverzeichnis.
-- Versionsangaben in Anwendung, YAML-Header, `package.json`, `package-lock.json` und Regressionstests vereinheitlicht.
-- Plattformabhängige Zeilenenden werden bei der Schutzprüfung der freigegebenen Gerätedatenbank normalisiert.
-
-## 1.0.93
-
-- FTR65DSB, FTR55DSB, FTR55EHB, FTR55ESB, FTR65HB, FTRF65HB, FTR55HB, FTR65SB, FTRF65SB und FTR55SB ergänzt.
-- Für die FTR55/65-Familie sind die Betriebsarten TF61 (A5-38-08, Lerntelegramm `E0-40-0D-80`, EIN/AUS mit 1 K Hysterese) und FHK (A5-10-06, Lerntelegramm `40-30-0D-87`) auswählbar.
-- FHK-Profile exportieren den Sollwertbereich 12–28 °C sowie 8 °C als Frostschutzwert.
-- FDG14 als DALI-Gateway/Dimmaktor mit A5-38-08 FUNC=38, Command 2 ergänzt.
-- Der PCT14-Import erkennt FDG14 automatisch als dimmbaren A5-38-08-Aktor.
-- Deutsche und englische Gerätebezeichnungen sowie Regressionstests erweitert.
-
-## 1.0.92
-
-- Deutsche und englische Oberflächentexte vollständig sprachlich und technisch überarbeitet.
-- Gemischte deutsche/englische Beschriftungen wie `Disconnect / Bus freigeben`, `Wireless` und der englische Fußzeilentext in der deutschen Oberfläche entfernt.
-- Alle 61 freigegebenen Geräteprofile besitzen jetzt eine feste, vollständige englische Gerätebezeichnung. Die fehleranfällige Übersetzung aus einzelnen Wortfragmenten dient nur noch als Rückfall für zukünftige unbekannte Bezeichnungen.
-- Technische Begriffe für Klima, RGBW, Zähler, Relais, Rollladen/Jalousie und Series-14-Sender-IDs präzisiert.
-- Gateway-Beschreibungen, Projektdatei-Dialoge, Dateifilter, Kontextmenü und Info-Dialog werden vollständig in der gewählten Sprache angezeigt.
-- Beim Sprachwechsel wird eine bereits erzeugte YAML-Vorschau automatisch in der gewählten Sprache neu erzeugt.
-- Beim Öffnen eines Projekts wird die YAML-Vorschau mit der aktuellen EEDTOY-Version und der aktuell gewählten Sprache neu erzeugt; veraltete Kommentartexte aus älteren Projektdateien bleiben nicht erhalten.
-- Zusätzliche Regressionstests für Übersetzungsschlüssel, Platzhalter, alle 61 Gerätebezeichnungen, YAML-Erzeugung, FKS-SV-Sender-ID-Kollisionen und die Electron-IPC-Schnittstelle ergänzt.
-- Gerätedatenbank, EEP-Zuordnungen, Gateway-Protokolle und YAML-Maschinenschlüssel bleiben unverändert.
-
-## 1.0.91
-
-- Englische Oberfläche vollständig auf feste React-Übersetzungsschlüssel umgestellt.
-- Gateway-, Geräte- und YAML-Seite einschließlich Formulare, Hinweise, Statusmeldungen und Schaltflächen vollständig zweisprachig.
-- Gerätegruppen und alle 61 freigegebenen Gerätebezeichnungen werden in der englischen Oberfläche übersetzt; Produktnamen und EEPs bleiben unverändert.
-- Dynamische Texte wie Geräteanzahl und `✓ Kopiert` bleiben unter React-Kontrolle und werden nicht mehr nachträglich im DOM überschrieben.
-- Deutsch/English bleibt über das Menü umschaltbar und wird gespeichert.
-- Neue Projektdateien erhalten je nach Sprache den Namen `EEDTOY-Projekt-…` oder `EEDTOY-Project-…`.
-- PCT14-importierte Geräte werden unabhängig von der beim Import aktiven Sprache weiterhin korrekt als PCT14-Geräte erkannt.
-- Keine Änderung an Gerätedatenbank, EEP-Zuordnung, Gateway-Protokollen oder YAML-Maschinenschlüsseln.
-
-## 1.0.90
-
-- FUTH55ED in fünf Betriebsarten ergänzt: FHK, FKS Kieback & Peter, FKS-H Hora, TF61R/FR62 und Hygrostat.
-- Produktbezeichnung `FFT60SB` für A5-04-01 festgelegt.
-- Aktorbezeichnungen `FSR14-2x` und `FSR14-4x` verwenden einen Bindestrich.
-- Nur `FSR71NP-4x-230V` ist als 4-Kanal-Variante der Baureihe 71 enthalten.
-- FFTE ist im gemeinsamen Profil `FTKE, FFTE, FFG7B` unter F6-10-00 enthalten.
-- FFG7B bleibt für A5-14-09 und F6-10-00 als dreistufiger Fenstergriff markiert.
-- Der Regressionsfix für Geräteanzahl und `✓ Kopiert` bleibt unverändert enthalten.
+- Gatewayübergreifende Ermittlung und Programmierung erforderlicher Sender-IDs.
+- Unterstützung mehrerer Sender pro Aktor und Kanal.
+- Senderprogrammierung für FHK14-Aktoren.
+- Verbesserte Gatewayübersicht und Bedienung der Senderprogrammierung.
