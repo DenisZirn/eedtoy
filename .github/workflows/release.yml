@@ -4,17 +4,21 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version without v prefix, for example 1.0.94"
+        description: "Version without v prefix, for example 1.0.96"
         required: true
+        default: "1.0.96"
         type: string
       replace_existing:
         description: "Replace an existing release asset for this version"
         required: true
         default: false
         type: boolean
+  push:
+    branches:
+      - main
 
 concurrency:
-  group: release-${{ inputs.version }}
+  group: release-v1.0.96
   cancel-in-progress: false
 
 permissions:
@@ -25,8 +29,8 @@ jobs:
     runs-on: windows-latest
     env:
       GH_REPO: ${{ github.repository }}
-      VERSION: ${{ inputs.version }}
-      RELEASE_TAG: v${{ inputs.version }}
+      VERSION: ${{ inputs.version || '1.0.96' }}
+      RELEASE_TAG: v${{ inputs.version || '1.0.96' }}
 
     steps:
       - name: Repository auschecken
@@ -51,8 +55,8 @@ jobs:
           app = Path("src/App.jsx").read_text(encoding="utf-8")
           tests = Path("tests/yaml_generation_regression.js").read_text(encoding="utf-8")
 
-          assert package["version"] == version, f"package.json is {package['version']}, expected {version}"
-          assert lock["version"] == version, f"package-lock.json is {lock['version']}, expected {version}"
+          assert package["version"] == version
+          assert lock["version"] == version
           assert lock["packages"][""]["version"] == version
           assert f'const APP_VERSION = "{version}";' in app
           assert f"Application version is {version}" in tests
@@ -92,14 +96,10 @@ jobs:
       - name: Installierten Build validieren
         shell: pwsh
         run: |
-          $installer = Get-ChildItem -Path dist-exe -Filter "*.exe" -File |
-            Where-Object { $_.Name -match [regex]::Escape($env:VERSION) } |
-            Sort-Object Length -Descending |
-            Select-Object -First 1
+          $installer = Get-ChildItem -Path dist-exe -Filter "EEDTOY-Setup-$env:VERSION.exe" -File | Select-Object -First 1
           if (-not $installer) { throw "Kein Installer für Version $env:VERSION gefunden." }
 
           $installDir = Join-Path $env:RUNNER_TEMP "EEDTOY-release-test"
-          if (Test-Path $installDir) { Remove-Item -Recurse -Force $installDir }
           $process = Start-Process -FilePath $installer.FullName -ArgumentList @('/S', "/D=$installDir") -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw "NSIS installation failed with exit code $($process.ExitCode)." }
 
@@ -110,80 +110,36 @@ jobs:
           & $installedPython -I -c "import serial, serial_asyncio, aiocoap, yaml, eltakobus; from eltakobus.serial import RS485SerialInterfaceV2; print('installed runtime OK')"
           if ($LASTEXITCODE -ne 0) { throw "Installed runtime validation failed." }
 
-          "INSTALLER_PATH=$($installer.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "INSTALLER_NAME=$($installer.Name)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
       - name: Installer als Artefakt sichern
         uses: actions/upload-artifact@v4
         with:
-          name: EEDTOY-v${{ inputs.version }}-Windows-Installer
-          path: ${{ env.INSTALLER_PATH }}
+          name: EEDTOY-v${{ env.VERSION }}-Windows-Installer
+          path: dist-exe/EEDTOY-Setup-${{ env.VERSION }}.exe
           if-no-files-found: error
 
       - name: Release veröffentlichen
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          REPLACE_EXISTING: ${{ inputs.replace_existing }}
+          REPLACE_EXISTING: ${{ inputs.replace_existing || false }}
         run: |
           $releaseExists = $false
           gh release view $env:RELEASE_TAG --repo $env:GH_REPO *> $null
-
-          if ($LASTEXITCODE -eq 0) {
-            $releaseExists = $true
-          }
+          if ($LASTEXITCODE -eq 0) { $releaseExists = $true }
 
           if ($releaseExists -and $env:REPLACE_EXISTING -ne "true") {
-            throw "Release $env:RELEASE_TAG already exists. Enable replace_existing to replace its asset."
+            throw "Release $env:RELEASE_TAG already exists."
           }
 
+          $installer = "dist-exe/EEDTOY-Setup-$env:VERSION.exe"
           if (-not $releaseExists) {
-            $tagExists = git ls-remote --tags origin "refs/tags/$env:RELEASE_TAG"
-
-            if (-not $tagExists) {
-              git config user.name "github-actions[bot]"
-              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-              git tag -a $env:RELEASE_TAG -m "EEDTOY $env:RELEASE_TAG"
-
-              if ($LASTEXITCODE -ne 0) {
-                throw "Tag $env:RELEASE_TAG konnte nicht erstellt werden."
-              }
-
-              git push origin $env:RELEASE_TAG
-
-              if ($LASTEXITCODE -ne 0) {
-                throw "Tag $env:RELEASE_TAG konnte nicht hochgeladen werden."
-              }
-            }
-
-            gh release create `
-              $env:RELEASE_TAG `
-              $env:INSTALLER_PATH `
-              --repo $env:GH_REPO `
-              --verify-tag `
-              --title "EEDTOY $env:RELEASE_TAG" `
-              --generate-notes `
-              --latest
-
-            if ($LASTEXITCODE -ne 0) {
-              throw "Release $env:RELEASE_TAG konnte nicht erstellt werden."
-            }
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a $env:RELEASE_TAG -m "EEDTOY $env:RELEASE_TAG"
+            git push origin $env:RELEASE_TAG
+            gh release create $env:RELEASE_TAG $installer --repo $env:GH_REPO --verify-tag --title "EEDTOY $env:RELEASE_TAG" --notes-file RELEASE_NOTES.md --latest
           }
           else {
-            gh release upload `
-              $env:RELEASE_TAG `
-              $env:INSTALLER_PATH `
-              --repo $env:GH_REPO `
-              --clobber
-
-            if ($LASTEXITCODE -ne 0) {
-              throw "Installer konnte nicht ersetzt werden."
-            }
-
-            gh release edit `
-              $env:RELEASE_TAG `
-              --repo $env:GH_REPO `
-              --title "EEDTOY $env:RELEASE_TAG" `
-              --latest
+            gh release upload $env:RELEASE_TAG $installer --repo $env:GH_REPO --clobber
+            gh release edit $env:RELEASE_TAG --repo $env:GH_REPO --title "EEDTOY $env:RELEASE_TAG" --notes-file RELEASE_NOTES.md --latest
           }
