@@ -13,12 +13,8 @@ on:
         required: true
         default: false
         type: boolean
-  push:
-    branches:
-      - main
-
 concurrency:
-  group: release-v1.0.96
+  group: release-${{ inputs.version }}
   cancel-in-progress: false
 
 permissions:
@@ -29,8 +25,8 @@ jobs:
     runs-on: windows-latest
     env:
       GH_REPO: ${{ github.repository }}
-      VERSION: ${{ inputs.version || '1.0.96' }}
-      RELEASE_TAG: v${{ inputs.version || '1.0.96' }}
+      VERSION: ${{ inputs.version }}
+      RELEASE_TAG: v${{ inputs.version }}
 
     steps:
       - name: Repository auschecken
@@ -121,7 +117,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          REPLACE_EXISTING: ${{ inputs.replace_existing || false }}
+          REPLACE_EXISTING: ${{ inputs.replace_existing }}
         run: |
           $releaseExists = $false
           gh release view $env:RELEASE_TAG --repo $env:GH_REPO *> $null
