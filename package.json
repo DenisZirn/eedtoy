@@ -1,6 +1,6 @@
 {
   "name": "eedtoy",
-  "version": "1.0.96",
+  "version": "1.0.97",
   "description": "EEDTOY - ELTAKO EnOcean Device to YAML Generator (privat entwickelt)",
   "author": "D. Zirnbauer",
   "main": "electron/main.js",
@@ -16,7 +16,7 @@
     "build:installer": "set CSC_IDENTITY_AUTO_DISCOVERY=false&& vite build && electron-builder --win nsis --x64 --publish never",
     "build:all": "npm run python:embed && npm run build:installer",
     "python:bootstrap": "powershell -NoProfile -ExecutionPolicy Bypass -File python/bootstrap_runtime_windows.ps1",
-    "test": "node tests/i18n_dynamic_text_regression.js && node tests/empty_form_profile_fix49_regression.js && node tests/f4usm_no_id_offset_fix50_regression.js && node tests/electron_i18n_regression.js && node tests/yaml_generation_regression.js && node tests/teach_in_database_regression.js && node tests/teach_in_complete_fix48_regression.js && node tests/electron_ipc_contract_regression.js && node tests/fgw14usb_fts14em_learn_regression.js && node tests/macos_gateway_v095_preselection_regression.js && node tests/macos_famusb_auto_direct_esp2_regression.js && node tests/macos_gateway_port_selection_regression.js && python tests/test_write_senders_patch.py && python tests/fgw14usb_fts14em_python_parser_regression.py"
+    "test": "node tests/i18n_dynamic_text_regression.js && node tests/empty_form_profile_fix49_regression.js && node tests/f4usm_no_id_offset_fix50_regression.js && node tests/electron_i18n_regression.js && node tests/yaml_generation_regression.js && node tests/fms14_pct14_xml_regression.js && node tests/teach_in_database_regression.js && node tests/teach_in_complete_fix48_regression.js && node tests/electron_ipc_contract_regression.js && python tests/test_write_senders_patch.py"
   },
   "build": {
     "appId": "io.github.deniszeltako.eedtoy",
