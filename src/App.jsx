@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getStoredLanguage, storeLanguage, translate, translateDeviceLabel, translateDeviceName, translateGroup, translatePlatform, translateRuntimeText } from "./i18n.js";
 
-const APP_VERSION = "1.0.96";
+const APP_VERSION = "1.0.97";
 
 
 function serializeDeviceDatabaseYaml(database) {
@@ -114,6 +114,7 @@ const DEFAULT_EEP_DB = {
   "M5-38-08-FSR71-2X-230V": { group:"Licht / Relais", label:"FSR71-2x-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR71-2x-230V" },
   "M5-38-08-FSR71NP-2X-230V": { group:"Licht / Relais", label:"FSR71NP-2x-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR71NP-2x-230V" },
   "M5-38-08-FSR71NP-4X-230V": { group:"Licht / Relais", label:"FSR71NP-4x-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR71NP-4x-230V", device_family:"FSR71NP-4X-230V", channels:4 },
+  "M5-38-08-FMS14": { group:"Licht / Relais", label:"FMS14 – 2-Kanal-Multifunktions-Stromstoßschalter (M5-38-08 / F6-02-01)", platform:"light", needs_sender:true, teach_in_telegram:"70", sender_eep:"F6-02-01", eep_out:"M5-38-08", eltako:"FMS14", device_family:"FMS14", channels:2 },
   "M5-38-08-FMZ14": { group:"Licht / Relais", label:"FMZ14 – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"F6-02-01", eep_out:"M5-38-08", eltako:"FMZ14" },
   "M5-38-08-FSR61-230V": { group:"Licht / Relais", label:"FSR61-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR61-230V" },
   "M5-38-08-FSR61NP-230V": { group:"Licht / Relais", label:"FSR61NP-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR61NP-230V" },
@@ -155,7 +156,7 @@ const DEVICE_DB_STORAGE_KEY = "eedtoy.customDeviceDatabase.v1";
 const DEVICE_DB_DELETED_KEYS = "__deleted_keys";
 const DEVICE_DB_MODE_KEY = "__eedtoy_database_mode";
 const DEVICE_DB_SCHEMA_KEY = "__eedtoy_database_schema";
-const DEVICE_DB_SCHEMA_VERSION = 51;
+const DEVICE_DB_SCHEMA_VERSION = 52;
 const DEVICE_DB_MODE_AUTHORITATIVE = "authoritative";
 const PROFILE_KEY_ALIASES = {
   "07-37-F7-FRGBW14": "07-3F-7F-FRGBW14",
@@ -266,6 +267,12 @@ function migrateCustomDeviceDatabase(input) {
           bidirectional: true,
         };
         delete database["F6-02-01-FAE14LPR"];
+      }
+
+      // v1.0.97: Add FMS14 once to authoritative databases saved by v1.0.96.
+      // After schema 52 is stored, later user edits or deletion remain intact.
+      if (schemaVersion < 52 && !database["M5-38-08-FMS14"]) {
+        database["M5-38-08-FMS14"] = { ...DEFAULT_EEP_DB["M5-38-08-FMS14"] };
       }
 
       // FIX50: The documented first-ID offset was a manual typo. F4USM61B
@@ -1104,6 +1111,7 @@ function getPct14Mapping(modelName) {
   if (name.startsWith("FSR14-4") || name.startsWith("FSR14_4")) return { eep:"M5-38-08-FSR14-4X", platform:"light" };
   if (name.startsWith("FSR14-2") || name.startsWith("FSR14_2")) return { eep:"M5-38-08-FSR14-2X", platform:"light" };
   if (name.startsWith("FSR14")) return { eep:"M5-38-08-FSR14-2X", platform:"light" };
+  if (name.startsWith("FMS14")) return { eep:"M5-38-08-FMS14", platform:"light", sender_eep:"F6-02-01", channels:2 };
   if (name.startsWith("FMZ14")) return { eep:"M5-38-08-FMZ14", platform:"light", sender_eep:"F6-02-01" };
   if (name.startsWith("FAE14LPR")) return { eep:"A5-10-06-FAE14LPR", platform:"climate", min_target_temperature:16, max_target_temperature:25 };
   if (name.startsWith("FTS14EM")) return { eep:"F6-02-01-FTS14EM-UT", platform:"binary_sensor", fts14em:true };
@@ -1120,6 +1128,7 @@ function normalizePct14ModelName(modelName, language = "de") {
   if (upper.startsWith("FSR14-2") || upper.startsWith("FSR14_2")) return "FSR14-2x";
   if (upper.startsWith("FSR14-1") || upper.startsWith("FSR14_1")) return "FSR14_1X";
   if (upper.startsWith("F4SR14")) return "F4SR14_LED";
+  if (upper.startsWith("FMS14")) return "FMS14";
   if (upper.startsWith("FWG14MS")) return "FWG14MS";
   if (upper.startsWith("F3Z14D")) return "F3Z14D";
   return modelName || (language === "en" ? "Device" : "Gerät");
@@ -1276,70 +1285,6 @@ function createEmptyForm(preferredProfileKey = "") {
 }
 
 const emptyForm = createEmptyForm();
-function preferredGatewayPortForAutoDetect(ports, gatewayType) {
-  const list = Array.isArray(ports) ? ports.filter(port => port && port.path) : [];
-  const type = String(gatewayType || "").toLowerCase();
-  const records = list.map(port => ({
-    port,
-    path: String(port.path || ""),
-    pathLower: String(port.path || "").toLowerCase(),
-    manufacturerLower: String(port.manufacturer || "").toLowerCase(),
-  }));
-
-  // Never prefer generic UART/Bluetooth pseudo ports when a real USB gateway
-  // can be identified from the same list that is shown in the manual selector.
-  const usable = records.filter(item =>
-    !item.pathLower.includes("bluetooth") &&
-    !item.pathLower.includes("blth") &&
-    !/(^|[./_-])urt\d*($|[./_-])/i.test(item.path)
-  );
-
-  if (type === "fam-usb") {
-    const enocean = usable.filter(item =>
-      item.manufacturerLower.includes("enocean") &&
-      item.pathLower.includes("serial")
-    );
-
-    // A FAM-USB exposes two EnOcean serial interfaces. Depending on the macOS
-    // driver/device generation the pair can be named ...B0/...B1 or simply
-    // ...0/...1 (for example ...200/...201). Interface 1 is the usable
-    // data/programmer port. Detect the pair from the actual port list instead
-    // of hard-coding any customer/device serial number.
-    const pairedInterface1 = enocean.find(item => {
-      if (/b1$/i.test(item.path)) {
-        const prefix = item.path.slice(0, -2);
-        return enocean.some(other => other.path !== item.path && other.path.toLowerCase() === `${prefix}B0`.toLowerCase());
-      }
-      if (/1$/.test(item.path)) {
-        const prefix = item.path.slice(0, -1);
-        return enocean.some(other => other.path !== item.path && other.path === `${prefix}0`);
-      }
-      return false;
-    });
-    if (pairedInterface1) return pairedInterface1.path;
-
-    // Keep compatibility with devices where only interface 1 is enumerated.
-    const interface1 = enocean.find(item => /b1$/i.test(item.path))
-      || enocean.find(item => /1$/.test(item.path));
-    if (interface1) return interface1.path;
-
-    // Never knowingly select interface 0. If we cannot identify interface 1,
-    // report no automatic match and leave the manual selector available.
-    const nonInterface0 = enocean.find(item => !/b0$/i.test(item.path) && !/0$/.test(item.path));
-    return nonInterface0 ? nonInterface0.path : "";
-  }
-
-  if (type === "fam14" || type === "fgw14usb") {
-    const ftdi = usable.find(item =>
-      item.manufacturerLower.includes("ftdi") &&
-      item.pathLower.includes("serial")
-    );
-    return ftdi ? ftdi.path : "";
-  }
-
-  return "";
-}
-
 const emptyGW   = { type:"fam-usb", base_id:"", serial_path:"", lan_address:"" };
 
 // ─── App ──────────────────────────────────────────────────────────
@@ -1642,49 +1587,23 @@ export default function App() {
     if (!isElectron) return;
     setDetecting(true);
     setDetectMsg(t("status.detectAllPorts"));
-
-    // macOS auto-detect deliberately reuses the exact same Base-ID read path
-    // as the manual "Base-ID auslesen" button. Only the physical USB port is
-    // selected automatically here. This prevents the generic v1.0.95 auto
-    // detector from continuing to unrelated UART pseudo ports after the real
-    // gateway candidate was already identified from Electron's port list.
-    const detectedPorts = await window.electronAPI.listPorts();
-    if (Array.isArray(detectedPorts)) setPorts(detectedPorts);
-
-    const preferredPort = preferredGatewayPortForAutoDetect(detectedPorts, gateway.type);
-    if (!preferredPort) {
-      setDetecting(false);
-      setDetectMsg("✗ Kein passender serieller Port für den gewählten Gateway-Typ gefunden.");
-      setTimeout(() => setDetectMsg(""), 12000);
-      return;
-    }
-
-    const gw = GATEWAY_TYPES.find(g => g.value === gateway.type);
-    const baud = gw?.baud || 57600;
-    // On macOS the FAM-USB auto path must not depend on the embedded Python
-    // detector.  The port has already been identified as the EnOcean B1
-    // interface above, so query its Base-ID directly with the native ESP2
-    // AB-58 request.  Manual Base-ID reading remains unchanged.
-    const proto = gateway.type === "fam-usb" ? "esp2-fam-usb" : (gw?.proto || "auto");
-    const result = await window.electronAPI.readBaseId(preferredPort, baud, proto);
+    const result = await window.electronAPI.detectGateway(gateway.serial_path);
     setDetecting(false);
 
+    if (result.ports) setPorts(result.ports);
+
     if (result.ok) {
+      const gw = result.gateway;
       setGateway(g => ({
         ...g,
-        serial_path: result.portPath || preferredPort,
-        base_id: result.baseId || "",
+        type: gw.type,
+        serial_path: gw.serial_path,
+        base_id: gw.base_id,
       }));
-      setDetectMsg(t("status.gatewayDetected", {
-        label: gw?.label || gateway.type,
-        port: result.portPath || preferredPort,
-        baseId: result.baseId || "",
-        protocol: result.protocol || proto,
-        baud: result.baudRate || baud,
-        bridge: result.bridge ? `, ${result.bridge}` : "",
-      }));
+      setDetectMsg(t("status.gatewayDetected", { label: gw.label, port: gw.serial_path, baseId: gw.base_id, protocol: gw.protocol, baud: gw.baudRate, bridge: result.bridge ? `, ${result.bridge}` : "" }));
     } else {
-      setDetectMsg("✗ " + runtimeText(result.error || "Gateway konnte auf dem automatisch gewählten Port nicht erkannt werden."));
+      const tried = result.attempts?.length ? t("status.testedVariants", { count: result.attempts.length }) : "";
+      setDetectMsg("✗ " + runtimeText(result.error) + tried);
     }
     setTimeout(() => setDetectMsg(""), 12000);
   };
