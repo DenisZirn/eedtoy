@@ -1,6 +1,9 @@
 name: Create GitHub Release
 
 on:
+  push:
+    branches:
+      - release-v1.0.97-a5-once
   workflow_dispatch:
     inputs:
       version:
@@ -25,7 +28,7 @@ jobs:
     runs-on: windows-latest
     env:
       GH_REPO: ${{ github.repository }}
-      VERSION: ${{ inputs.version }}
+      VERSION: 1.0.97
       RELEASE_TAG: v${{ inputs.version }}
 
     steps:
@@ -117,7 +120,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          REPLACE_EXISTING: ${{ inputs.replace_existing }}
+          REPLACE_EXISTING: "true"
         run: |
           $releaseExists = $false
           gh release view $env:RELEASE_TAG --repo $env:GH_REPO *> $null
