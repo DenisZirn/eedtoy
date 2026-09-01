@@ -18,6 +18,6 @@ for (const [key, telegram] of Object.entries(expected)) {
   const pattern = new RegExp(`"${key.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}"\\s*:\\s*\\{[^\\n]*teach_in_telegram:\\s*"${telegram}"`);
   if (!pattern.test(src)) throw new Error(`Missing or wrong teach-in for ${key}: ${telegram}`);
 }
-if (!src.includes('const DEVICE_DB_SCHEMA_VERSION = 51;')) throw new Error('Schema is not 50');
+if (!src.includes('const DEVICE_DB_SCHEMA_VERSION = 52;')) throw new Error('Schema is not 52');
 if (!src.includes('schemaVersion < 48 && fix48TeachInKeys.has(key) && !currentTeachIn')) throw new Error('FIX48 empty-value migration missing');
 console.log('FIX48 teach-in completeness regression passed.');
