@@ -578,15 +578,14 @@ function isValidFixedEsp2Frame(buf, i) {
 // This is the Eltako RS485 extended ESP2 format
 // ─────────────────────────────────────────────────────────────────
 function buildFamUsbRdIdBase() {
-  // Exact ESP2 frame used by eltakobus for the FAM-USB AB-58 request.
-  // ESP2Message.serialize() is: A5 5A + 11-byte body + checksum.
-  // Body: AB 58 00 00 00 00 00 00 00 00 00, checksum = 0x03.
-  // Do NOT prepend another length byte here; that produced an invalid 15-byte
-  // frame in the old JavaScript fallback.
-  return buildEsp2Message(Buffer.from([
-    0xAB, 0x58, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00,
-  ]));
+  // Eltako/FAM-USB command in ESP2-style framing.
+  // Frame: A5 5A | H_SEQ+LEN | payload | checksum
+  // Checksum is calculated over H_SEQ+LEN plus all payload bytes.
+  const payload = Buffer.from([0xAB, 0x58, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+  const lenByte = 0x2B; // H_SEQ=001, payload length=0x0B
+  let cs = lenByte;
+  for (const b of payload) cs = (cs + b) & 0xFF;
+  return Buffer.from([0xA5, 0x5A, lenByte, ...payload, cs]);
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -640,14 +639,7 @@ function tryParseEltakoFamUsb(buf) {
       if (!allZero(id)) return fmtId(id);
     }
 
-    // Native response to AB-58: RMT header 0x8B, command 0x58, then Base-ID.
-    // This mirrors the reference Python path which reads response.body[2:6].
-    if (body[0] === 0x8B && body[1] === 0x58) {
-      const id = body.slice(2, 6);
-      if (!allZero(id)) return fmtId(id);
-    }
-
-    // Keep compatibility with adapters that wrap the command marker.
+    // Some FAM-USB variants answer the AB 58 command directly.
     if (body[0] === 0x8B && body[1] === 0xAB && body[2] === 0x58) {
       const id = body.slice(3, 7);
       if (!allZero(id)) return fmtId(id);
@@ -982,14 +974,11 @@ function runProcess(cmd, args = [], options = {}) {
 }
 
 function getEmbeddedPythonPath() {
-  const runtimeExecutable = process.platform === 'win32'
-    ? path.join('python-runtime', 'python.exe')
-    : path.join('python-runtime', 'bin', 'python3');
   const candidates = app.isPackaged
-    ? [path.join(process.resourcesPath || '', runtimeExecutable)]
+    ? [path.join(process.resourcesPath || '', 'python-runtime', 'python.exe')]
     : [
         process.env.EEDTOY_PYTHON || '',
-        path.join(__dirname, '..', runtimeExecutable),
+        path.join(__dirname, '..', 'python-runtime', 'python.exe'),
       ];
   return candidates.find(candidate => candidate && exists(candidate)) || candidates[0];
 }
@@ -1008,7 +997,7 @@ async function ensurePythonRuntime() {
   if (!pythonPath || !exists(pythonPath)) {
     pythonRuntimeState = {
       ok: false,
-      error: 'Die eingebettete EEDTOY Python-Laufzeit fehlt. Bitte EEDTOY mit dem vollständigen Installer neu installieren.',
+      error: 'Die eingebettete EEDTOY Python-Laufzeit fehlt. Bitte EEDTOY mit dem vollständigen Windows-Installer neu installieren.',
       attempts: [{ step: 'embedded-runtime-present', ok: false, pythonPath }],
     };
     return pythonRuntimeState;
