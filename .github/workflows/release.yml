@@ -1,9 +1,6 @@
 name: Create GitHub Release
 
 on:
-  push:
-    branches:
-      - release-v1.0.97-fms-controller-fix-once
   workflow_dispatch:
     inputs:
       version:
@@ -28,8 +25,8 @@ jobs:
     runs-on: windows-latest
     env:
       GH_REPO: ${{ github.repository }}
-      VERSION: "1.0.97"
-      RELEASE_TAG: "v1.0.97"
+      VERSION: ${{ inputs.version }}
+      RELEASE_TAG: v${{ inputs.version }}
 
     steps:
       - name: Repository auschecken
@@ -120,14 +117,8 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          REPLACE_EXISTING: "true"
+          REPLACE_EXISTING: ${{ inputs.replace_existing }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin main --tags
-          git tag -f -a $env:RELEASE_TAG origin/main -m "EEDTOY $env:RELEASE_TAG"
-          git push origin $env:RELEASE_TAG --force
-
           $releaseExists = $false
           gh release view $env:RELEASE_TAG --repo $env:GH_REPO *> $null
           if ($LASTEXITCODE -eq 0) { $releaseExists = $true }
