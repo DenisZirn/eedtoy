@@ -6,18 +6,15 @@ on:
       version:
         description: "Version without v prefix, for example 1.0.96"
         required: true
-        default: "1.0.97"
+        default: "1.0.96"
         type: string
       replace_existing:
         description: "Replace an existing release asset for this version"
         required: true
         default: false
         type: boolean
-  push:
-    branches:
-      - release-v1.0.97-once
 concurrency:
-  group: release-v1.0.97
+  group: release-${{ inputs.version }}
   cancel-in-progress: false
 
 permissions:
@@ -28,8 +25,8 @@ jobs:
     runs-on: windows-latest
     env:
       GH_REPO: ${{ github.repository }}
-      VERSION: ${{ inputs.version || '1.0.97' }}
-      RELEASE_TAG: v${{ inputs.version || '1.0.97' }}
+      VERSION: ${{ inputs.version }}
+      RELEASE_TAG: v${{ inputs.version }}
 
     steps:
       - name: Repository auschecken
@@ -120,7 +117,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          REPLACE_EXISTING: ${{ inputs.replace_existing || false }}
+          REPLACE_EXISTING: ${{ inputs.replace_existing }}
         run: |
           $releaseExists = $false
           gh release view $env:RELEASE_TAG --repo $env:GH_REPO *> $null
