@@ -2,7 +2,9 @@
 import asyncio
 import importlib.util
 import json
+import sys
 import tempfile
+import types
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[1] / "python" / "write_senders.py"
@@ -44,6 +46,18 @@ async def test_memory_layouts():
     assert await module._ensure_programmed_fsr14ssr(fsr, "00-00-B0-16", 1) is True
     assert fsr.memory[13] == bytes.fromhex("0000B01600330200")
 
+    fms = FakeDevice(128)
+    assert await module._ensure_programmed_fms14(fms, "00-00-B0-03", 0) is True
+    assert fms.memory[8] == bytes.fromhex("0000B00306030100")
+    assert await module._ensure_programmed_fms14(fms, "00-00-B0-03", 0) is False
+    assert await module._ensure_programmed_fms14(fms, "00-00-B0-04", 1) is True
+    assert fms.memory[9] == bytes.fromhex("0000B00406030200")
+    try:
+        await module._ensure_programmed_fms14(fms, "00-00-B0-04", 2)
+        raise AssertionError("FMS14 channel 3 must be rejected")
+    except ValueError:
+        pass
+
     fhk = FakeDevice(20)
     assert await module._ensure_programmed_fhk_controller(fhk, "00-00-B0-06", 0, "FHK14") is True
     assert fhk.memory[12] == bytes.fromhex("0000B00600410100")
@@ -52,6 +66,58 @@ async def test_memory_layouts():
     f4hk = FakeDevice(24)
     assert await module._ensure_programmed_fhk_controller(f4hk, "00-00-B0-20", 2, "F4HK14") is True
     assert f4hk.memory[18] == bytes.fromhex("0000B02000410400")
+
+
+async def test_fms14_writer_dispatch():
+    class DummyAddressExpression:
+        @staticmethod
+        def parse(value):
+            return value
+
+    class DummyEEP:
+        @staticmethod
+        def find(value):
+            return value
+
+    class DummyDimmerStyle:
+        pass
+
+    class DummyHasProgrammableRPS:
+        pass
+
+    class DummyWriteError(Exception):
+        pass
+
+    fake_modules = {
+        "eltakobus": types.SimpleNamespace(AddressExpression=DummyAddressExpression),
+        "eltakobus.device": types.SimpleNamespace(DimmerStyle=DummyDimmerStyle, HasProgrammableRPS=DummyHasProgrammableRPS),
+        "eltakobus.eep": types.SimpleNamespace(EEP=DummyEEP),
+        "eltakobus.util": types.SimpleNamespace(b2s=lambda value: "-".join(f"{byte:02X}" for byte in value), AddressExpression=DummyAddressExpression),
+        "eltakobus.error": types.SimpleNamespace(WriteError=DummyWriteError),
+    }
+    previous = {name: sys.modules.get(name) for name in fake_modules}
+    sys.modules.update(fake_modules)
+    try:
+        dev = FakeDevice(128)
+        dev.address = 3
+        dev.size = 2
+        base = int("FFE4AB00", 16)
+        sender_map = {
+            "FF-E4-AB-03": [{"sender":{"id":"00-00-B0-03","eep":"F6-02-01"}, "device_type":"FMS14", "name":"FMS14 00-00-00-03 (1/2)"}],
+            "FF-E4-AB-04": [{"sender":{"id":"00-00-B0-04","eep":"F6-02-01"}, "device_type":"FMS14", "name":"FMS14 00-00-00-04 (2/2)"}],
+        }
+        events = await module.ensure_programmed_for_device(base, dev, sender_map)
+        assert [event["status"] for event in events] == ["updated", "updated"]
+        assert dev.memory[8] == bytes.fromhex("0000B00306030100")
+        assert dev.memory[9] == bytes.fromhex("0000B00406030200")
+        events = await module.ensure_programmed_for_device(base, dev, sender_map)
+        assert [event["status"] for event in events] == ["exists", "exists"]
+    finally:
+        for name, old_module in previous.items():
+            if old_module is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = old_module
 
 
 def test_target_addresses():
@@ -72,6 +138,7 @@ def test_fd2g14_uses_grimm_scan():
     assert "Discovery-Modell 04-82" in source
     assert "dev.ensure_programmed(channel, sender_address, profile)" in source
     assert "_ensure_programmed_fsr14ssr" in source
+    assert "_ensure_programmed_fms14" in source
     assert "_ensure_programmed_fhk_controller" in source
 
 
@@ -92,4 +159,5 @@ if __name__ == "__main__":
     test_multiple_senders_per_device_are_preserved()
     asyncio.run(test_fhk_multiple_controller_senders())
     asyncio.run(test_memory_layouts())
+    asyncio.run(test_fms14_writer_dispatch())
     print("R7 sender-write patch tests passed.")
