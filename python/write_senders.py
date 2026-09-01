@@ -205,18 +205,40 @@ async def _ensure_programmed_fsr14ssr(dev: Any, sender_id: str, channel: int = 0
 
 
 async def _ensure_programmed_fms14(dev: Any, sender_id: str, channel: int = 0) -> Optional[bool]:
-    """Program one FMS14 channel for RPS 0x70 ON / 0x50 OFF control.
+    """Program one FMS14 channel as PCT14 ``State from Controller``.
 
     FMS14 is not represented by a dedicated eltakobus device class. Its
-    programmable RPS table starts at memory line 8 and follows the standard
-    Series-14 layout: sender ID, key 6 (right rocker), function 3, channel
-    bitmask and the trailing reserved byte.
+    programmable table starts at memory line 8. PCT14 key function 51
+    (0x33) is ``State from Controller``; key 0 selects the controller
+    telegram instead of a physical RPS rocker. Earlier v1.0.97 builds wrote
+    key 6/function 3, so replace that exact legacy row in place when found.
     """
     sender = _sender_bytes_from_id(sender_id)
     if channel < 0 or channel > 1:
         raise ValueError(f"Ungültiger FMS14-Kanal: {channel + 1}")
-    expected_line = sender + bytes((6, 3, 1 << channel, 0))
-    return await _find_or_write_free_line(dev, expected_line, 8)
+    channel_mask = 1 << channel
+    expected_line = sender + bytes((0, 51, channel_mask, 0))
+    legacy_line = sender + bytes((6, 3, channel_mask, 0))
+    memory_size = int(getattr(dev, "memory_size", 0) or 0)
+    if memory_size <= 8 or not hasattr(dev, "read_mem_line") or not hasattr(dev, "write_mem_line"):
+        return None
+
+    first_empty = None
+    legacy_memory_id = None
+    for memory_id in range(8, memory_size):
+        line = await dev.read_mem_line(memory_id)
+        if line == expected_line:
+            return False
+        if line == legacy_line and legacy_memory_id is None:
+            legacy_memory_id = memory_id
+        if not any(line) and first_empty is None:
+            first_empty = memory_id
+
+    target_memory_id = legacy_memory_id if legacy_memory_id is not None else first_empty
+    if target_memory_id is None:
+        raise RuntimeError("Kein freier Speicherplatz zum Einlernen des FMS14-Controller-Senders gefunden")
+    await dev.write_mem_line(target_memory_id, expected_line)
+    return True
 
 
 async def _ensure_programmed_fhk_controller(
