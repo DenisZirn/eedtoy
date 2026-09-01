@@ -204,6 +204,21 @@ async def _ensure_programmed_fsr14ssr(dev: Any, sender_id: str, channel: int = 0
     return await _find_or_write_free_line(dev, expected_line, 12)
 
 
+async def _ensure_programmed_fms14(dev: Any, sender_id: str, channel: int = 0) -> Optional[bool]:
+    """Program one FMS14 channel for RPS 0x70 ON / 0x50 OFF control.
+
+    FMS14 is not represented by a dedicated eltakobus device class. Its
+    programmable RPS table starts at memory line 8 and follows the standard
+    Series-14 layout: sender ID, key 6 (right rocker), function 3, channel
+    bitmask and the trailing reserved byte.
+    """
+    sender = _sender_bytes_from_id(sender_id)
+    if channel < 0 or channel > 1:
+        raise ValueError(f"Ungültiger FMS14-Kanal: {channel + 1}")
+    expected_line = sender + bytes((6, 3, 1 << channel, 0))
+    return await _find_or_write_free_line(dev, expected_line, 8)
+
+
 async def _ensure_programmed_fhk_controller(
     dev: Any,
     sender_id: str,
@@ -448,6 +463,7 @@ async def ensure_programmed_for_device(fam14_base_id_int: int, dev: Any, sender_
             display_name = _device_display_name(entry, dev_type, device_ext_id)
             is_frgbw = sender_eep == "07-37-F7" or device_eep == "07-37-F7" or "FRGBW" in combined_label.upper()
             is_fsr14ssr = "FSR14SSR" in combined_label.upper()
+            is_fms14 = "FMS14" in combined_label.upper()
             is_fhk = any(token in combined_label.upper() for token in ("FHK14", "F4HK14", "FAE14SSR", "FAE14LPR"))
             if not sender_id or not sender_eep:
                 continue
@@ -460,6 +476,8 @@ async def ensure_programmed_for_device(fam14_base_id_int: int, dev: Any, sender_
                         update_result = await _ensure_programmed_controller_profile(dev, sender_id, channel)
                     elif is_fsr14ssr:
                         update_result = await _ensure_programmed_fsr14ssr(dev, sender_id, channel)
+                    elif is_fms14 and sender_eep == "F6-02-01":
+                        update_result = await _ensure_programmed_fms14(dev, sender_id, channel)
                     elif is_fhk and sender_eep == "A5-10-06":
                         update_result = await _ensure_programmed_fhk_controller(dev, sender_id, channel, entry_type)
                     elif isinstance(dev, HasProgrammableRPS) or isinstance(dev, DimmerStyle) or hasattr(dev, "ensure_programmed"):
