@@ -73,7 +73,7 @@ const messages = {
     'gateway.continueToDevices': 'Weiter → Geräte hinzufügen',
 
     'devices.importTitle': '⬆ PCT14-Export importieren',
-    'devices.importDescription': 'Importiert unterstützte Series-14-Geräte aus einer PCT14-XML/HTML-Datei und fügt sie unten zur Geräteliste hinzu. Unterstützt werden unter anderem FSB14, FUD14, FDG14, FRGBW14, FSR14, FHK14, FD2G14, FWG14MS, FWZ14 und DSZ14. Enthält die Datei ein FAM14 oder FGW14, erscheinen anschließend passende Gateway-Optionen.',
+    'devices.importDescription': 'Importiert unterstützte Series-14-Geräte aus einer PCT14-XML/HTML-Datei und fügt sie unten zur Geräteliste hinzu. Unterstützt werden unter anderem FSB14, FUD14, FDG14, FRGBW14, FSR14, FMS14, FHK14, FD2G14, FWG14MS, FWZ14 und DSZ14. Enthält die Datei ein FAM14 oder FGW14, erscheinen anschließend passende Gateway-Optionen.',
     'devices.detectedFromPct14': 'Aus PCT14 erkannt',
     'devices.useFam14Gateway': 'FAM14 als Gateway nutzen',
     'devices.useFgw14Gateway': 'FGW14-USB als Gateway nutzen',
@@ -243,7 +243,7 @@ const messages = {
     'gateway.continueToDevices': 'Continue → Add devices',
 
     'devices.importTitle': '⬆ Import a PCT14 export',
-    'devices.importDescription': 'Imports supported Series 14 devices from a PCT14 XML/HTML file and adds them to the device list below. Supported models include FSB14, FUD14, FDG14, FRGBW14, FSR14, FHK14, FD2G14, FWG14MS, FWZ14 and DSZ14. If the file contains a FAM14 or FGW14, the matching gateway options are shown afterwards.',
+    'devices.importDescription': 'Imports supported Series 14 devices from a PCT14 XML/HTML file and adds them to the device list below. Supported models include FSB14, FUD14, FDG14, FRGBW14, FSR14, FMS14, FHK14, FD2G14, FWG14MS, FWZ14 and DSZ14. If the file contains a FAM14 or FGW14, the matching gateway options are shown afterwards.',
     'devices.detectedFromPct14': 'Detected in PCT14',
     'devices.useFam14Gateway': 'Use FAM14 as gateway',
     'devices.useFgw14Gateway': 'Use FGW14-USB as gateway',
@@ -402,6 +402,7 @@ const deviceLabelTranslations = {
   'FSR71-2x-230V – Relais/Lichtaktor (M5-38-08)': 'FSR71-2x-230V – Relay / lighting actuator (M5-38-08)',
   'FSR71NP-2x-230V – Relais/Lichtaktor (M5-38-08)': 'FSR71NP-2x-230V – Relay / lighting actuator (M5-38-08)',
   'FSR71NP-4x-230V – Relais/Lichtaktor (M5-38-08)': 'FSR71NP-4x-230V – Relay / lighting actuator (M5-38-08)',
+  'FMS14 – 2-Kanal-Multifunktions-Stromstoßschalter (M5-38-08 / F6-02-01)': 'FMS14 – 2-channel multifunction impulse switch (M5-38-08 / F6-02-01)',
   'FMZ14 – Relais/Lichtaktor (M5-38-08)': 'FMZ14 – Relay / lighting actuator (M5-38-08)',
   'FSR61-230V – Relais/Lichtaktor (M5-38-08)': 'FSR61-230V – Relay / lighting actuator (M5-38-08)',
   'FSR61NP-230V – Relais/Lichtaktor (M5-38-08)': 'FSR61NP-230V – Relay / lighting actuator (M5-38-08)',
