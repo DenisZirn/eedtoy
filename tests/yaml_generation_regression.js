@@ -39,8 +39,8 @@ vm.createContext(context);
 vm.runInContext(helperSource, context, { filename: 'src/App.helpers.jsx' });
 const api = context.__api;
 
-assert(api.APP_VERSION === '1.0.96', 'Application version is 1.0.96');
-assert(Object.keys(api.EEP_DB).length === 74, 'Approved device profile count is 74');
+assert(api.APP_VERSION === '1.0.97', 'Application version is 1.0.97');
+assert(Object.keys(api.EEP_DB).length === 75, 'Approved device profile count is 75');
 
 const gateway = {
   type: 'fam14',
@@ -99,7 +99,7 @@ const devices = [
 ];
 
 const deYaml = api.generateYaml(gateway, devices, [], '', 'de');
-assertIncludes(deYaml, '# Version: 1.0.96', 'German YAML version header');
+assertIncludes(deYaml, '# Version: 1.0.97', 'German YAML version header');
 assertIncludes(deYaml, '# Generiert:', 'German YAML timestamp label');
 assertIncludes(deYaml, 'device_type: fam14', 'Gateway type export');
 assertIncludes(deYaml, 'base_id: FF-AA-BB-00', 'Gateway base ID export');
@@ -120,6 +120,9 @@ assertIncludes(deYaml, 'eep: "A5-38-08"', 'FDG14 A5-38-08 export');
 assert(api.getPct14Mapping('FDG14')?.eep === 'A5-38-08-FDG14', 'PCT14 maps FDG14 to the dedicated profile');
 assert(api.getPct14Mapping('FTS14EM')?.fts14em === true, 'PCT14 recognizes FTS14EM as a special basis-ID device');
 assert(api.getPct14Mapping('FAE14LPR')?.eep === 'A5-10-06-FAE14LPR', 'PCT14 maps FAE14LPR to its climate profile');
+assert(api.getPct14Mapping('FMS14')?.eep === 'M5-38-08-FMS14', 'PCT14 maps FMS14 to its dedicated profile');
+assert(api.getPct14Mapping('FMS14')?.channels === 2, 'PCT14 imports FMS14 as exactly two channels');
+assert(api.getPct14Mapping('FMS14')?.sender_eep === 'F6-02-01', 'FMS14 uses PTM200/RPS sender EEP F6-02-01');
 
 const allGatewaySenderEntries = api.buildSenderProgrammingEntries([{name:'FSB14 Kanal 1',eep:'G5-3F-7F',platform:'cover',dev_id:'00-00-00-0B',sender_id:'00-00-B0-0B',sender_eep:'H5-3F-7F',room:'PCT14 Adresse 11 · Kanal 1',device_type:'FSB14'}],[{type:'fam14',base_id:'FF-F2-6C-80'},{type:'fgw14usb',base_id:'FF-F2-6C-80'},{type:'fam-usb',base_id:'FF-A6-07-00'}],'FF-F2-6C-80');
 assert(allGatewaySenderEntries.length === 2, 'FAM14 and FGW14 duplicate controller IDs are programmed only once');
