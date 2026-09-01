@@ -114,7 +114,7 @@ const DEFAULT_EEP_DB = {
   "M5-38-08-FSR71-2X-230V": { group:"Licht / Relais", label:"FSR71-2x-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR71-2x-230V" },
   "M5-38-08-FSR71NP-2X-230V": { group:"Licht / Relais", label:"FSR71NP-2x-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR71NP-2x-230V" },
   "M5-38-08-FSR71NP-4X-230V": { group:"Licht / Relais", label:"FSR71NP-4x-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR71NP-4x-230V", device_family:"FSR71NP-4X-230V", channels:4 },
-  "M5-38-08-FMS14": { group:"Licht / Relais", label:"FMS14 – 2-Kanal-Multifunktions-Stromstoßschalter (M5-38-08 / F6-02-01)", platform:"light", needs_sender:true, teach_in_telegram:"70", sender_eep:"F6-02-01", eep_out:"M5-38-08", eltako:"FMS14", device_family:"FMS14", channels:2 },
+  "M5-38-08-FMS14": { group:"Licht / Relais", label:"FMS14 – 2-Kanal-Multifunktions-Stromstoßschalter (M5-38-08 / A5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FMS14", device_family:"FMS14", channels:2 },
   "M5-38-08-FMZ14": { group:"Licht / Relais", label:"FMZ14 – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"F6-02-01", eep_out:"M5-38-08", eltako:"FMZ14" },
   "M5-38-08-FSR61-230V": { group:"Licht / Relais", label:"FSR61-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR61-230V" },
   "M5-38-08-FSR61NP-230V": { group:"Licht / Relais", label:"FSR61NP-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR61NP-230V" },
@@ -156,7 +156,7 @@ const DEVICE_DB_STORAGE_KEY = "eedtoy.customDeviceDatabase.v1";
 const DEVICE_DB_DELETED_KEYS = "__deleted_keys";
 const DEVICE_DB_MODE_KEY = "__eedtoy_database_mode";
 const DEVICE_DB_SCHEMA_KEY = "__eedtoy_database_schema";
-const DEVICE_DB_SCHEMA_VERSION = 52;
+const DEVICE_DB_SCHEMA_VERSION = 53;
 const DEVICE_DB_MODE_AUTHORITATIVE = "authoritative";
 const PROFILE_KEY_ALIASES = {
   "07-37-F7-FRGBW14": "07-3F-7F-FRGBW14",
@@ -273,6 +273,15 @@ function migrateCustomDeviceDatabase(input) {
       // After schema 52 is stored, later user edits or deletion remain intact.
       if (schemaVersion < 52 && !database["M5-38-08-FMS14"]) {
         database["M5-38-08-FMS14"] = { ...DEFAULT_EEP_DB["M5-38-08-FMS14"] };
+      }
+      if (schemaVersion < 53 && database["M5-38-08-FMS14"]) {
+        const fms14Defaults = DEFAULT_EEP_DB["M5-38-08-FMS14"];
+        database["M5-38-08-FMS14"] = {
+          ...database["M5-38-08-FMS14"],
+          label: fms14Defaults.label,
+          teach_in_telegram: fms14Defaults.teach_in_telegram,
+          sender_eep: fms14Defaults.sender_eep,
+        };
       }
 
       // FIX50: The documented first-ID offset was a manual typo. F4USM61B
@@ -1111,7 +1120,7 @@ function getPct14Mapping(modelName) {
   if (name.startsWith("FSR14-4") || name.startsWith("FSR14_4")) return { eep:"M5-38-08-FSR14-4X", platform:"light" };
   if (name.startsWith("FSR14-2") || name.startsWith("FSR14_2")) return { eep:"M5-38-08-FSR14-2X", platform:"light" };
   if (name.startsWith("FSR14")) return { eep:"M5-38-08-FSR14-2X", platform:"light" };
-  if (name.startsWith("FMS14")) return { eep:"M5-38-08-FMS14", platform:"light", sender_eep:"F6-02-01", channels:2 };
+  if (name.startsWith("FMS14")) return { eep:"M5-38-08-FMS14", platform:"light", sender_eep:"A5-38-08", channels:2 };
   if (name.startsWith("FMZ14")) return { eep:"M5-38-08-FMZ14", platform:"light", sender_eep:"F6-02-01" };
   if (name.startsWith("FAE14LPR")) return { eep:"A5-10-06-FAE14LPR", platform:"climate", min_target_temperature:16, max_target_temperature:25 };
   if (name.startsWith("FTS14EM")) return { eep:"F6-02-01-FTS14EM-UT", platform:"binary_sensor", fts14em:true };

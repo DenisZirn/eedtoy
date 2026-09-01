@@ -60,8 +60,8 @@ const channelCount = Number(mapping.channels || 0) || Math.max(addressRange, des
 
 assert(mapping.eep === 'M5-38-08-FMS14', 'PCT14 XML model resolves to dedicated FMS14 profile');
 assert(channelCount === 2, 'FMS14 XML import always creates exactly two channels');
-assert(profile.sender_eep === 'F6-02-01', 'FMS14 profile uses PTM200/RPS sender EEP F6-02-01');
-assert(profile.teach_in_telegram === '70', 'FMS14 RPS ON/teach-in data byte is 0x70');
+assert(profile.sender_eep === 'A5-38-08', 'FMS14 profile uses controller sender EEP A5-38-08');
+assert(profile.teach_in_telegram === 'E0-40-0D-80', 'FMS14 exports the A5-38-08 teach-in telegram');
 
 const devices = Array.from({ length: channelCount }, (_, index) => ({
   name: descriptions[index] || ('FMS14 Kanal ' + (index + 1)),
@@ -88,8 +88,8 @@ assertIncludes(busYaml, 'id: "00-00-00-18"', 'FMS14 channel 2 uses the next bus 
 assertIncludes(busYaml, 'id: "00-00-B0-17"', 'FMS14 channel 1 gets its own bus sender ID');
 assertIncludes(busYaml, 'id: "00-00-B0-18"', 'FMS14 channel 2 gets its own bus sender ID');
 assertIncludes(busYaml, 'eep: "M5-38-08"', 'FMS14 actuator status profile is M5-38-08');
-assertIncludes(busYaml, 'eep: "F6-02-01"', 'FMS14 control profile is F6-02-01');
-assertIncludes(busYaml, 'teach_in_telegram: "70"', 'FMS14 YAML exports the RPS ON data byte');
+assertIncludes(busYaml, 'eep: "A5-38-08"', 'FMS14 control profile is A5-38-08');
+assertIncludes(busYaml, 'teach_in_telegram: "E0-40-0D-80"', 'FMS14 YAML exports the A5-38-08 teach-in telegram');
 assertIncludes(busYaml, 'name: "Flur Licht"', 'FMS14 channel 1 keeps its PCT14 description');
 assertIncludes(busYaml, 'name: "Außenlicht"', 'FMS14 channel 2 keeps its PCT14 description');
 
@@ -111,7 +111,7 @@ const programmingEntries = api.buildSenderProgrammingEntries(
   'FF-F2-6C-80'
 );
 assert(programmingEntries.length === 2, 'Sender programming contains one FMS14 entry per channel');
-assert(programmingEntries.every(entry => entry.sender_eep === 'F6-02-01'), 'Both FMS14 sender entries use F6-02-01');
+assert(programmingEntries.every(entry => entry.sender_eep === 'A5-38-08'), 'Both FMS14 sender entries use A5-38-08');
 
 const migrated = api.migrateCustomDeviceDatabase({
   __eedtoy_database_mode: 'authoritative',
@@ -119,9 +119,16 @@ const migrated = api.migrateCustomDeviceDatabase({
   'DUMMY': { label: 'Benutzerprofil' },
 });
 assert(Boolean(migrated['M5-38-08-FMS14']), 'Existing v1.0.96 device databases receive the FMS14 profile once');
-const intentionallyDeleted = api.migrateCustomDeviceDatabase({
+const migratedFrom52 = api.migrateCustomDeviceDatabase({
   __eedtoy_database_mode: 'authoritative',
   __eedtoy_database_schema: 52,
+  'M5-38-08-FMS14': { ...api.profileFor('M5-38-08-FMS14'), sender_eep: 'F6-02-01', teach_in_telegram: '70' },
+});
+assert(migratedFrom52['M5-38-08-FMS14'].sender_eep === 'A5-38-08', 'Existing schema-52 databases migrate FMS14 sender EEP to A5-38-08');
+assert(migratedFrom52['M5-38-08-FMS14'].teach_in_telegram === 'E0-40-0D-80', 'Existing schema-52 databases migrate the FMS14 teach-in telegram');
+const intentionallyDeleted = api.migrateCustomDeviceDatabase({
+  __eedtoy_database_mode: 'authoritative',
+  __eedtoy_database_schema: 53,
   'DUMMY': { label: 'Benutzerprofil' },
 });
 assert(!intentionallyDeleted['M5-38-08-FMS14'], 'A later intentional FMS14 deletion remains deleted');

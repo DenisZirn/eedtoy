@@ -402,7 +402,7 @@ const deviceLabelTranslations = {
   'FSR71-2x-230V – Relais/Lichtaktor (M5-38-08)': 'FSR71-2x-230V – Relay / lighting actuator (M5-38-08)',
   'FSR71NP-2x-230V – Relais/Lichtaktor (M5-38-08)': 'FSR71NP-2x-230V – Relay / lighting actuator (M5-38-08)',
   'FSR71NP-4x-230V – Relais/Lichtaktor (M5-38-08)': 'FSR71NP-4x-230V – Relay / lighting actuator (M5-38-08)',
-  'FMS14 – 2-Kanal-Multifunktions-Stromstoßschalter (M5-38-08 / F6-02-01)': 'FMS14 – 2-channel multifunction impulse switch (M5-38-08 / F6-02-01)',
+  'FMS14 – 2-Kanal-Multifunktions-Stromstoßschalter (M5-38-08 / A5-38-08)': 'FMS14 – 2-channel multifunction impulse switch (M5-38-08 / A5-38-08)',
   'FMZ14 – Relais/Lichtaktor (M5-38-08)': 'FMZ14 – Relay / lighting actuator (M5-38-08)',
   'FSR61-230V – Relais/Lichtaktor (M5-38-08)': 'FSR61-230V – Relay / lighting actuator (M5-38-08)',
   'FSR61NP-230V – Relais/Lichtaktor (M5-38-08)': 'FSR61NP-230V – Relay / lighting actuator (M5-38-08)',

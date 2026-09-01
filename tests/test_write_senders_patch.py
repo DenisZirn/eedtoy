@@ -109,8 +109,8 @@ async def test_fms14_writer_dispatch():
         dev.size = 2
         base = int("FFE4AB00", 16)
         sender_map = {
-            "FF-E4-AB-03": [{"sender":{"id":"00-00-B0-03","eep":"F6-02-01"}, "device_type":"FMS14", "name":"FMS14 00-00-00-03 (1/2)"}],
-            "FF-E4-AB-04": [{"sender":{"id":"00-00-B0-04","eep":"F6-02-01"}, "device_type":"FMS14", "name":"FMS14 00-00-00-04 (2/2)"}],
+            "FF-E4-AB-03": [{"sender":{"id":"00-00-B0-03","eep":"A5-38-08"}, "device_type":"FMS14", "name":"FMS14 00-00-00-03 (1/2)"}],
+            "FF-E4-AB-04": [{"sender":{"id":"00-00-B0-04","eep":"A5-38-08"}, "device_type":"FMS14", "name":"FMS14 00-00-00-04 (2/2)"}],
         }
         events = await module.ensure_programmed_for_device(base, dev, sender_map)
         assert [event["status"] for event in events] == ["updated", "updated"]

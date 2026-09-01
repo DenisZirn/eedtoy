@@ -2,9 +2,10 @@ EEDTOY 1.0.97 – FMS14 auf unveränderter FIX70-Windows-Basis
 
 - Nur FMS14-Geräteprofil, PCT14-XML-Zuordnung, Datenbankmigration und zugehörige Tests ergänzt.
 - Zwei Kanäle mit fortlaufenden Geräte- und Sender-IDs.
-- Senderprogrammierung für beide FMS14-Kanäle mit F6-02-01, 0x70 EIN und 0x50 AUS ergänzt.
+- Senderprogrammierung für beide FMS14-Kanäle als „State from Controller“ mit A5-38-08 ergänzt.
+- PCT14-Schlüsselfunktion 51 (`State from Controller`) statt eines RPS-Tastereintrags; vorhandene falsche Tasterzeilen werden ersetzt.
 - Statusprofil M5-38-08, Senderprofil F6-02-01, RPS 0x70 EIN / 0x50 AUS.
-- Gateway-Erkennung, Electron-Hauptprozess, Python-Dateien und Buildskripte sind bytegleich zur bereitgestellten FIX70-Referenz.
+- Gateway-Erkennung, Electron-Hauptprozess, Python-Gatewaycode und Buildskripte sind bytegleich zur bereitgestellten FIX70-Referenz.
 
 EEDTOY 1.0.96 FIX68
 

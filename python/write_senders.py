@@ -498,7 +498,7 @@ async def ensure_programmed_for_device(fam14_base_id_int: int, dev: Any, sender_
                         update_result = await _ensure_programmed_controller_profile(dev, sender_id, channel)
                     elif is_fsr14ssr:
                         update_result = await _ensure_programmed_fsr14ssr(dev, sender_id, channel)
-                    elif is_fms14 and sender_eep == "F6-02-01":
+                    elif is_fms14 and sender_eep == "A5-38-08":
                         update_result = await _ensure_programmed_fms14(dev, sender_id, channel)
                     elif is_fhk and sender_eep == "A5-10-06":
                         update_result = await _ensure_programmed_fhk_controller(dev, sender_id, channel, entry_type)
