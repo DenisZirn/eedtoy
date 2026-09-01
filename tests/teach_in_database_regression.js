@@ -16,7 +16,7 @@ const senderProfiles = rows
   .filter((entry) => entry.body.includes('needs_sender:true'));
 assert(senderProfiles.length > 0, 'Sender-based profiles are present');
 for (const entry of senderProfiles) {
-  assert(/teach_in_telegram:"[0-9A-F]{2}(?:-[0-9A-F]{2}){3}"/.test(entry.body), `${entry.key} has an editable teach-in telegram`);
+  assert(/teach_in_telegram:"[0-9A-F]{2}(?:-[0-9A-F]{2}){0,3}"/.test(entry.body), `${entry.key} has an editable RPS or 4BS teach-in telegram`);
 }
 
 assert(source.includes('if (p.teach_in_telegram) out += `        teach_in_telegram: "${p.teach_in_telegram}"\\n`;'), 'YAML exports teach-in telegram from the active database profile');
@@ -36,6 +36,7 @@ const pctMappings = [
   ['FRGBW71', '07-3F-7F-FRGBW71L'],
   ['FUD14', 'A5-38-08-FUD14'],
   ['F4SR14', 'M5-38-08-F4SR14-LED'],
+  ['FMS14', 'M5-38-08-FMS14'],
   ['FMZ14', 'M5-38-08-FMZ14'],
 ];
 for (const [model, profileKey] of pctMappings) {
