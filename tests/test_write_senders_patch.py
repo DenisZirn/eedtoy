@@ -48,10 +48,16 @@ async def test_memory_layouts():
 
     fms = FakeDevice(128)
     assert await module._ensure_programmed_fms14(fms, "00-00-B0-03", 0) is True
-    assert fms.memory[8] == bytes.fromhex("0000B00306030100")
+    assert fms.memory[8] == bytes.fromhex("0000B00300330100")
     assert await module._ensure_programmed_fms14(fms, "00-00-B0-03", 0) is False
     assert await module._ensure_programmed_fms14(fms, "00-00-B0-04", 1) is True
-    assert fms.memory[9] == bytes.fromhex("0000B00406030200")
+    assert fms.memory[9] == bytes.fromhex("0000B00400330200")
+
+    legacy_fms = FakeDevice(128)
+    legacy_fms.memory[17] = bytes.fromhex("0000B00306030100")
+    assert await module._ensure_programmed_fms14(legacy_fms, "00-00-B0-03", 0) is True
+    assert legacy_fms.memory[17] == bytes.fromhex("0000B00300330100")
+    assert not any(legacy_fms.memory[8])
     try:
         await module._ensure_programmed_fms14(fms, "00-00-B0-04", 2)
         raise AssertionError("FMS14 channel 3 must be rejected")
@@ -108,8 +114,8 @@ async def test_fms14_writer_dispatch():
         }
         events = await module.ensure_programmed_for_device(base, dev, sender_map)
         assert [event["status"] for event in events] == ["updated", "updated"]
-        assert dev.memory[8] == bytes.fromhex("0000B00306030100")
-        assert dev.memory[9] == bytes.fromhex("0000B00406030200")
+        assert dev.memory[8] == bytes.fromhex("0000B00300330100")
+        assert dev.memory[9] == bytes.fromhex("0000B00400330200")
         events = await module.ensure_programmed_for_device(base, dev, sender_map)
         assert [event["status"] for event in events] == ["exists", "exists"]
     finally:
