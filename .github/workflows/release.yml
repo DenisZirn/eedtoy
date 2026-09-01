@@ -6,18 +6,15 @@ on:
       version:
         description: "Version without v prefix, for example 1.0.96"
         required: true
-        default: "1.0.97"
+        default: "1.0.96"
         type: string
       replace_existing:
         description: "Replace an existing release asset for this version"
         required: true
         default: false
         type: boolean
-  push:
-    branches:
-      - release-v1.0.97-correction-once
 concurrency:
-  group: release-v1.0.97
+  group: release-${{ inputs.version }}
   cancel-in-progress: false
 
 permissions:
@@ -28,8 +25,8 @@ jobs:
     runs-on: windows-latest
     env:
       GH_REPO: ${{ github.repository }}
-      VERSION: ${{ inputs.version || '1.0.97' }}
-      RELEASE_TAG: v${{ inputs.version || '1.0.97' }}
+      VERSION: ${{ inputs.version }}
+      RELEASE_TAG: v${{ inputs.version }}
 
     steps:
       - name: Repository auschecken
@@ -120,7 +117,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          REPLACE_EXISTING: ${{ inputs.replace_existing || true }}
+          REPLACE_EXISTING: ${{ inputs.replace_existing }}
         run: |
           $releaseExists = $false
           gh release view $env:RELEASE_TAG --repo $env:GH_REPO *> $null
@@ -139,10 +136,6 @@ jobs:
             gh release create $env:RELEASE_TAG $installer --repo $env:GH_REPO --verify-tag --title "EEDTOY $env:RELEASE_TAG" --notes-file RELEASE_NOTES.md --latest
           }
           else {
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git tag -fa $env:RELEASE_TAG -m "EEDTOY $env:RELEASE_TAG corrected FMS14 sender programming"
-            git push origin $env:RELEASE_TAG --force
             gh release upload $env:RELEASE_TAG $installer --repo $env:GH_REPO --clobber
             gh release edit $env:RELEASE_TAG --repo $env:GH_REPO --title "EEDTOY $env:RELEASE_TAG" --notes-file RELEASE_NOTES.md --latest
           }
