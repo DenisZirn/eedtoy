@@ -2,6 +2,7 @@
 
 - FMS14 als eigener 2-Kanal-Multifunktions-Stromstoßschalter ergänzt.
 - PCT14-XML-Import erkennt `FMS14` automatisch und erzeugt genau zwei Kanäle mit fortlaufenden Geräte- und Sender-IDs.
+- FMS14-Sender-IDs werden für beide Kanäle als PTM200/RPS mit `0x70` EIN und `0x50` AUS direkt in den Aktor geschrieben.
 - PCT14-Kanalbeschreibungen werden als Namen übernommen.
 - Statusprofil `M5-38-08`, PTM200-/RPS-Senderprofil `F6-02-01`, `0x70` EIN und `0x50` AUS.
 - Bereits gespeicherte Gerätedatenbanken werden einmalig auf Schema 52 migriert.
