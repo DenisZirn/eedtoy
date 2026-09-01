@@ -1,12 +1,26 @@
-EEDTOY v1.0.96 – finaler Freigabestand
+EEDTOY 1.0.97 – FMS14 auf unveränderter FIX70-Windows-Basis
 
-- Windows basiert auf dem geprüften FIX70-Stand.
-- macOS enthält zusätzlich die geprüften FIX71-/FIX72-Korrekturen.
-- FTS14EM-Lernen über FGW14-USB verwendet den Python-/eltakobus-RS485-Pfad
-  bei 57600 Baud und verlangt fünf Betätigungen desselben E1-Eingangs.
-- FAM-USB verwendet unter macOS die direkte ESP2-AB-58-Base-ID-Abfrage.
-- Bei macOS-Portpaaren wird Interface 1 bevorzugt; Interface 0 wird nicht
-  wissentlich als FAM-USB-Datenport verwendet. Unterstützt werden sowohl
-  B0/B1- als auch 0/1-Bezeichnungen ohne fest codierte Seriennummer.
-- FAM14, FGW14-USB, Senderprogrammierung, Gerätedatenbank und YAML-Export
-  bleiben mit dem geprüften v1.0.96-Gesamtstand erhalten.
+- Nur FMS14-Geräteprofil, PCT14-XML-Zuordnung, Datenbankmigration und zugehörige Tests ergänzt.
+- Zwei Kanäle mit fortlaufenden Geräte- und Sender-IDs.
+- Statusprofil M5-38-08, Senderprofil F6-02-01, RPS 0x70 EIN / 0x50 AUS.
+- Gateway-Erkennung, Electron-Hauptprozess, Python-Dateien und Buildskripte sind bytegleich zur bereitgestellten FIX70-Referenz.
+
+EEDTOY 1.0.96 FIX68
+
+- Basis: exakt FIX67 (FIX65-Schreiblogik + Fortschritt/Abbrechen).
+- UI: Button RS485-Bus freigeben heißt jetzt Gateway trennen.
+- UI: Gateway trennen zusätzlich direkt unter Abbrechen im Sender-Schreibbereich.
+- UI: Hinweis zum FAM-USB-Funkstick unter dem Bus-COM-Port entfernt.
+- Keine Änderung an python/write_senders.py, FD2G14-, FAE14LPR- oder Gateway-Erkennungslogik.
+
+FIX69 - FGW14-USB FTS14EM learning
+- Windows and macOS: FTS14EM E1 base-ID learning through FGW14-USB now uses a dedicated raw ESP2 listener at 57600 baud instead of treating FGW14-USB as FAM14 in the Python learner.
+- The learner accepts Series-14 RPS ORG 0x05 press/release telegrams for the valid FTS14EM E1 ranges 00-00-10-01 through 00-00-14-01 and still requires five presses of the same E1 input.
+- FAM14 learning path is unchanged.
+- Sender programming and device database are unchanged.
+
+FIX70
+- FGW14-USB FTS14EM learning now uses the same Python/eltakobus RS485SerialInterfaceV2 receive path as FAM14.
+- Keeps FGW14-USB as its own listener mode at 57600 baud with delay_message=0.01.
+- Removes the FIX69 raw-JavaScript FTS14EM learning branch from active use.
+- No sender-writing, device database, YAML, FAM14 or FAM-USB behavior changed.
