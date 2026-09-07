@@ -247,10 +247,11 @@ async def _ensure_programmed_fhk_controller(
     channel: int,
     device_type: str,
 ) -> Optional[bool]:
-    """Program one or more smart-home-controller senders for FHK14/F4HK14/FAE14SSR."""
+    """Program the single Function Group 3 controller sender for FHK devices."""
     sender = _sender_bytes_from_id(sender_id)
     upper_type = str(device_type or "").upper()
-    start_line = 16 if "F4HK14" in upper_type else 12
+    is_single_channel_fhk14 = "FHK14" in upper_type and "F4HK14" not in upper_type
+    start_line = 10 if is_single_channel_fhk14 else (16 if "F4HK14" in upper_type else 12)
     preferred_line = start_line + int(channel or 0)
     memory_size = int(getattr(dev, "memory_size", 0) or 0)
     if preferred_line >= memory_size or not hasattr(dev, "read_mem_line") or not hasattr(dev, "write_mem_line"):
@@ -258,23 +259,23 @@ async def _ensure_programmed_fhk_controller(
 
     expected_line = sender + bytes((0, 65, 1 << int(channel or 0), 0))
 
-    # Keep the original channel-specific controller line for the first sender.
-    # Additional controller senders for the same channel use another free line.
-    first_empty = None
-    for memory_line in range(start_line, memory_size):
-        current_line = await dev.read_mem_line(memory_line)
-        if current_line == expected_line:
-            return False
-        if not any(current_line) and first_empty is None:
-            first_empty = memory_line
-
     preferred_current = await dev.read_mem_line(preferred_line)
-    target_line = preferred_line if not any(preferred_current) else first_empty
-    if target_line is None:
-        raise RuntimeError("Kein freier FHK-Controller-Speicherplatz für einen weiteren Sender gefunden")
-
-    await dev.write_mem_line(target_line, expected_line)
-    return True
+    changed = preferred_current != expected_line
+    if changed:
+        # Function Group 3 has exactly one controller slot. A changed gateway ID
+        # therefore replaces that slot and must never spill into Function Group 4.
+        await dev.write_mem_line(preferred_line, expected_line)
+    if is_single_channel_fhk14:
+        # Older v1.0.97 builds wrote Function 65 into Group 4 (entries 5/6).
+        # Remove only those invalid controller rows; preserve all other entries.
+        for legacy_line in (12, 13):
+            if legacy_line >= memory_size:
+                continue
+            legacy_value = await dev.read_mem_line(legacy_line)
+            if legacy_value[4:] == bytes((0, 65, 1, 0)):
+                await dev.write_mem_line(legacy_line, bytes(8))
+                changed = True
+    return changed
 
 
 

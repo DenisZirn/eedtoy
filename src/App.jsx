@@ -85,6 +85,7 @@ const DEFAULT_EEP_DB = {
 
   // ── Heizung / Stellantrieb ───────────────────────────────────
   "A5-20-01-FKS-SV": { group:"Heizung / Stellantrieb", label:"FKS-SV – Smart Valve / Heizkörper-Stellantrieb (A5-20-01)", platform:"climate", needs_sender:true, teach_in_telegram:"80-08-0D-80", sender_eep:"A5-20-01", eep_out:"A5-20-01", fks_sv_device:true, eltako:"FKS-SV" },
+  "A5-20-04-FKS-B": { group:"Heizung / Stellantrieb", label:"FKS-B – Batterie-Heizkörper-Stellantrieb wie FKS-H (A5-20-04)", platform:"climate", needs_sender:true, teach_in_telegram:"80-20-0D-80", sender_eep:"A5-20-04", eep_out:"A5-20-04", device_family:"FKS-B", bidirectional:true, min_target_temperature:10, max_target_temperature:30, eltako:"FKS-B" },
 
   // ── Zähler ────────────────────────────────────────────────────
   "A5-12-01": { group:"Zähler", label:"FWZ12, FWZ14, DSZ14 – Funk-/Wechselstromzähler kWh (A5-12-01)", platform:"sensor", eep_out:"A5-12-01", teach_in_telegram:"48-08-0D-80", eltako:"FWZ12, FWZ14, DSZ14" },
@@ -156,7 +157,7 @@ const DEVICE_DB_STORAGE_KEY = "eedtoy.customDeviceDatabase.v1";
 const DEVICE_DB_DELETED_KEYS = "__deleted_keys";
 const DEVICE_DB_MODE_KEY = "__eedtoy_database_mode";
 const DEVICE_DB_SCHEMA_KEY = "__eedtoy_database_schema";
-const DEVICE_DB_SCHEMA_VERSION = 53;
+const DEVICE_DB_SCHEMA_VERSION = 54;
 const DEVICE_DB_MODE_AUTHORITATIVE = "authoritative";
 const PROFILE_KEY_ALIASES = {
   "07-37-F7-FRGBW14": "07-3F-7F-FRGBW14",
@@ -284,6 +285,12 @@ function migrateCustomDeviceDatabase(input) {
         };
       }
 
+      // v1.0.97: Add the FKS-B as an A5-20-04 climate actuator. The GFA5
+      // handles this device with the same radio profile as the FKS-H.
+      if (schemaVersion < 54 && !database["A5-20-04-FKS-B"]) {
+        database["A5-20-04-FKS-B"] = { ...DEFAULT_EEP_DB["A5-20-04-FKS-B"] };
+      }
+
       // FIX50: The documented first-ID offset was a manual typo. F4USM61B
       // channel 1 always starts at the original learned ID; remove the obsolete
       // field from every persisted F4USM61B profile.
@@ -365,7 +372,7 @@ const GENERIC_EEP_PROFILES = {
   "A5-07-01": { platform:"binary_sensor", needs_sender:false, eep_out:"A5-07-01", default_dc:"motion" },
   "A5-08-01": { platform:"sensor", needs_sender:false, eep_out:"A5-08-01" },
   "A5-20-01": { platform:"climate", needs_sender:true, sender_eep:"A5-20-01", eep_out:"A5-20-01" },
-  "A5-20-04": { platform:"sensor", needs_sender:false, eep_out:"A5-20-04" },
+  "A5-20-04": { platform:"climate", needs_sender:true, sender_eep:"A5-20-04", eep_out:"A5-20-04", min_target_temperature:10, max_target_temperature:30 },
   "A5-14-09": { platform:"sensor", needs_sender:false, eep_out:"A5-14-09", ffg7b_three_state:true },
   "07-3F-7F": { platform:"light", needs_sender:true, sender_eep:"07-3F-7F", eep_out:"07-3F-7F" },
   "07-37-F7": { platform:"light", needs_sender:true, sender_eep:"07-3F-7F", eep_out:"07-3F-7F" },
@@ -1052,7 +1059,17 @@ function buildSenderProgrammingEntries(devices, targetGateways, pct14BaseId) {
     const sender_eep = String(d.sender_eep || p.sender_eep || p.eep_out || d.eep || "").trim().toUpperCase();
     if (!device_id || !sender_eep) continue;
 
-    for (const targetGateway of gateways) {
+    const typeText = `${deviceTypeForDevice(d)} ${d.name || ""}`.toUpperCase();
+    const isFhk14 = /(^|\s)FHK14(?:\s|$)/.test(typeText);
+    const gatewayPriority = { fgw14usb: 3, "fam-usb": 2, fam14: 1 };
+    const programmingGateways = isFhk14
+      ? gateways
+          .slice()
+          .sort((a, b) => (gatewayPriority[String(b.type || "").toLowerCase()] || 0) - (gatewayPriority[String(a.type || "").toLowerCase()] || 0))
+          .slice(0, 1)
+      : gateways;
+
+    for (const targetGateway of programmingGateways) {
       const sender_id = senderIdForGateway(d, targetGateway, pct14BaseId);
       if (!sender_id) continue;
       const requirementKey = `${device_id}|${sender_id}|${sender_eep}`;

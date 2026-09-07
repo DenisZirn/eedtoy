@@ -122,8 +122,8 @@ const databaseSource = appSource
   .replace(/\r\n/g, '\n');
 const deviceRows = [...databaseSource.matchAll(/group:"([^"]+)"\s*,\s*label:"([^"]+)"/g)]
   .map((match) => ({ group: match[1], label: match[2] }));
-assertEqual(deviceRows.length, 75, 'Approved device profile count is 75');
-assertEqual(crypto.createHash('sha256').update(databaseSource).digest('hex'), 'fe19179104ec4764582fbde81d301fe92989d98e5294e811429360ed54ce6c86', 'Approved device database content unchanged');
+assertEqual(deviceRows.length, 76, 'Approved device profile count is 76');
+assertEqual(crypto.createHash('sha256').update(databaseSource).digest('hex'), 'f79a25c624c6850cb992ec8eb1ec8e46c4b8576ede7b7790bf0f411741c51564', 'Approved device database content unchanged');
 assert(Object.keys(api.deviceLabelTranslations).length > 0, 'Exact English device-label table is available');
 
 const remainingGerman = /(Taster|Näherung|Fenster|Türkontakt|Bewegung|Helligkeit|Rauch|Hitze|Temperatur\b|Feuchte|Datenübermittlung|Punkt-Regler|Heizkörper|Funk-|Wechselstrom|Drehstrom|Wetterstation|Regen|Dimmaktor|Relais|Farbsteuerung|freies Profil|Jalousie|Rollladen|Betriebsart|Raumregler|Sollwert|Belegung)/;

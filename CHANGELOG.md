@@ -1,11 +1,14 @@
 ## 1.0.97
 
+- FKS-B als eigener batteriebetriebener Heizkörper-Stellantrieb ergänzt; technisch wird er wie der FKS-H mit `A5-20-04` behandelt.
+- FKS-B wird als `climate` mit bidirektionalem Senderprofil `A5-20-04`, Lerntelegramm `80-20-0D-80` und Sollwertbereich 10–30 °C exportiert.
+- Bestehende Gerätedatenbanken erhalten das FKS-B-Profil einmalig über Schema 54; eigene Änderungen bleiben erhalten.
 - FMS14 als eigener 2-Kanal-Multifunktions-Stromstoßschalter ergänzt.
 - PCT14-XML-Import erkennt `FMS14` automatisch und erzeugt genau zwei Kanäle mit fortlaufenden Geräte- und Sender-IDs.
 - FMS14-Sender-IDs werden für beide Kanäle als PTM200/RPS mit `0x70` EIN und `0x50` AUS direkt in den Aktor geschrieben.
+- FMS14-Sender werden in PCT14 als `State from Controller` (Schlüsselfunktion 51) gespeichert; falsche Tastereinträge aus einem früheren v1.0.97-Build werden beim erneuten Schreiben ersetzt.
 - PCT14-Kanalbeschreibungen werden als Namen übernommen.
-- Statusprofil `M5-38-08`, PTM200-/RPS-Senderprofil `F6-02-01`, `0x70` EIN und `0x50` AUS.
-- Bereits gespeicherte Gerätedatenbanken werden einmalig auf Schema 52 migriert.
+- Statusprofil `M5-38-08` und Senderprofil `A5-38-08` werden verwendet.
 - Gateway-Erkennung, Portauswahl, Electron-Hauptprozess, Python-Gatewaycode und Windows-Buildskripte bleiben unverändert aus FIX70 erhalten.
 
 ## 1.0.96 FIX48

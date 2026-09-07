@@ -40,7 +40,7 @@ vm.runInContext(helperSource, context, { filename: 'src/App.helpers.jsx' });
 const api = context.__api;
 
 assert(api.APP_VERSION === '1.0.97', 'Application version is 1.0.97');
-assert(Object.keys(api.EEP_DB).length === 75, 'Approved device profile count is 75');
+assert(Object.keys(api.EEP_DB).length === 76, 'Approved device profile count is 76');
 
 const gateway = {
   type: 'fam14',
@@ -123,11 +123,31 @@ assert(api.getPct14Mapping('FAE14LPR')?.eep === 'A5-10-06-FAE14LPR', 'PCT14 maps
 assert(api.getPct14Mapping('FMS14')?.eep === 'M5-38-08-FMS14', 'PCT14 maps FMS14 to its dedicated profile');
 assert(api.getPct14Mapping('FMS14')?.channels === 2, 'PCT14 imports FMS14 as exactly two channels');
 assert(api.getPct14Mapping('FMS14')?.sender_eep === 'A5-38-08', 'FMS14 uses controller sender EEP A5-38-08');
+const fksB = api.EEP_DB['A5-20-04-FKS-B'];
+assert(fksB?.platform === 'climate', 'FKS-B is exported as a climate actuator');
+assert(fksB?.eep_out === 'A5-20-04' && fksB?.sender_eep === 'A5-20-04', 'FKS-B uses the FKS-H compatible A5-20-04 profile in both directions');
+assert(fksB?.teach_in_telegram === '80-20-0D-80', 'FKS-B has the A5-20-04 teach-in telegram');
+assert(fksB?.min_target_temperature === 10 && fksB?.max_target_temperature === 30, 'FKS-B target range is 10 to 30 degrees Celsius');
+const fksBYaml = api.generateYaml(gateway, [{name:'FKS-B Wohnzimmer',eep:'A5-20-04-FKS-B',platform:'climate',dev_id:'05-00-00-01',sender_id:'FF-AA-BB-10',sender_eep:'A5-20-04',device_type:'FKS-B'}], [], '', 'de');
+assertIncludes(fksBYaml, 'name: "FKS-B Wohnzimmer"', 'FKS-B YAML keeps its own device name');
+assertIncludes(fksBYaml, 'eep: "A5-20-04"', 'FKS-B YAML exports A5-20-04');
+assertIncludes(fksBYaml, 'teach_in_telegram: "80-20-0D-80"', 'FKS-B YAML exports its teach-in telegram');
+assertIncludes(fksBYaml, 'min_target_temperature: 10', 'FKS-B YAML exports minimum target temperature');
+assertIncludes(fksBYaml, 'max_target_temperature: 30', 'FKS-B YAML exports maximum target temperature');
 
 const allGatewaySenderEntries = api.buildSenderProgrammingEntries([{name:'FSB14 Kanal 1',eep:'G5-3F-7F',platform:'cover',dev_id:'00-00-00-0B',sender_id:'00-00-B0-0B',sender_eep:'H5-3F-7F',room:'PCT14 Adresse 11 · Kanal 1',device_type:'FSB14'}],[{type:'fam14',base_id:'FF-F2-6C-80'},{type:'fgw14usb',base_id:'FF-F2-6C-80'},{type:'fam-usb',base_id:'FF-A6-07-00'}],'FF-F2-6C-80');
 assert(allGatewaySenderEntries.length === 2, 'FAM14 and FGW14 duplicate controller IDs are programmed only once');
 assert(allGatewaySenderEntries.some(entry => entry.sender_id === '00-00-B0-0B'), 'Internal Series-14 controller sender is included');
 assert(allGatewaySenderEntries.some(entry => entry.sender_id === 'FF-A6-07-0B'), 'Dynamic FAM-USB sender is included');
+
+const fhkDevice = {name:'FHK14 Heizkreis',eep:'A5-10-06',platform:'climate',dev_id:'00-00-00-06',sender_id:'00-00-B0-06',sender_eep:'A5-10-06',room:'PCT14 Adresse 6',device_type:'FHK14'};
+const fhkPreferredEntry = api.buildSenderProgrammingEntries([fhkDevice],[{type:'fam14',base_id:'FF-F2-6C-80'},{type:'fam-usb',base_id:'FF-A6-07-00'},{type:'fgw14usb',base_id:'FF-F2-6C-80'}],'FF-F2-6C-80');
+assert(fhkPreferredEntry.length === 1, 'FHK14 exports exactly one Function Group 3 controller sender');
+assert(fhkPreferredEntry[0].source_gateway_type === 'fgw14usb', 'FHK14 prefers FGW14-USB over FAM-USB and FAM14');
+const fhkFamUsbEntry = api.buildSenderProgrammingEntries([fhkDevice],[{type:'fam14',base_id:'FF-F2-6C-80'},{type:'fam-usb',base_id:'FF-A6-07-00'}],'FF-F2-6C-80');
+assert(fhkFamUsbEntry.length === 1 && fhkFamUsbEntry[0].source_gateway_type === 'fam-usb', 'FHK14 uses FAM-USB when no FGW14-USB is available');
+const fhkFam14Entry = api.buildSenderProgrammingEntries([fhkDevice],[{type:'fam14',base_id:'FF-F2-6C-80'}],'FF-F2-6C-80');
+assert(fhkFam14Entry.length === 1 && fhkFam14Entry[0].source_gateway_type === 'fam14', 'FHK14 uses FAM14 as the last fallback');
 assertIncludes(appSource, 'const [generatedGatewayBlocks, setGeneratedGatewayBlocks] = useState([]);', 'Generated YAML gateway snapshot is stored');
 assertIncludes(appSource, 'yaml && generatedGatewayBlocks.length', 'Sender programming uses the generated YAML gateway snapshot');
 const roomControllerDedup = api.deduplicateExportDevices([

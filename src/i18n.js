@@ -384,6 +384,7 @@ const deviceLabelTranslations = {
   'FTR55/65-Familie – Betriebsart FHK: Soll- und Isttemperatur (A5-10-06)': 'FTR55/65 family – FHK operating mode: setpoint and room temperature (A5-10-06)',
   'FTR55/65-Familie – Betriebsart TF61: Heizanforderung EIN/AUS (A5-38-08)': 'FTR55/65 family – TF61 operating mode: heating demand ON/OFF (A5-38-08)',
   'FKS-SV – Smart Valve / Heizkörper-Stellantrieb (A5-20-01)': 'FKS-SV – Smart valve / radiator actuator (A5-20-01)',
+  'FKS-B – Batterie-Heizkörper-Stellantrieb wie FKS-H (A5-20-04)': 'FKS-B – Battery-powered radiator actuator, compatible with FKS-H (A5-20-04)',
   'FWZ12, FWZ14, DSZ14 – Funk-/Wechselstromzähler kWh (A5-12-01)': 'FWZ12, FWZ14, DSZ14 – Wireless single-phase energy meters, kWh (A5-12-01)',
   'F3Z14D – 3-Kanal-S0-Drehstromzähler (A5-12-01)': 'F3Z14D – 3-channel S0 energy meter (A5-12-01)',
   'FWS61, FWG14MS – Wetterstation Wind + Regen + Temperatur (A5-13-01)': 'FWS61, FWG14MS – Weather station: wind, rain and temperature (A5-13-01)',

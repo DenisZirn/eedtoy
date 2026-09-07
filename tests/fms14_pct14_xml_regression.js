@@ -132,5 +132,7 @@ const intentionallyDeleted = api.migrateCustomDeviceDatabase({
   'DUMMY': { label: 'Benutzerprofil' },
 });
 assert(!intentionallyDeleted['M5-38-08-FMS14'], 'A later intentional FMS14 deletion remains deleted');
+assert(Boolean(intentionallyDeleted['A5-20-04-FKS-B']), 'Existing schema-53 databases receive the FKS-B profile once');
+assert(intentionallyDeleted.__eedtoy_database_schema === 54, 'FKS-B migration advances the device database to schema 54');
 
 console.log('All FMS14 PCT14/XML regression tests passed.');

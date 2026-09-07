@@ -26,15 +26,19 @@ class FakeDevice:
         self.memory[line] = value
 
 
-async def test_fhk_multiple_controller_senders():
+async def test_fhk_single_function_group_3_sender():
     dev = FakeDevice(memory_size=24)
     first = module._sender_bytes_from_id("00-00-B0-01") + bytes((0, 65, 1, 0))
-    second = module._sender_bytes_from_id("FF-A6-07-01") + bytes((0, 65, 1, 0))
-    dev.memory[12] = first
+    replacement = module._sender_bytes_from_id("FF-A6-07-01") + bytes((0, 65, 1, 0))
+    dev.memory[10] = first
+    dev.memory[13] = replacement
 
-    assert await module._ensure_programmed_fhk_controller(dev, "00-00-B0-01", 0, "FHK14") is False
+    assert await module._ensure_programmed_fhk_controller(dev, "00-00-B0-01", 0, "FHK14") is True
+    assert not any(dev.memory[13])
     assert await module._ensure_programmed_fhk_controller(dev, "FF-A6-07-01", 0, "FHK14") is True
-    assert dev.memory[13] == second
+    assert dev.memory[10] == replacement
+    assert not any(dev.memory[12])
+    assert not any(dev.memory[13])
     assert await module._ensure_programmed_fhk_controller(dev, "FF-A6-07-01", 0, "FHK14") is False
 
 
@@ -66,7 +70,7 @@ async def test_memory_layouts():
 
     fhk = FakeDevice(20)
     assert await module._ensure_programmed_fhk_controller(fhk, "00-00-B0-06", 0, "FHK14") is True
-    assert fhk.memory[12] == bytes.fromhex("0000B00600410100")
+    assert fhk.memory[10] == bytes.fromhex("0000B00600410100")
     assert await module._ensure_programmed_fhk_controller(fhk, "00-00-B0-06", 0, "FHK14") is False
 
     f4hk = FakeDevice(24)
@@ -163,7 +167,7 @@ if __name__ == "__main__":
     test_target_addresses()
     test_fd2g14_uses_grimm_scan()
     test_multiple_senders_per_device_are_preserved()
-    asyncio.run(test_fhk_multiple_controller_senders())
+    asyncio.run(test_fhk_single_function_group_3_sender())
     asyncio.run(test_memory_layouts())
     asyncio.run(test_fms14_writer_dispatch())
     print("R7 sender-write patch tests passed.")
