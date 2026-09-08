@@ -264,7 +264,7 @@ async def _ensure_programmed_fhk_controller(
     if changed:
         # Function Group 3 has exactly one controller slot. A changed gateway ID
         # therefore replaces that slot and must never spill into Function Group 4.
-        await dev.write_mem_line(preferred_line, expected_line)
+        await _write_fhk_mem_line(dev, preferred_line, expected_line)
     if is_single_channel_fhk14:
         # Older v1.0.97 builds wrote Function 65 into Group 4 (entries 5/6).
         # Remove only those invalid controller rows; preserve all other entries.
@@ -273,9 +273,45 @@ async def _ensure_programmed_fhk_controller(
                 continue
             legacy_value = await dev.read_mem_line(legacy_line)
             if legacy_value[4:] == bytes((0, 65, 1, 0)):
-                await dev.write_mem_line(legacy_line, bytes(8))
+                await _write_fhk_mem_line(dev, legacy_line, bytes(8))
                 changed = True
     return changed
+
+
+async def _write_fhk_mem_line(dev: Any, row: int, value: bytes) -> None:
+    """Write an FHK memory row while ignoring a delayed duplicate F2 reply."""
+    bus = getattr(dev, "bus", None)
+    if bus is None or not hasattr(bus, "exchange"):
+        await dev.write_mem_line(row, value)
+        return
+
+    from eltakobus.error import ParseError, WriteError
+    from eltakobus.message import EltakoMessage
+
+    def response_type(expected_org: int):
+        class ExpectedEltakoResponse:
+            @classmethod
+            def parse(cls, data):
+                response = EltakoMessage.parse(data)
+                if response.is_request or response.org != expected_org:
+                    raise ParseError(f"Expected Eltako response ORG {expected_org:02x}")
+                return response
+
+        return ExpectedEltakoResponse
+
+    select_response = await bus.exchange(
+        EltakoMessage(0xF2, dev.address), response_type(0xF2)
+    )
+    if select_response.org != 0xF2:
+        raise WriteError(f"Device selection failed; expected 0xf2, got {select_response!r}")
+
+    write_response = await bus.exchange(
+        EltakoMessage(0xF4, row, value), response_type(0xF4)
+    )
+    if write_response.org != 0xF4:
+        raise WriteError(f"Write failed; expected 0xf4, got {write_response!r}")
+
+    dev.memory[row] = value
 
 
 
