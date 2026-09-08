@@ -43,39 +43,29 @@ async def test_fhk_single_function_group_3_sender():
 
 
 async def test_fhk_writer_ignores_duplicate_f2_before_f4():
-    class DummyParseError(ValueError):
-        pass
-
     class DummyWriteError(Exception):
         pass
 
     class DummyEltakoMessage:
-        def __init__(self, org, address, payload=bytes(8), is_request=True):
+        def __init__(self, org, address, payload=bytes(8)):
             self.org = org
             self.address = address
             self.payload = payload
-            self.is_request = is_request
-
-        @classmethod
-        def parse(cls, data):
-            return cls(data[0], data[1], is_request=False)
 
     class DuplicateF2Bus:
         def __init__(self):
-            self.ignored_duplicate = False
+            self.select_count = 0
+            self.write_count = 0
 
         async def exchange(self, request, response_type=None):
-            assert response_type is not None
             if request.org == 0xF2:
-                return response_type.parse(bytes((0xF2, request.address)))
-            try:
-                response_type.parse(bytes((0xF2, request.address)))
-            except DummyParseError:
-                self.ignored_duplicate = True
-            return response_type.parse(bytes((0xF4, request.address)))
+                self.select_count += 1
+                return DummyEltakoMessage(0xF2, request.address)
+            self.write_count += 1
+            return DummyEltakoMessage(0xF2 if self.write_count == 1 else 0xF4, request.address)
 
     fake_modules = {
-        "eltakobus.error": types.SimpleNamespace(ParseError=DummyParseError, WriteError=DummyWriteError),
+        "eltakobus.error": types.SimpleNamespace(WriteError=DummyWriteError),
         "eltakobus.message": types.SimpleNamespace(EltakoMessage=DummyEltakoMessage),
     }
     previous = {name: sys.modules.get(name) for name in fake_modules}
@@ -86,7 +76,58 @@ async def test_fhk_writer_ignores_duplicate_f2_before_f4():
         dev.bus = DuplicateF2Bus()
         value = bytes.fromhex("0000B01D00410100")
         await module._write_fhk_mem_line(dev, 10, value)
-        assert dev.bus.ignored_duplicate is True
+        assert dev.bus.select_count == 1
+        assert dev.bus.write_count == 2
+        assert dev.memory[10] == value
+    finally:
+        for name, old_module in previous.items():
+            if old_module is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = old_module
+
+
+async def test_fhk_writer_accepts_successful_write_after_lost_ack():
+    class DummyWriteError(Exception):
+        pass
+
+    class DummyEltakoMessage:
+        def __init__(self, org, address, payload=bytes(8)):
+            self.org = org
+            self.address = address
+            self.payload = payload
+
+    class AckLostBus:
+        def __init__(self):
+            self.write_count = 0
+            self.stored = {}
+
+        async def exchange(self, request, response_type=None):
+            if request.org == 0xF2:
+                return DummyEltakoMessage(0xF2, request.address)
+            self.write_count += 1
+            self.stored[request.address] = request.payload
+            return DummyEltakoMessage(0xF2, request.address)
+
+    class ReadbackDevice(FakeDevice):
+        async def read_mem_line(self, line):
+            if self.memory[line] is None:
+                self.memory[line] = self.bus.stored.get(line, bytes(8))
+            return self.memory[line]
+
+    fake_modules = {
+        "eltakobus.error": types.SimpleNamespace(WriteError=DummyWriteError),
+        "eltakobus.message": types.SimpleNamespace(EltakoMessage=DummyEltakoMessage),
+    }
+    previous = {name: sys.modules.get(name) for name in fake_modules}
+    sys.modules.update(fake_modules)
+    try:
+        dev = ReadbackDevice(24)
+        dev.address = 0x1D
+        dev.bus = AckLostBus()
+        value = bytes.fromhex("0000B01D00410100")
+        await module._write_fhk_mem_line(dev, 10, value)
+        assert dev.bus.write_count == 1
         assert dev.memory[10] == value
     finally:
         for name, old_module in previous.items():
@@ -126,6 +167,15 @@ async def test_memory_layouts():
     assert await module._ensure_programmed_fhk_controller(fhk, "00-00-B0-06", 0, "FHK14") is True
     assert fhk.memory[10] == bytes.fromhex("0000B00600410100")
     assert await module._ensure_programmed_fhk_controller(fhk, "00-00-B0-06", 0, "FHK14") is False
+
+    class NullExchangeBus:
+        async def exchange(self, request, response_type=None):
+            return None
+
+    fae = FakeDevice(20)
+    fae.bus = NullExchangeBus()
+    assert await module._ensure_programmed_fhk_controller(fae, "FF-A6-04-B9", 0, "FAE14LPR") is True
+    assert fae.memory[12] == bytes.fromhex("FFA604B900410100")
 
     f4hk = FakeDevice(24)
     assert await module._ensure_programmed_fhk_controller(f4hk, "00-00-B0-20", 2, "F4HK14") is True
@@ -223,6 +273,7 @@ if __name__ == "__main__":
     test_multiple_senders_per_device_are_preserved()
     asyncio.run(test_fhk_single_function_group_3_sender())
     asyncio.run(test_fhk_writer_ignores_duplicate_f2_before_f4())
+    asyncio.run(test_fhk_writer_accepts_successful_write_after_lost_ack())
     asyncio.run(test_memory_layouts())
     asyncio.run(test_fms14_writer_dispatch())
     print("R7 sender-write patch tests passed.")
