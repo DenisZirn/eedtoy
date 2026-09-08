@@ -9,6 +9,8 @@ EEDTOY 1.0.97 – FMS14 auf unveränderter FIX70-Windows-Basis
 - PCT14-Schlüsselfunktion 51 (`State from Controller`) statt eines RPS-Tastereintrags; vorhandene falsche Tasterzeilen werden ersetzt.
 - Statusprofil M5-38-08 und Senderprofil A5-38-08.
 - Gateway-Erkennung, Electron-Hauptprozess, Python-Gatewaycode und Buildskripte sind bytegleich zur bereitgestellten FIX70-Referenz.
+- Fortschrittsanzeige, Laufstatus und Abbruchmeldung der Senderprogrammierung sind nun vollständig auf Deutsch und Englisch lokalisiert.
+- Wenn ein Aktor den Schreibbefehl ausführt, aber die Bestätigung verspätet oder uneindeutig ist, prüft EEDTOY die Speicherzeile direkt. Ein bereits erfolgreicher Schreibvorgang wird dadurch ohne unnötige Wiederholungen fortgesetzt.
 
 EEDTOY 1.0.96 FIX68
 
