@@ -42,6 +42,60 @@ async def test_fhk_single_function_group_3_sender():
     assert await module._ensure_programmed_fhk_controller(dev, "FF-A6-07-01", 0, "FHK14") is False
 
 
+async def test_fhk_writer_ignores_duplicate_f2_before_f4():
+    class DummyParseError(ValueError):
+        pass
+
+    class DummyWriteError(Exception):
+        pass
+
+    class DummyEltakoMessage:
+        def __init__(self, org, address, payload=bytes(8), is_request=True):
+            self.org = org
+            self.address = address
+            self.payload = payload
+            self.is_request = is_request
+
+        @classmethod
+        def parse(cls, data):
+            return cls(data[0], data[1], is_request=False)
+
+    class DuplicateF2Bus:
+        def __init__(self):
+            self.ignored_duplicate = False
+
+        async def exchange(self, request, response_type=None):
+            assert response_type is not None
+            if request.org == 0xF2:
+                return response_type.parse(bytes((0xF2, request.address)))
+            try:
+                response_type.parse(bytes((0xF2, request.address)))
+            except DummyParseError:
+                self.ignored_duplicate = True
+            return response_type.parse(bytes((0xF4, request.address)))
+
+    fake_modules = {
+        "eltakobus.error": types.SimpleNamespace(ParseError=DummyParseError, WriteError=DummyWriteError),
+        "eltakobus.message": types.SimpleNamespace(EltakoMessage=DummyEltakoMessage),
+    }
+    previous = {name: sys.modules.get(name) for name in fake_modules}
+    sys.modules.update(fake_modules)
+    try:
+        dev = FakeDevice(24)
+        dev.address = 0x1D
+        dev.bus = DuplicateF2Bus()
+        value = bytes.fromhex("0000B01D00410100")
+        await module._write_fhk_mem_line(dev, 10, value)
+        assert dev.bus.ignored_duplicate is True
+        assert dev.memory[10] == value
+    finally:
+        for name, old_module in previous.items():
+            if old_module is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = old_module
+
+
 async def test_memory_layouts():
     fsr = FakeDevice(20)
     assert await module._ensure_programmed_fsr14ssr(fsr, "00-00-B0-15", 0) is True
@@ -168,6 +222,7 @@ if __name__ == "__main__":
     test_fd2g14_uses_grimm_scan()
     test_multiple_senders_per_device_are_preserved()
     asyncio.run(test_fhk_single_function_group_3_sender())
+    asyncio.run(test_fhk_writer_ignores_duplicate_f2_before_f4())
     asyncio.run(test_memory_layouts())
     asyncio.run(test_fms14_writer_dispatch())
     print("R7 sender-write patch tests passed.")
