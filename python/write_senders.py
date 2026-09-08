@@ -183,8 +183,39 @@ async def _find_or_write_free_line(dev: Any, expected_line: bytes, start_line: i
 
     if first_empty is None:
         raise RuntimeError("Kein freier Speicherplatz zum Einlernen des Controller-Senders gefunden")
-    await dev.write_mem_line(first_empty, expected_line)
+    await _write_mem_line_with_readback(dev, first_empty, expected_line)
     return True
+
+
+async def _read_back_mem_line(dev: Any, row: int) -> Optional[bytes]:
+    """Force one row to be read from the actuator instead of its local cache."""
+    memory = getattr(dev, "memory", None)
+    previous = None
+    can_invalidate = isinstance(memory, list) and 0 <= row < len(memory)
+    if can_invalidate:
+        previous = memory[row]
+        memory[row] = None
+    try:
+        actual = await dev.read_mem_line(row)
+    except Exception:
+        if can_invalidate and memory[row] is None:
+            memory[row] = previous
+        return None
+    if actual is None and can_invalidate:
+        memory[row] = previous
+        return None
+    return actual
+
+
+async def _write_mem_line_with_readback(dev: Any, row: int, value: bytes) -> None:
+    """Accept a write whose acknowledgement was lost when read-back confirms it."""
+    try:
+        await dev.write_mem_line(row, value)
+    except Exception:
+        await asyncio.sleep(0.08)
+        if await _read_back_mem_line(dev, row) == value:
+            return
+        raise
 
 
 async def _ensure_programmed_controller_profile(dev: Any, sender_id: str, channel: int = 0) -> Optional[bool]:
@@ -237,7 +268,7 @@ async def _ensure_programmed_fms14(dev: Any, sender_id: str, channel: int = 0) -
     target_memory_id = legacy_memory_id if legacy_memory_id is not None else first_empty
     if target_memory_id is None:
         raise RuntimeError("Kein freier Speicherplatz zum Einlernen des FMS14-Controller-Senders gefunden")
-    await dev.write_mem_line(target_memory_id, expected_line)
+    await _write_mem_line_with_readback(dev, target_memory_id, expected_line)
     return True
 
 
@@ -264,7 +295,10 @@ async def _ensure_programmed_fhk_controller(
     if changed:
         # Function Group 3 has exactly one controller slot. A changed gateway ID
         # therefore replaces that slot and must never spill into Function Group 4.
-        await _write_fhk_mem_line(dev, preferred_line, expected_line)
+        if is_single_channel_fhk14:
+            await _write_fhk_mem_line(dev, preferred_line, expected_line)
+        else:
+            await _write_mem_line_with_readback(dev, preferred_line, expected_line)
     if is_single_channel_fhk14:
         # Older v1.0.97 builds wrote Function 65 into Group 4 (entries 5/6).
         # Remove only those invalid controller rows; preserve all other entries.
@@ -279,39 +313,37 @@ async def _ensure_programmed_fhk_controller(
 
 
 async def _write_fhk_mem_line(dev: Any, row: int, value: bytes) -> None:
-    """Write an FHK memory row while ignoring a delayed duplicate F2 reply."""
+    """Write an FHK14 row without mistaking a delayed F2 reply for the F4 ACK."""
     bus = getattr(dev, "bus", None)
     if bus is None or not hasattr(bus, "exchange"):
         await dev.write_mem_line(row, value)
         return
 
-    from eltakobus.error import ParseError, WriteError
+    from eltakobus.error import WriteError
     from eltakobus.message import EltakoMessage
 
-    def response_type(expected_org: int):
-        class ExpectedEltakoResponse:
-            @classmethod
-            def parse(cls, data):
-                response = EltakoMessage.parse(data)
-                if response.is_request or response.org != expected_org:
-                    raise ParseError(f"Expected Eltako response ORG {expected_org:02x}")
-                return response
-
-        return ExpectedEltakoResponse
-
-    select_response = await bus.exchange(
-        EltakoMessage(0xF2, dev.address), response_type(0xF2)
-    )
-    if select_response.org != 0xF2:
+    select_response = await bus.exchange(EltakoMessage(0xF2, dev.address))
+    if select_response is None or getattr(select_response, "org", None) != 0xF2:
         raise WriteError(f"Device selection failed; expected 0xf2, got {select_response!r}")
 
-    write_response = await bus.exchange(
-        EltakoMessage(0xF4, row, value), response_type(0xF4)
-    )
-    if write_response.org != 0xF4:
+    # Some FHK14 units send the F2 selection reply twice. Let the second reply
+    # leave the exchange hook before sending F4. If it still races with F4,
+    # repeat only the idempotent row write without selecting the device again.
+    await asyncio.sleep(0.08)
+    write_response = None
+    for attempt in range(3):
+        write_response = await bus.exchange(EltakoMessage(0xF4, row, value))
+        if write_response is not None and getattr(write_response, "org", None) == 0xF4:
+            dev.memory[row] = value
+            return
+        if write_response is not None and getattr(write_response, "org", None) == 0xF2:
+            await asyncio.sleep(0.08)
+            if await _read_back_mem_line(dev, row) == value:
+                return
+            continue
         raise WriteError(f"Write failed; expected 0xf4, got {write_response!r}")
 
-    dev.memory[row] = value
+    raise WriteError(f"Write failed; expected 0xf4, got {write_response!r}")
 
 
 
