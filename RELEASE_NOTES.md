@@ -11,6 +11,7 @@ EEDTOY v1.0.97 ergänzt FMS14 und FKS-B, korrigiert die FHK14-Controllerprogramm
 - FMS14 verwendet das Statusprofil `M5-38-08` und das Senderprofil `A5-38-08`. Die Sender-IDs werden als `State from Controller` in den Aktor geschrieben.
 - Falsche FMS14-Tastereinträge aus einem früheren v1.0.97-Build werden beim erneuten Schreiben ersetzt.
 - FHK14 schreibt die Controller-ID jetzt korrekt in Function Group 3 mit Function 65 (`temperature setpoint from controller`).
+- Der FHK14-Schreibvorgang ignoriert verspätete doppelte `F2`-Antworten und wartet zuverlässig auf die gültige `F4`-Schreibbestätigung.
 - Für den einzelnen FHK14-Controllerplatz gilt die Priorität `FGW14-USB > FAM-USB > FAM14`. Ist ausschließlich ein FAM14 vorhanden, wird dessen Sender-ID verwendet.
 - Frühere falsche FHK14-Einträge mit Function 65 in Function Group 4 werden beim erneuten Schreiben entfernt.
 - FKS-B wurde als eigenes Klimagerät ergänzt und wird technisch wie FKS-H mit dem bidirektionalen EEP `A5-20-04`, dem Lerntelegramm `80-20-0D-80` und einem Sollwertbereich von 10–30 °C behandelt.
