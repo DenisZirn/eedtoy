@@ -1060,9 +1060,9 @@ function buildSenderProgrammingEntries(devices, targetGateways, pct14BaseId) {
     if (!device_id || !sender_eep) continue;
 
     const typeText = `${deviceTypeForDevice(d)} ${d.name || ""}`.toUpperCase();
-    const isFhk14 = /(^|\s)FHK14(?:\s|$)/.test(typeText);
+    const hasSingleControllerSlotPerChannel = /(^|\s)(?:FHK14|F4HK14|FAE14SSR|FAE14LPR)(?:\s|$)/.test(typeText);
     const gatewayPriority = { fgw14usb: 3, "fam-usb": 2, fam14: 1 };
-    const programmingGateways = isFhk14
+    const programmingGateways = hasSingleControllerSlotPerChannel
       ? gateways
           .slice()
           .sort((a, b) => (gatewayPriority[String(b.type || "").toLowerCase()] || 0) - (gatewayPriority[String(a.type || "").toLowerCase()] || 0))
@@ -2114,7 +2114,7 @@ export default function App() {
     setWritingSenders(true);
     setWriteSenderLog([]);
     setWriteSenderProgress({ processed:0, total:senderProgrammingEntries.length, phase:"starting", message:"" });
-    setWriteSenderMsg(t("senderWrite.progress", { count: senderProgrammingEntries.length }));
+    setWriteSenderMsg("");
     const result = await window.electronAPI.writeSenderIdsToDevices({
       portPath: port,
       gatewayType: "fam14",
@@ -2126,7 +2126,7 @@ export default function App() {
     setWriteSenderLog(result.events || []);
     if (result?.canceled) {
       setWriteSenderProgress(previous => ({ ...previous, phase:"canceled" }));
-      setWriteSenderMsg(`Abgebrochen nach ${result.processed || 0} von ${result.total || senderProgrammingEntries.length} Sender-IDs.`);
+      setWriteSenderMsg(t("senderWrite.canceled", { processed: result.processed || 0, total: result.total || senderProgrammingEntries.length }));
       return;
     }
     if (result.ok) {
@@ -3014,17 +3014,17 @@ export default function App() {
                   const total = Number(writeSenderProgress.total || senderProgrammingEntries.length || 0);
                   const processed = Math.min(total, Number(writeSenderProgress.processed || 0));
                   const percent = total > 0 ? Math.round((processed / total) * 100) : 0;
-                  const phaseText = writeSenderProgress.phase === "connecting" ? "RS485-Bus verbinden …"
-                    : writeSenderProgress.phase === "scanning" ? "Series-14-Geräte werden gesucht …"
-                    : writeSenderProgress.phase === "canceling" ? "Abbruch wird ausgeführt …"
-                    : writeSenderProgress.phase === "writing" ? (writeSenderProgress.message || "Sender-IDs werden geprüft/geschrieben …")
-                    : "Sender-IDs werden vorbereitet …";
+                  const phaseText = writeSenderProgress.phase === "connecting" ? t("senderWrite.connecting")
+                    : writeSenderProgress.phase === "scanning" ? t("senderWrite.scanning")
+                    : writeSenderProgress.phase === "canceling" ? t("senderWrite.canceling")
+                    : writeSenderProgress.phase === "writing" ? runtimeText(writeSenderProgress.message || t("senderWrite.writingProgress"))
+                    : t("senderWrite.preparing");
                   return <div style={{marginTop:".7rem"}}>
                     <div style={{height:10,borderRadius:999,background:"#dbe5eb",overflow:"hidden"}}>
                       <div style={{height:"100%",width:`${percent}%`,background:"#2f6f8f",transition:"width .18s ease"}}/>
                     </div>
                     <div style={{display:"flex",justifyContent:"space-between",gap:".75rem",fontSize:".68rem",color:"#53616f",marginTop:".35rem"}}>
-                      <span>{processed} von {total} Sender-IDs verarbeitet</span>
+                      <span>{t("senderWrite.processed", { processed, total })}</span>
                       <strong>{percent}%</strong>
                     </div>
                     <div style={{fontSize:".64rem",color:"#6b7280",marginTop:".25rem",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={phaseText}>{phaseText}</div>
@@ -3032,7 +3032,7 @@ export default function App() {
                 })()}
               </div>
               {!busWriteGatewayConnected&&<div style={{fontSize:".68rem",marginTop:".65rem",padding:".5rem .7rem",borderRadius:5,background:"#fff7ed",color:"#9a3412",border:"1px solid #fed7aa"}}>{t("yaml.writeDisabled")}</div>}
-              {writeSenderMsg&&<div style={{fontSize:".72rem",marginTop:".75rem",padding:".5rem .7rem",borderRadius:5,background:writeSenderMsg.startsWith("✓")?"#14532d22":writeSenderMsg.startsWith("✗")?"#450a0a22":"#eef5f8",color:writeSenderMsg.startsWith("✓")?"#166534":writeSenderMsg.startsWith("✗")?"#b42318":"#2f6f8f",border:"1px solid #c6d9e4"}}>{writeSenderMsg}</div>}
+              {writeSenderMsg&&<div style={{fontSize:".72rem",marginTop:".75rem",padding:".5rem .7rem",borderRadius:5,background:writeSenderMsg.startsWith("✓")?"#14532d22":writeSenderMsg.startsWith("✗")?"#450a0a22":"#eef5f8",color:writeSenderMsg.startsWith("✓")?"#166534":writeSenderMsg.startsWith("✗")?"#b42318":"#2f6f8f",border:"1px solid #c6d9e4"}}>{runtimeText(writeSenderMsg)}</div>}
               {writeSenderLog.length>0&&(
                 <div style={{marginTop:".75rem",maxHeight:170,overflowY:"auto",fontSize:".66rem",lineHeight:1.5,color:"#53616f",background:"#f7f9fb",border:"1px solid #d9e0e7",borderRadius:6,padding:".55rem .7rem"}}>
                   {writeSenderLog.slice(-80).map((e,i)=><div key={i}>{runtimeText(e.message || `${e.status}: ${e.device_id}`)}</div>)}
