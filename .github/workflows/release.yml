@@ -127,12 +127,13 @@ jobs:
             throw "Release $env:RELEASE_TAG already exists."
           }
 
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -fa $env:RELEASE_TAG -m "EEDTOY $env:RELEASE_TAG"
+          git push origin $env:RELEASE_TAG --force
+
           $installer = "dist-exe/EEDTOY-Setup-$env:VERSION.exe"
           if (-not $releaseExists) {
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git tag -a $env:RELEASE_TAG -m "EEDTOY $env:RELEASE_TAG"
-            git push origin $env:RELEASE_TAG
             gh release create $env:RELEASE_TAG $installer --repo $env:GH_REPO --verify-tag --title "EEDTOY $env:RELEASE_TAG" --notes-file RELEASE_NOTES.md --latest
           }
           else {
