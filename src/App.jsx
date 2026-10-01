@@ -1098,25 +1098,35 @@ function senderOffsetFromId(id) {
   return parseInt(clean.slice(-2), 16);
 }
 
-function nextFreeSenderOffset(deviceList) {
+function nextFreeSenderOffset(deviceList, gw) {
+  // Compare complete addresses, not their last byte. For a FAM-USB base
+  // ending in 0x80, sender ...81 occupies offset 1, not offset 129.
   const used = new Set();
+  const reserve = (value) => {
+    const id = normalizeId(value);
+    if (id) used.add(id);
+  };
   for (const device of deviceList || []) {
-    for (const value of [device?.sender_id, device?.dev_id]) {
-      const offset = senderOffsetFromId(value);
-      if (Number.isInteger(offset) && offset > 0 && offset <= 0x7F) used.add(offset);
+    reserve(device?.sender_id);
+    reserve(device?.dev_id);
+    // PCT14 stores bus sender IDs, but FAM-USB exports the corresponding
+    // radio address. Reserve that effective address as well.
+    if (isPct14ImportedDevice(device) && profileFor(device?.eep).needs_sender) {
+      reserve(senderIdFromOffsetForGateway(gw, addressFromBusId(device.dev_id)));
     }
   }
-  for (let i = 1; i <= 0x7F; i++) {
-    if (!used.has(i)) return i;
+  for (let offset = 1; offset <= 0x7F; offset++) {
+    const candidate = normalizeId(senderIdFromOffsetForGateway(gw, offset));
+    if (candidate && !used.has(candidate)) return offset;
   }
-  return 1;
+  // Never silently reuse offset 1 after exhausting the address range.
+  return null;
 }
 
 function autoSenderIdForGateway(gw, deviceList) {
-  const offset = nextFreeSenderOffset(deviceList);
-  if (gw?.type === "fam14" || gw?.type === "fgw14usb") return busIdFromAddress(0xB000 + offset);
-  if (gw?.base_id) return addToBaseId(gw.base_id, offset);
-  return "";
+  const normalizedGateway = { ...gw, base_id: normalizeId(gw?.base_id) };
+  const offset = nextFreeSenderOffset(deviceList, normalizedGateway);
+  return offset === null ? "" : senderIdFromOffsetForGateway(normalizedGateway, offset);
 }
 
 function textOf(node, selector, fallback = "") {
@@ -1843,7 +1853,10 @@ export default function App() {
       else if (!/^[0-9a-fA-F]{2}(-[0-9a-fA-F]{2}){3}$/.test(String(f.physical_unique_id).trim())) e.physical_unique_id = "Format: FF-AA-BB-CC";
     }
     if (profile.needs_sender) {
-      if (!f.sender_id.trim()) e.sender_id = t("validation.senderBaseIdMissing");
+      if (!f.sender_id.trim()) {
+        const hasSenderBase = ["fam14", "fgw14usb"].includes(gateway.type) || Boolean(normalizeId(gateway.base_id));
+        e.sender_id = t(hasSenderBase ? "validation.senderIdsExhausted" : "validation.senderBaseIdMissing");
+      }
       else if (!/^[0-9a-fA-F]{2}(-[0-9a-fA-F]{2}){3}$/.test(f.sender_id.trim()))
         e.sender_id = "Format: FF-AA-BB-CC";
     }

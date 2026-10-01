@@ -142,6 +142,7 @@ const messages = {
 
     'validation.required': 'Pflichtfeld',
     'validation.senderBaseIdMissing': 'Keine Gateway-Base-ID für die automatische Sender-ID vorhanden',
+    'validation.senderIdsExhausted': "Keine freie Sender-ID im Adressbereich dieses Gateways vorhanden",
     'validation.duplicateFbh': 'Diese Geräte-ID ist bereits mit dem anderen FBH/TF-Betriebsmodus als „{{name}}“ vorhanden. Pro physischem Gerät darf nur ein Modus exportiert werden.',
     'validation.duplicateDevice': 'Diese Geräte-ID mit EEP {{eep}} ist bereits als „{{name}}“ vorhanden.',
 
@@ -319,6 +320,7 @@ const messages = {
 
     'validation.required': 'Required field',
     'validation.senderBaseIdMissing': 'No gateway base ID is available for automatic sender-ID assignment',
+    'validation.senderIdsExhausted': "No free sender ID is available in this gateway's address range",
     'validation.duplicateFbh': 'This device ID already exists with the other FBH/TF operating mode as “{{name}}”. Only one mode may be exported per physical device.',
     'validation.duplicateDevice': 'This device ID with EEP {{eep}} already exists as “{{name}}”.',
 

@@ -16,7 +16,7 @@
     "build:installer": "set CSC_IDENTITY_AUTO_DISCOVERY=false&& vite build && electron-builder --win nsis --x64 --publish never",
     "build:all": "npm run python:embed && npm run build:installer",
     "python:bootstrap": "powershell -NoProfile -ExecutionPolicy Bypass -File python/bootstrap_runtime_windows.ps1",
-    "test": "node tests/i18n_dynamic_text_regression.js && node tests/empty_form_profile_fix49_regression.js && node tests/f4usm_no_id_offset_fix50_regression.js && node tests/electron_i18n_regression.js && node tests/yaml_generation_regression.js && node tests/fms14_pct14_xml_regression.js && node tests/teach_in_database_regression.js && node tests/teach_in_complete_fix48_regression.js && node tests/electron_ipc_contract_regression.js && python tests/test_write_senders_patch.py"
+    "test": "node tests/i18n_dynamic_text_regression.js && node tests/empty_form_profile_fix49_regression.js && node tests/f4usm_no_id_offset_fix50_regression.js && node tests/electron_i18n_regression.js && node tests/yaml_generation_regression.js && node tests/fms14_pct14_xml_regression.js && node tests/teach_in_database_regression.js && node tests/teach_in_complete_fix48_regression.js && node tests/electron_ipc_contract_regression.js && python tests/test_write_senders_patch.py && node tests/sender_base_id_197_regression.js"
   },
   "build": {
     "appId": "io.github.deniszeltako.eedtoy",

@@ -1,3 +1,19 @@
+## Hotfix vom 01.10.2026: Sender-ID-Vergabe (Windows)
+
+Die Versionsnummer bleibt **1.0.97**. Der Windows-Installer wurde neu gebaut.
+
+- Automatische Sender-ID-Vergabe für FAM-USB mit Base-ID-Endung `80` korrigiert; Base-IDs auf `00` funktionieren weiterhin.
+- Bereits belegte vollständige Senderadressen werden bei der Vergabe übersprungen, einschließlich der aus PCT14 importierten Aktoradressen.
+- Bei erschöpftem Vergabebereich wird keine doppelte Sender-ID erzeugt, sondern eine Fehlermeldung angezeigt.
+- Bestehende gespeicherte Sender-IDs werden nicht automatisch umnummeriert. Bereits entstandene Doppelbelegungen müssen gesondert geprüft werden.
+- Gerätedatenbank, Gateway-Erkennung und Senderprogrammierung wurden nicht geändert.
+
+**Installation:** `EEDTOY-Setup-1.0.97.exe` erneut herunterladen und installieren. Eine bereits installierte 1.0.97 enthält den Hotfix nicht automatisch.
+
+**macOS:** Die vorhandenen DMGs wurden mit diesem Windows-Hotfix nicht neu gebaut und enthalten diese Korrektur noch nicht.
+
+---
+
 # EEDTOY v1.0.97
 
 EEDTOY v1.0.97 ergänzt FMS14 und FKS-B, korrigiert die FHK14-Controllerprogrammierung und stellt die zuverlässige automatische Gateway-Erkennung wieder her.
