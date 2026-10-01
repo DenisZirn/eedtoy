@@ -1,0 +1,202 @@
+name: EEDTOY 1.0.97 sender-ID hotfix
+
+on:
+  push:
+    branches:
+      - hotfix/v1.0.97-fam-usb-sender-id
+    paths:
+      - .github/workflows/hotfix-v1.0.97-sender-id.yml
+      - scripts/apply_sender_hotfix_197.py
+      - tests/sender_base_id_197_regression.js
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-1.0.97
+  cancel-in-progress: false
+
+jobs:
+  hotfix:
+    if: github.ref == 'refs/heads/hotfix/v1.0.97-fam-usb-sender-id'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+      EXPECTED_MAIN: 279d91b1ff1c8c148b387709854363b5b2a34371
+      EXPECTED_TAG: 12e04992846526842c2015571b66785e173d1aab
+      HOTFIX_BRANCH: hotfix/v1.0.97-fam-usb-sender-id
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: utf-8
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.10'
+
+      - name: Reproduce original bug and apply isolated fix
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          import json
+          import os
+          original = subprocess.check_output(['git', 'rev-parse', 'origin/main'], text=True).strip()
+          assert original == os.environ['EXPECTED_MAIN'], 'main changed; refusing to replace release'
+          assert subprocess.check_output(['git', 'rev-parse', 'refs/tags/v1.0.97'], text=True).strip() == os.environ['EXPECTED_TAG']
+          app = Path('src/App.jsx').read_text(encoding='utf-8')
+          if 'function nextFreeSenderOffset(deviceList, gw)' not in app:
+              subprocess.run(['node', 'tests/sender_base_id_197_regression.js', '--expect-bug'], check=True)
+              subprocess.run(['python', 'scripts/apply_sender_hotfix_197.py'], check=True)
+          subprocess.run(['node', 'tests/sender_base_id_197_regression.js'], check=True)
+          assert json.loads(Path('package.json').read_text())['version'] == '1.0.97'
+          subprocess.run(['git', 'diff', '--check'], check=True)
+          allowed = {'src/App.jsx', 'src/i18n.js', 'package.json', 'RELEASE_NOTES.md', 'scripts/apply_sender_hotfix_197.py', 'tests/sender_base_id_197_regression.js', '.github/workflows/hotfix-v1.0.97-sender-id.yml'}
+          changed = set(subprocess.check_output(['git', 'diff', '--name-only', os.environ['EXPECTED_MAIN']], text=True).splitlines())
+          assert changed <= allowed, f'Unexpected changes: {changed - allowed}'
+          subprocess.run(['git', 'diff', os.environ['EXPECTED_MAIN'], '--', 'src/App.jsx', 'src/i18n.js', 'package.json'], check=True)
+
+      - name: Install locked Node dependencies
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
+
+      - name: Prepare unchanged embedded Python runtime
+        run: |
+          ./build/prepare_embedded_python.ps1 -PythonVersion '3.12.10' -BuildPython 'python'
+          if ($LASTEXITCODE -ne 0) { throw 'Python preparation failed' }
+
+      - name: Run complete regression suite and verify runtime
+        run: |
+          & ./python-runtime/python.exe -I -c "import serial, serial_asyncio, aiocoap, yaml, eltakobus; from eltakobus.serial import RS485SerialInterfaceV2; print('embedded runtime OK')"
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime check failed' }
+          npm test
+          if ($LASTEXITCODE -ne 0) { throw 'Regression suite failed' }
+
+      - name: Build Windows installer without changing version
+        run: |
+          npm run build:installer
+          if ($LASTEXITCODE -ne 0) { throw 'Installer build failed' }
+          if (!(Test-Path dist-exe/EEDTOY-Setup-1.0.97.exe)) { throw 'Installer missing' }
+
+      - name: Back up original release installer and metadata
+        run: |
+          New-Item -ItemType Directory -Force release-backup | Out-Null
+          gh api repos/$env:GH_REPO/releases/tags/v1.0.97 | Set-Content -Encoding utf8 release-backup/release-before.json
+          if ($LASTEXITCODE -ne 0) { throw 'Release metadata backup failed' }
+          gh release download v1.0.97 --repo $env:GH_REPO --pattern EEDTOY-Setup-1.0.97.exe --dir release-backup
+          if ($LASTEXITCODE -ne 0) { throw 'Original installer backup failed' }
+
+      - name: Preserve original build as rollback artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: EEDTOY-1.0.97-before-sender-id-hotfix
+          path: release-backup/
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Verify reinstall over an existing 1.0.97 installation
+        run: |
+          $installDir = Join-Path $env:RUNNER_TEMP 'EEDTOY-197-hotfix-test'
+          $old = Start-Process -FilePath (Resolve-Path release-backup/EEDTOY-Setup-1.0.97.exe) -ArgumentList @('/S', "/D=$installDir") -Wait -PassThru
+          if ($old.ExitCode -ne 0) { throw "Original installer failed: $($old.ExitCode)" }
+          $asarPath = Join-Path $installDir 'resources/app.asar'
+          if (!(Test-Path $asarPath)) { throw 'Original installed app.asar missing' }
+          $oldHash = (Get-FileHash $asarPath -Algorithm SHA256).Hash
+          $new = Start-Process -FilePath (Resolve-Path dist-exe/EEDTOY-Setup-1.0.97.exe) -ArgumentList @('/S', "/D=$installDir") -Wait -PassThru
+          if ($new.ExitCode -ne 0) { throw "Hotfix installer failed: $($new.ExitCode)" }
+          $newHash = (Get-FileHash $asarPath -Algorithm SHA256).Hash
+          if ($oldHash -eq $newHash) { throw 'Same-version reinstall did not replace application' }
+          $installedPython = Join-Path $installDir 'resources/python-runtime/python.exe'
+          & $installedPython -I -c "import serial, serial_asyncio, aiocoap, yaml, eltakobus; from eltakobus.serial import RS485SerialInterfaceV2; print('installed runtime OK')"
+          if ($LASTEXITCODE -ne 0) { throw 'Installed runtime failed' }
+          $env:INSTALLED_ASAR = $asarPath
+          node -e "const a=require('@electron/asar'); const f=process.env.INSTALLED_ASAR; const p=JSON.parse(a.extractFile(f,'package.json')); if(p.version!=='1.0.97')throw Error('Wrong version'); const js=a.listPackage(f).filter(n=>n.replaceAll('\\','/').includes('dist/assets/')&&n.endsWith('.js')); if(!js.some(n=>a.extractFile(f,n.replace(/^[/\\]+/,'')).toString().includes('validation.senderIdsExhausted')))throw Error('Hotfix missing from installed bundle'); console.log('Same-version reinstall and bundled hotfix OK');"
+          if ($LASTEXITCODE -ne 0) { throw 'Installed application verification failed' }
+
+      - name: Commit only tested source changes to hotfix branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/App.jsx src/i18n.js package.json RELEASE_NOTES.md
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 1) {
+            git commit -m 'Fix FAM-USB base-80 sender allocation in EEDTOY 1.0.97'
+            if ($LASTEXITCODE -ne 0) { throw 'Source commit failed' }
+          }
+          git push origin "HEAD:refs/heads/$env:HOTFIX_BRANCH"
+          if ($LASTEXITCODE -ne 0) { throw 'Hotfix branch changed; aborting release' }
+          git archive --format=zip --output=EEDTOY-v1.0.97-Sender-ID-Hotfix-Source.zip HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Source archive failed' }
+          $sha = (git rev-parse HEAD).Trim()
+          $digest = (Get-FileHash dist-exe/EEDTOY-Setup-1.0.97.exe -Algorithm SHA256).Hash.ToLower()
+          @("# EEDTOY 1.0.97 sender-ID hotfix 2026-10-01", "# source commit: $sha", "$digest  EEDTOY-Setup-1.0.97.exe") | Set-Content -Encoding utf8 EEDTOY-1.0.97-Sender-ID-Hotfix-SHA256.txt
+          "HOTFIX_SHA=$sha" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "INSTALLER_SHA256=$digest" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EEDTOY-1.0.97-verified-sender-id-hotfix
+          path: |
+            dist-exe/EEDTOY-Setup-1.0.97.exe
+            EEDTOY-v1.0.97-Sender-ID-Hotfix-Source.zip
+            EEDTOY-1.0.97-Sender-ID-Hotfix-SHA256.txt
+          if-no-files-found: error
+
+      - name: Stage and verify new release asset before replacing old one
+        run: |
+          New-Item -ItemType Directory -Force release-staging | Out-Null
+          Copy-Item dist-exe/EEDTOY-Setup-1.0.97.exe release-staging/EEDTOY-Setup-1.0.97-sender-id-hotfix-20261001.exe
+          gh release upload v1.0.97 release-staging/EEDTOY-Setup-1.0.97-sender-id-hotfix-20261001.exe --repo $env:GH_REPO --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Staged upload failed; original installer unchanged' }
+          $release = gh api repos/$env:GH_REPO/releases/tags/v1.0.97 | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot verify upload' }
+          $asset = @($release.assets | Where-Object name -eq 'EEDTOY-Setup-1.0.97-sender-id-hotfix-20261001.exe')
+          if ($asset.Count -ne 1 -or $asset[0].digest -ne "sha256:$env:INSTALLER_SHA256") { throw 'Uploaded installer digest mismatch' }
+          "STAGED_ASSET_ID=$($asset[0].id)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Publish tested source and update existing release
+        run: |
+          $currentMain = ((git ls-remote origin refs/heads/main) -split '\s+')[0]
+          $currentTag = ((git ls-remote origin refs/tags/v1.0.97) -split '\s+')[0]
+          if ($currentMain -ne $env:EXPECTED_MAIN -or $currentTag -ne $env:EXPECTED_TAG) { throw 'Remote source/tag changed; refusing replacement' }
+          git update-ref refs/tags/v1.0.97-before-sender-id-hotfix-20261001 $env:EXPECTED_TAG
+          git push origin refs/tags/v1.0.97-before-sender-id-hotfix-20261001
+          if ($LASTEXITCODE -ne 0) { throw 'Rollback tag creation failed' }
+          git push origin HEAD:refs/heads/main
+          if ($LASTEXITCODE -ne 0) { throw 'main update failed' }
+          git tag -fa v1.0.97 -m 'EEDTOY v1.0.97 sender-ID hotfix 2026-10-01' HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Local release tag failed' }
+          git push origin refs/tags/v1.0.97 "--force-with-lease=refs/tags/v1.0.97:$env:EXPECTED_TAG"
+          if ($LASTEXITCODE -ne 0) { throw 'Release tag update failed' }
+          $release = gh api repos/$env:GH_REPO/releases/tags/v1.0.97 | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Release verification failed' }
+          $old = @($release.assets | Where-Object name -eq 'EEDTOY-Setup-1.0.97.exe')
+          if ($old.Count -ne 1) { throw 'Expected exactly one original installer' }
+          gh api --method DELETE "repos/$env:GH_REPO/releases/assets/$($old[0].id)"
+          if ($LASTEXITCODE -ne 0) { throw 'Original asset replacement failed' }
+          gh api --method PATCH "repos/$env:GH_REPO/releases/assets/$env:STAGED_ASSET_ID" -f name=EEDTOY-Setup-1.0.97.exe -f 'label=Sender-ID hotfix 2026-10-01 (base 00/80)'
+          if ($LASTEXITCODE -ne 0) { throw 'Staged asset rename failed' }
+          gh release upload v1.0.97 EEDTOY-v1.0.97-Sender-ID-Hotfix-Source.zip EEDTOY-1.0.97-Sender-ID-Hotfix-SHA256.txt --repo $env:GH_REPO --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Source/checksum upload failed' }
+          gh release edit v1.0.97 --repo $env:GH_REPO --title 'EEDTOY v1.0.97' --notes-file RELEASE_NOTES.md --latest
+          if ($LASTEXITCODE -ne 0) { throw 'Release notes update failed' }
+          $final = gh api repos/$env:GH_REPO/releases/tags/v1.0.97 | ConvertFrom-Json
+          $asset = $final.assets | Where-Object name -eq 'EEDTOY-Setup-1.0.97.exe'
+          if ($asset.digest -ne "sha256:$env:INSTALLER_SHA256") { throw 'Final release checksum mismatch' }
+          Write-Host "RELEASE VERIFIED: v1.0.97 commit=$env:HOTFIX_SHA sha256=$env:INSTALLER_SHA256"
+          "## EEDTOY 1.0.97 hotfix published`nSource: $env:HOTFIX_SHA`nInstaller SHA256: $env:INSTALLER_SHA256`nExisting macOS DMGs unchanged." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
