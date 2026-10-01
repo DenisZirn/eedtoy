@@ -67,7 +67,14 @@ jobs:
           subprocess.run(['git', 'diff', '--check'], check=True)
           allowed = {'src/App.jsx', 'src/i18n.js', 'package.json', 'RELEASE_NOTES.md', 'scripts/apply_sender_hotfix_197.py', 'tests/sender_base_id_197_regression.js', '.github/workflows/hotfix-v1.0.97-sender-id.yml'}
           changed = set(subprocess.check_output(['git', 'diff', '--name-only', os.environ['EXPECTED_MAIN']], text=True).splitlines())
-          assert changed <= allowed, f'Unexpected changes: {changed - allowed}'
+          for path in sorted(changed - allowed):
+              # Existing .gitattributes causes checkout-only CRLF differences in
+              # four old Windows scripts. Accept only byte-identical text after
+              # newline normalization; never stage these unrelated files.
+              before = subprocess.check_output(['git', 'show', os.environ['EXPECTED_MAIN'] + ':' + path])
+              after = Path(path).read_bytes()
+              assert before.replace(b'\r\n', b'\n') == after.replace(b'\r\n', b'\n'), f'Unexpected content change: {path}'
+              print('Verified checkout-only newline difference:', path)
           subprocess.run(['git', 'diff', os.environ['EXPECTED_MAIN'], '--', 'src/App.jsx', 'src/i18n.js', 'package.json'], check=True)
 
       - name: Install locked Node dependencies
