@@ -39,8 +39,8 @@ vm.createContext(context);
 vm.runInContext(helperSource, context, { filename: 'src/App.helpers.jsx' });
 const api = context.__api;
 
-assert(api.APP_VERSION === '1.0.97', 'Application version is 1.0.97');
-assert(Object.keys(api.EEP_DB).length === 76, 'Approved device profile count is 76');
+assert(api.APP_VERSION === '1.0.98', 'Application version is 1.0.98');
+assert(Object.keys(api.EEP_DB).length === 78, 'Approved device profile count is 78');
 
 const gateway = {
   type: 'fam14',
@@ -99,7 +99,7 @@ const devices = [
 ];
 
 const deYaml = api.generateYaml(gateway, devices, [], '', 'de');
-assertIncludes(deYaml, '# Version: 1.0.97', 'German YAML version header');
+assertIncludes(deYaml, '# Version: 1.0.98', 'German YAML version header');
 assertIncludes(deYaml, '# Generiert:', 'German YAML timestamp label');
 assertIncludes(deYaml, 'device_type: fam14', 'Gateway type export');
 assertIncludes(deYaml, 'base_id: FF-AA-BB-00', 'Gateway base ID export');
@@ -135,6 +135,26 @@ assertIncludes(fksBYaml, 'teach_in_telegram: "80-20-0D-80"', 'FKS-B YAML exports
 assertIncludes(fksBYaml, 'min_target_temperature: 10', 'FKS-B YAML exports minimum target temperature');
 assertIncludes(fksBYaml, 'max_target_temperature: 30', 'FKS-B YAML exports maximum target temperature');
 
+const fah = api.EEP_DB['A5-06-01-FAH'];
+assert(fah?.platform === 'sensor' && fah?.eep_out === 'A5-06-01', 'FAH uses sensor EEP A5-06-01');
+assert(fah?.teach_in_telegram === '18-08-0D-80', 'FAH has the documented A5-06-01 teach-in telegram');
+assert(fah?.default_dc === 'illuminance', 'FAH uses the illuminance device class');
+const fahYaml = api.generateYaml(gateway, [{name:'FAH Außenhelligkeit',eep:'A5-06-01-FAH',platform:'sensor',dev_id:'01-02-03-20',device_type:'FAH'}], [], '', 'de');
+assertIncludes(fahYaml, 'eep: "A5-06-01"', 'FAH YAML exports A5-06-01');
+assertIncludes(fahYaml, 'teach_in_telegram: "18-08-0D-80"', 'FAH YAML exports its teach-in telegram');
+assertIncludes(fahYaml, 'device_family: FAH', 'FAH YAML identifies the device family');
+assertIncludes(fahYaml, 'device_class: illuminance', 'FAH YAML exports illuminance');
+
+const frw = api.EEP_DB['F6-02-01-FRW-WS'];
+assert(frw?.platform === 'binary_sensor' && frw?.eep_out === 'F6-02-01', 'FRW-ws uses RPS EEP F6-02-01');
+assert(frw?.default_dc === 'smoke', 'FRW-ws uses the smoke device class');
+assert(frw?.battery_low_data === '0x30', 'FRW-ws stores data 0x30 as its low-battery telegram');
+const frwYaml = api.generateYaml(gateway, [{name:'FRW-ws Flur',eep:'F6-02-01-FRW-WS',platform:'binary_sensor',dev_id:'01-02-03-21',device_type:'FRW-ws'}], [], '', 'de');
+assertIncludes(frwYaml, 'eep: "F6-02-01"', 'FRW-ws YAML exports F6-02-01');
+assertIncludes(frwYaml, 'device_family: FRW-ws', 'FRW-ws YAML identifies the device family');
+assertIncludes(frwYaml, 'device_class: smoke', 'FRW-ws YAML exports the smoke entity');
+assertIncludes(frwYaml, 'battery_low_data: "0x30"', 'FRW-ws YAML exports the low-battery data value');
+
 const allGatewaySenderEntries = api.buildSenderProgrammingEntries([{name:'FSB14 Kanal 1',eep:'G5-3F-7F',platform:'cover',dev_id:'00-00-00-0B',sender_id:'00-00-B0-0B',sender_eep:'H5-3F-7F',room:'PCT14 Adresse 11 · Kanal 1',device_type:'FSB14'}],[{type:'fam14',base_id:'FF-F2-6C-80'},{type:'fgw14usb',base_id:'FF-F2-6C-80'},{type:'fam-usb',base_id:'FF-A6-07-00'}],'FF-F2-6C-80');
 assert(allGatewaySenderEntries.length === 2, 'FAM14 and FGW14 duplicate controller IDs are programmed only once');
 assert(allGatewaySenderEntries.some(entry => entry.sender_id === '00-00-B0-0B'), 'Internal Series-14 controller sender is included');
@@ -148,6 +168,10 @@ const fhkFamUsbEntry = api.buildSenderProgrammingEntries([fhkDevice],[{type:'fam
 assert(fhkFamUsbEntry.length === 1 && fhkFamUsbEntry[0].source_gateway_type === 'fam-usb', 'FHK14 uses FAM-USB when no FGW14-USB is available');
 const fhkFam14Entry = api.buildSenderProgrammingEntries([fhkDevice],[{type:'fam14',base_id:'FF-F2-6C-80'}],'FF-F2-6C-80');
 assert(fhkFam14Entry.length === 1 && fhkFam14Entry[0].source_gateway_type === 'fam14', 'FHK14 uses FAM14 as the last fallback');
+const faeDevice = {name:'FAE14LPR Heizkreis 1',eep:'A5-10-06-FAE14LPR',platform:'climate',dev_id:'00-00-00-39',sender_id:'00-00-B0-39',sender_eep:'A5-10-06',room:'PCT14 Adresse 57 · Kanal 1',device_type:'FAE14LPR'};
+const faePreferredEntry = api.buildSenderProgrammingEntries([faeDevice],[{type:'fam14',base_id:'FF-BF-5C-80'},{type:'fam-usb',base_id:'FF-A6-04-80'},{type:'fgw14usb',base_id:'FF-BF-5C-80'}],'FF-BF-5C-80');
+assert(faePreferredEntry.length === 1, 'FAE14LPR exports exactly one controller sender per channel');
+assert(faePreferredEntry[0].source_gateway_type === 'fgw14usb', 'FAE14LPR uses the same controller gateway priority as FHK14');
 assertIncludes(appSource, 'const [generatedGatewayBlocks, setGeneratedGatewayBlocks] = useState([]);', 'Generated YAML gateway snapshot is stored');
 assertIncludes(appSource, 'yaml && generatedGatewayBlocks.length', 'Sender programming uses the generated YAML gateway snapshot');
 const roomControllerDedup = api.deduplicateExportDevices([

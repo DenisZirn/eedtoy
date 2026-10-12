@@ -1,54 +1,41 @@
-## Hotfix vom 01.10.2026: Sender-ID-Vergabe (Windows)
+# EEDTOY v1.0.98
 
-Die Versionsnummer bleibt **1.0.97**. Der Windows-Installer wurde neu gebaut.
+EEDTOY v1.0.98 ergänzt den lokalen Import einer per E-Mail versendeten MiniSafe2-Konfiguration, nimmt FAH und FRW-ws in die Gerätedatenbank auf und enthält die zuletzt bestätigten Korrekturen für die Series-14-Senderprogrammierung.
 
-- Automatische Sender-ID-Vergabe für FAM-USB mit Base-ID-Endung `80` korrigiert; Base-IDs auf `00` funktionieren weiterhin.
-- Bereits belegte vollständige Senderadressen werden bei der Vergabe übersprungen, einschließlich der aus PCT14 importierten Aktoradressen.
-- Bei erschöpftem Vergabebereich wird keine doppelte Sender-ID erzeugt, sondern eine Fehlermeldung angezeigt.
-- Bestehende gespeicherte Sender-IDs werden nicht automatisch umnummeriert. Bereits entstandene Doppelbelegungen müssen gesondert geprüft werden.
-- Gerätedatenbank, Gateway-Erkennung und Senderprogrammierung wurden nicht geändert.
+## MiniSafe2-Konfigurationsimport
 
-**Installation:** `EEDTOY-Setup-1.0.97.exe` erneut herunterladen und installieren. Eine bereits installierte 1.0.97 enthält den Hotfix nicht automatisch.
+- Vollständigen `Config:`-Text aus der MiniSafe2-E-Mail direkt aus der Zwischenablage einfügen.
+- Alternativ eine TXT- oder JSON-Datei auswählen.
+- Die Gerätevorschau erscheint automatisch nach der Zwischenablage- oder Dateiauswahl; ein zusätzlicher Button „Konfiguration prüfen“ ist nicht erforderlich.
+- Der MiniSafe2-Import besitzt einen eigenen Bereich und ist vollständig vom PCT14-Import getrennt.
+- Importiert werden ausschließlich physische ELTAKO-EnOcean-Geräte mit ihrer `address`, dem Namen, dem MiniSafe2-Gerätetyp und dem zugeordneten Raum.
+- `senderID`, Gateway-, Cloud-, Zugangsdaten-, Aktions- und Szenendaten werden ausdrücklich nicht übernommen.
+- Bekannte MiniSafe2-Gerätetypen werden automatisch einem EEDTOY-/EEP-Profil zugeordnet.
+- Nicht eindeutig zuordenbare Gerätetypen können vor dem Import manuell einem Profil zugewiesen werden.
+- Bereits vorhandene Geräte-IDs werden übersprungen.
 
-**macOS:** Die vorhandenen DMGs wurden mit diesem Windows-Hotfix nicht neu gebaut und enthalten diese Korrektur noch nicht.
+## Neue Geräteprofile
 
----
+- **FAH** mit EEP `A5-06-01`, Geräteklasse `illuminance` und Lerntelegramm `18-08-0D-80`.
+- **FRW-ws** mit EEP `F6-02-01`, Geräteklasse `smoke` und dokumentierter Batterie-Warnung bei Datentelegramm `0x30`.
+- Bestehende lokale Gerätedatenbanken werden einmalig auf Schema 55 migriert; eigene Änderungen bleiben erhalten.
 
-# EEDTOY v1.0.97
+## Senderprogrammierung und Stabilität
 
-EEDTOY v1.0.97 ergänzt FMS14 und FKS-B, korrigiert die FHK14-Controllerprogrammierung und stellt die zuverlässige automatische Gateway-Erkennung wieder her.
-
-## Änderungen
-
-- Fehler bei der automatischen Gateway-Erkennung unter Windows behoben.
-- Die Windows-Gateway-Erkennung basiert wieder exakt auf dem funktionierenden Stand FIX70.
-- FMS14 als eigener 2-Kanal-Multifunktions-Stromstoßschalter ergänzt.
-- Der PCT14-XML-Import erkennt FMS14 automatisch und legt beide Kanäle mit fortlaufenden Geräte- und Sender-IDs an.
-- FMS14 verwendet das Statusprofil `M5-38-08` und das Senderprofil `A5-38-08`. Die Sender-IDs werden als `State from Controller` in den Aktor geschrieben.
-- Falsche FMS14-Tastereinträge aus einem früheren v1.0.97-Build werden beim erneuten Schreiben ersetzt.
-- FHK14 schreibt die Controller-ID jetzt korrekt in Function Group 3 mit Function 65 (`temperature setpoint from controller`).
-- Der FHK14-Schreibvorgang ignoriert verspätete doppelte `F2`-Antworten und wartet zuverlässig auf die gültige `F4`-Schreibbestätigung.
-- Nach einer verspäteten oder uneindeutigen Schreibbestätigung liest EEDTOY die betroffene Speicherzeile zurück. Ist der Eintrag bereits korrekt gespeichert, wird ohne unnötige Wiederholungen fortgefahren.
-- FAE14LPR, FAE14SSR und F4HK14 verwenden weiterhin ihren ursprünglichen Schreibweg; die FHK14-Sonderbehandlung greift dort nicht ein.
-- Geräte der FAE-/FHK-Familie erhalten pro Kanal genau eine priorisierte Controller-ID, passend zu ihrem einzelnen Controller-Speicherplatz.
-- Für den einzelnen FHK14-Controllerplatz gilt die Priorität `FGW14-USB > FAM-USB > FAM14`. Ist ausschließlich ein FAM14 vorhanden, wird dessen Sender-ID verwendet.
-- Frühere falsche FHK14-Einträge mit Function 65 in Function Group 4 werden beim erneuten Schreiben entfernt.
-- FKS-B wurde als eigenes Klimagerät ergänzt und wird technisch wie FKS-H mit dem bidirektionalen EEP `A5-20-04`, dem Lerntelegramm `80-20-0D-80` und einem Sollwertbereich von 10–30 °C behandelt.
-- Bestehende Gerätedatenbanken werden einmalig auf Schema 54 migriert; eigene Änderungen bleiben erhalten.
-- Fortschrittsanzeige, Laufstatus, Ergebniszeilen und Abbruchmeldung der Senderprogrammierung sind vollständig auf Deutsch und Englisch lokalisiert.
+- FHK14 behält die bestätigte Programmierung in Function Group 3 mit Function 65.
+- FAE14LPR verwendet weiterhin seinen ursprünglichen Schreibweg und erhält pro Kanal genau eine priorisierte Controller-ID.
+- Bei einer unklaren Schreibbestätigung wird die gespeicherte Zeile zurückgelesen, bevor erneut geschrieben wird.
+- Fortschritts-, Ergebnis- und Abbruchmeldungen sind vollständig auf Deutsch und Englisch verfügbar.
+- Die automatische Sender-ID-Vergabe berücksichtigt weiterhin FAM-USB-Base-IDs mit Endung `80` und überspringt bereits belegte vollständige Senderadressen.
 
 ## Installation
 
 ### Windows
 
-`EEDTOY-Setup-1.0.97.exe` herunterladen und ausführen.
+`EEDTOY-Setup-1.0.98.exe` herunterladen und ausführen. Python 3.12 und die benötigten Module sind vollständig enthalten; die Installation funktioniert offline.
 
 Die Anwendung ist derzeit nicht digital signiert. Windows SmartScreen kann beim ersten Start eine Sicherheitswarnung anzeigen.
 
 ### macOS
 
-Die macOS-DMGs für Intel und Apple Silicon können separat zum Release hinzugefügt werden.
-
-Die Anwendung ist derzeit nicht digital signiert. macOS Gatekeeper kann beim ersten Start eine Sicherheitswarnung anzeigen.
-
-Wichtig: Unter macOS zuerst das tatsächlich angeschlossene physische Gateway in EEDTOY auswählen. Erst danach auf `Gateway erkennen` klicken. Unter Windows ist dieser zusätzliche Auswahlschritt nicht erforderlich.
+Die DMGs für Intel und Apple Silicon können separat zu diesem Release hinzugefügt werden. Unter macOS zuerst das tatsächlich angeschlossene physische Gateway auswählen und danach `Gateway erkennen` verwenden.

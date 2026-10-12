@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getStoredLanguage, storeLanguage, translate, translateDeviceLabel, translateDeviceName, translateGroup, translatePlatform, translateRuntimeText } from "./i18n.js";
 
-const APP_VERSION = "1.0.97";
+const APP_VERSION = "1.0.98";
 
 
 function serializeDeviceDatabaseYaml(database) {
@@ -61,6 +61,7 @@ const DEFAULT_EEP_DB = {
   "A5-08-01-FBH-FBHT": { group:"Bewegungsmelder", label:"FBH55ESB / FBHT55ESB – Bewegung + Helligkeit automatisch (A5-08-01)", platform:"sensor", eep_out:"A5-08-01", teach_in_telegram:"20-08-0D-85", eltako:"FBH55ESB, FBHT55ESB", fbht_temperature:true },
 
   // ── Rauch / Hitze ─────────────────────────────────────────────
+  "F6-02-01-FRW-WS": { group:"Rauch / Hitze", label:"FRW-ws – Rauchwarnmelder mit Batteriewarnung (F6-02-01)", platform:"binary_sensor", eep_out:"F6-02-01", device_classes:["smoke"], default_dc:"smoke", device_family:"FRW-WS", battery_low_data:"0x30", eltako:"FRW-ws" },
   "A5-30-03-FRWB": { group:"Rauch / Hitze", label:"FRWB – Rauchmelder (A5-30-03)", platform:"binary_sensor", eep_out:"A5-30-03", teach_in_telegram:"C0-18-2D-80", device_classes:["smoke"], default_dc:"smoke", eltako:"FRWB" },
   "A5-30-03-FHMB": { group:"Rauch / Hitze", label:"FHMB – Rauch-/Hitzemelder (A5-30-03)", platform:"binary_sensor", eep_out:"A5-30-03", teach_in_telegram:"C0-18-2D-80", device_classes:["smoke","heat"], default_dc:"smoke", eltako:"FHMB" },
 
@@ -92,6 +93,7 @@ const DEFAULT_EEP_DB = {
   "A5-12-01-F3Z14D": { group:"Zähler", label:"F3Z14D – 3-Kanal-S0-Drehstromzähler (A5-12-01)", platform:"sensor", eep_out:"A5-12-01", teach_in_telegram:"48-08-0D-80", meter_tariffs:"[1]", eltako:"F3Z14D" },
 
   // ── Wetterstation ─────────────────────────────────────────────
+  "A5-06-01-FAH": { group:"Wetterstation", label:"FAH – Helligkeitssensor 0…30.000 lx (A5-06-01)", platform:"sensor", eep_out:"A5-06-01", teach_in_telegram:"18-08-0D-80", device_classes:["illuminance"], default_dc:"illuminance", device_family:"FAH", eltako:"FAH" },
   "A5-13-01": { group:"Wetterstation", label:"FWS61, FWG14MS – Wetterstation Wind + Regen + Temperatur (A5-13-01)", platform:"sensor", eep_out:"A5-13-01", teach_in_telegram:"4C-08-0D-80", eltako:"FWS61, FWG14MS" },
 
   // ── Licht / Dimmer ────────────────────────────────────────────
@@ -157,7 +159,7 @@ const DEVICE_DB_STORAGE_KEY = "eedtoy.customDeviceDatabase.v1";
 const DEVICE_DB_DELETED_KEYS = "__deleted_keys";
 const DEVICE_DB_MODE_KEY = "__eedtoy_database_mode";
 const DEVICE_DB_SCHEMA_KEY = "__eedtoy_database_schema";
-const DEVICE_DB_SCHEMA_VERSION = 54;
+const DEVICE_DB_SCHEMA_VERSION = 55;
 const DEVICE_DB_MODE_AUTHORITATIVE = "authoritative";
 const PROFILE_KEY_ALIASES = {
   "07-37-F7-FRGBW14": "07-3F-7F-FRGBW14",
@@ -289,6 +291,14 @@ function migrateCustomDeviceDatabase(input) {
       // handles this device with the same radio profile as the FKS-H.
       if (schemaVersion < 54 && !database["A5-20-04-FKS-B"]) {
         database["A5-20-04-FKS-B"] = { ...DEFAULT_EEP_DB["A5-20-04-FKS-B"] };
+      }
+
+      // v1.0.98 Test Release: Add FAH illuminance and FRW-ws smoke/battery
+      // profiles once. Later edits or intentional deletions remain untouched.
+      if (schemaVersion < 55) {
+        for (const key of ["A5-06-01-FAH", "F6-02-01-FRW-WS"]) {
+          if (!database[key]) database[key] = { ...DEFAULT_EEP_DB[key] };
+        }
       }
 
       // FIX50: The documented first-ID offset was a manual typo. F4USM61B
@@ -929,6 +939,13 @@ function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", la
           // F4USM61B inversion is defined exclusively by operating_mode in the HA integration.
           // Do not export a generic inverted flag, which can cause double inversion.
         }
+        if (deviceFamily === "FAH") {
+          out += `        device_family: FAH\n`;
+        }
+        if (deviceFamily === "FRW-WS") {
+          out += `        device_family: FRW-ws\n`;
+          out += `        battery_low_data: "0x30"\n`;
+        }
         if (p.fbht_temperature) out += `        fbht_temperature: true\n`;
         if (p.ffg7b_three_state) out += `        ffg7b_three_state: true\n`;
         if (p.futh55ed_mode) out += `        futh55ed_mode: "${p.futh55ed_mode}"\n`;
@@ -949,7 +966,7 @@ function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", la
         if (plat === "cover") {
           out += `        device_class: ${d.device_class || p.default_dc || "shutter"}\n`;
         }
-        if (plat === "binary_sensor" && (d.device_class || p.default_dc)) {
+        if ((plat === "sensor" || plat === "binary_sensor") && (d.device_class || p.default_dc)) {
           out += `        device_class: ${d.device_class || p.default_dc}\n`;
         }
         if (p.needs_sender) {
@@ -1320,6 +1337,119 @@ function createEmptyForm(preferredProfileKey = "") {
   return { name:"", dev_id:"", physical_unique_id:"", eep:profileKey, room:"", device_class:"", sender_id:"", sender_eep:"", time_opens:"", time_closes:"", min_target_temperature:"", max_target_temperature:"", device_type:"", model:"", eltako:"", id_range:"1" };
 }
 
+// MiniSafe2 configurations arrive either as plain JSON or embedded in the text
+// of an e-mail.  The e-mail variant may contain HTML entities and escaped
+// underscores, so only the two required arrays are recovered as a fallback.
+function decodeMiniSafeMailText(value) {
+  const source = String(value || "")
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#([0-9]+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
+    .replace(/&quot;/gi, '"')
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+  // JSON only permits a small set of escape sequences. Outlook/Markdown may
+  // additionally escape underscores, asterisks or ampersands.
+  return source.replace(/\\(?!["\\/bfnrtu])/g, "");
+}
+
+function extractMiniSafeJsonArray(source, key) {
+  const keyIndex = source.search(new RegExp(`"${key}"\\s*:`));
+  if (keyIndex < 0) return null;
+  const start = source.indexOf("[", keyIndex);
+  if (start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < source.length; index += 1) {
+    const character = source[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"') inString = true;
+    else if (character === "[") depth += 1;
+    else if (character === "]") {
+      depth -= 1;
+      if (depth === 0) return source.slice(start, index + 1);
+    }
+  }
+  return null;
+}
+
+function parseMiniSafeConfigText(value) {
+  const decoded = decodeMiniSafeMailText(value).trim();
+  if (!decoded) throw new Error("minisafe.empty");
+  const jsonStart = decoded.indexOf("{");
+  const candidate = jsonStart >= 0 ? decoded.slice(jsonStart) : decoded;
+  try {
+    const parsed = JSON.parse(candidate);
+    const system = parsed?.system || parsed;
+    if (!Array.isArray(system?.devices)) throw new Error("minisafe.noDevices");
+    return { rooms:Array.isArray(system.rooms) ? system.rooms : [], devices:system.devices };
+  } catch (_fullDocumentError) {
+    const roomsText = extractMiniSafeJsonArray(candidate, "rooms") || "[]";
+    const devicesText = extractMiniSafeJsonArray(candidate, "devices");
+    if (!devicesText) throw new Error("minisafe.invalid");
+    try {
+      return { rooms:JSON.parse(roomsText), devices:JSON.parse(devicesText) };
+    } catch (_arrayError) {
+      throw new Error("minisafe.invalid");
+    }
+  }
+}
+
+function miniSafeProfileForDevice(device) {
+  const info = device?.info || {};
+  const deviceText = String(info.deviceText || "").trim();
+  const descriptor = `${deviceText} ${info.data || ""}`.toUpperCase();
+  if (/FTR(?:55|65)(?:DSB|HS)/.test(descriptor)) return "A5-10-06-FTR-FHK";
+  if (descriptor.includes("ELTAKO_BUTTON4") || /FUNKTASTER.*4\s*TASTEN/.test(descriptor)) return "F6-02-01-4CH";
+  if (descriptor.includes("FUD61NPN-230V")) return "A5-38-08-FUD61NPN-230V";
+  if (descriptor.includes("FSR61-230V")) return "M5-38-08-FSR61-230V";
+
+  const normalizedDeviceText = normalizeProfileSearchText(deviceText);
+  if (!normalizedDeviceText) return "";
+  const exactMatches = Object.entries(EEP_DB).filter(([, profile]) =>
+    String(profile.eltako || "")
+      .split(",")
+      .map(name => normalizeProfileSearchText(name))
+      .some(name => name && normalizedDeviceText.includes(name))
+  );
+  return exactMatches.length === 1 ? exactMatches[0][0] : "";
+}
+
+function parseMiniSafeDevices(value) {
+  const config = parseMiniSafeConfigText(value);
+  const rooms = new Map(config.rooms.map(room => [Number(room.index), String(room.name || "").trim()]));
+  return config.devices
+    .filter(device => {
+      const info = device?.info || {};
+      return String(info.type || "").toUpperCase() === "ENOCEAN"
+        && String(info.vendor || "").toLowerCase() === "eltako"
+        && info.virtual !== true
+        && /^[0-9a-f]{8}$/i.test(String(info.address || "").trim());
+    })
+    .map((device, sourceIndex) => {
+      const info = device.info || {};
+      const rawAddress = String(info.address).trim().toUpperCase();
+      const profileKey = miniSafeProfileForDevice(device);
+      return {
+        sourceIndex,
+        selected:Boolean(profileKey),
+        name:String(device.name || info.deviceText || `MiniSafe2 ${sourceIndex + 1}`).trim(),
+        room:rooms.get(Number(device.room)) || "",
+        dev_id:rawAddress.match(/.{2}/g).join("-"),
+        deviceText:String(info.deviceText || info.data || "").trim(),
+        target:String(info._target || "").trim(),
+        data:String(info.data || "").trim(),
+        profileKey,
+      };
+    });
+}
+
 const emptyForm = createEmptyForm();
 const emptyGW   = { type:"fam-usb", base_id:"", serial_path:"", lan_address:"" };
 
@@ -1340,6 +1470,11 @@ export default function App() {
   const [disconnectingGateway, setDisconnectingGateway] = useState(false);
   const [detectMsg, setDetectMsg] = useState("");
   const [importMsg, setImportMsg] = useState("");
+  const [miniSafeOpen, setMiniSafeOpen] = useState(false);
+  const [miniSafeText, setMiniSafeText] = useState("");
+  const [miniSafePreview, setMiniSafePreview] = useState([]);
+  const [miniSafeError, setMiniSafeError] = useState("");
+  const [miniSafeFileName, setMiniSafeFileName] = useState("");
   const [learningId, setLearningId] = useState(false);
   const [learnMsg, setLearnMsg] = useState("");
   const [importFam14Gateway, setImportFam14Gateway] = useState(true);
@@ -1946,6 +2081,88 @@ export default function App() {
     return new TextDecoder("utf-8", { fatal: false }).decode(buffer);
   };
 
+  const analyzeMiniSafeText = (value) => {
+    const source = String(value || "");
+    setMiniSafeText(source);
+    setMiniSafeError("");
+    try {
+      const preview = parseMiniSafeDevices(source);
+      if (!preview.length) throw new Error("minisafe.noDevices");
+      setMiniSafePreview(preview);
+    } catch (error) {
+      setMiniSafePreview([]);
+      const key = String(error?.message || "minisafe.invalid");
+      setMiniSafeError(t(key.startsWith("minisafe.") ? key : "minisafe.invalid"));
+    }
+  };
+
+  const handleMiniSafeFile = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setMiniSafeFileName(file.name);
+    try {
+      analyzeMiniSafeText(await readTextFileUtf8(file));
+    } catch (_error) {
+      setMiniSafePreview([]);
+      setMiniSafeError(t("minisafe.fileError"));
+    }
+  };
+
+  const pasteMiniSafeClipboard = async () => {
+    try {
+      const value = await navigator.clipboard.readText();
+      setMiniSafeFileName("");
+      analyzeMiniSafeText(value);
+    } catch (_error) {
+      setMiniSafeError(t("minisafe.clipboardError"));
+    }
+  };
+
+  const updateMiniSafePreview = (index, changes) => {
+    setMiniSafePreview(rows => rows.map((row, rowIndex) => rowIndex === index ? { ...row, ...changes } : row));
+  };
+
+  const importMiniSafeDevices = () => {
+    const selectedRows = miniSafePreview.filter(row => row.selected && EEP_DB[row.profileKey]);
+    let nextDevices = [...devices];
+    let imported = 0;
+    let duplicates = 0;
+    for (const row of selectedRows) {
+      const selectedProfile = EEP_DB[row.profileKey];
+      const entry = {
+        ...createEmptyForm(row.profileKey),
+        name:row.name || row.deviceText || row.dev_id,
+        dev_id:row.dev_id,
+        room:row.room,
+        eep:row.profileKey,
+        profile_key:row.profileKey,
+        platform:selectedProfile.platform || "sensor",
+        device_class:selectedProfile.default_dc || "",
+        sender_id:selectedProfile.needs_sender ? autoSenderIdForGateway(gateway, nextDevices) : "",
+        sender_eep:selectedProfile.needs_sender ? (selectedProfile.sender_eep || "") : "",
+        device_type:row.deviceText || selectedProfile.eltako || "",
+        model:row.deviceText || selectedProfile.eltako || "",
+        eltako:row.deviceText || selectedProfile.eltako || "",
+        source_device_type:row.deviceText,
+        source:"minisafe2",
+      };
+      const duplicate = nextDevices.some(existing =>
+        duplicateDeviceKey(existing) && duplicateDeviceKey(existing) === duplicateDeviceKey(entry)
+      );
+      if (duplicate) {
+        duplicates += 1;
+        continue;
+      }
+      nextDevices.push(entry);
+      imported += 1;
+    }
+    setDevices(nextDevices);
+    setMiniSafeOpen(false);
+    setImportMsg(t("minisafe.imported", { count:imported, duplicates }));
+    setTimeout(() => setImportMsg(""), 12000);
+  };
+
   const handlePct14Import = async (event) => {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -2404,7 +2621,7 @@ export default function App() {
     const entry = deviceDbEntries[deviceDbSelected] || {};
     const platformOptions = ["sensor","binary_sensor","switch","light","cover","climate"];
     const deviceClassOptions = {
-      sensor:["temperature","humidity","power","energy","voltage","current","wind_speed","carbon_dioxide","volatile_organic_compounds_parts","battery"],
+      sensor:["temperature","humidity","illuminance","power","energy","voltage","current","wind_speed","carbon_dioxide","volatile_organic_compounds_parts","battery"],
       binary_sensor:["door","window","opening","motion","occupancy","smoke","heat","moisture","battery","problem"],
       switch:["switch","outlet"], light:[], cover:["shutter","blind","awning","curtain","garage"], climate:[]
     };
@@ -2553,6 +2770,7 @@ export default function App() {
         .del{background:#fff;color:var(--danger);border:1px solid #f1b7b1;padding:.32rem .7rem;font-size:.75rem}.del:hover{background:#fff0ee;border-color:#e2857a}
         .edit{background:#fff;color:#53616f;border:1px solid var(--line);padding:.32rem .7rem;font-size:.75rem}.edit:hover{border-color:#8fb0c2;color:var(--brand);background:var(--brand-soft)}
         .rh:hover{background:#f8fafb!important}
+        .modalOverlay{position:fixed;inset:0;z-index:50;background:rgba(15,23,42,.58);display:flex;align-items:center;justify-content:center;padding:1rem}
         select optgroup{color:var(--brand);font-style:normal;font-weight:800;background:#fff}
         select option{background:#fff;color:var(--text);font-family:'Segoe UI','Segoe UI Symbol',Arial,sans-serif}
         .gatewayGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:.75rem}
@@ -2777,10 +2995,12 @@ export default function App() {
                   )}
                 </div>
               )}
-              <label className="btn ghost" style={{display:"inline-block",width:"auto"}}>
-                {t("devices.chooseFile")}
-                <input type="file" accept=".xml,.html,.htm,text/xml,text/html" onChange={handlePct14Import} style={{display:"none"}} />
-              </label>
+              <div style={{display:"flex",gap:".55rem",alignItems:"center",flexWrap:"wrap"}}>
+                <label className="btn ghost" style={{display:"inline-block",width:"auto",margin:0}}>
+                  {t("devices.chooseFile")}
+                  <input type="file" accept=".xml,.html,.htm,text/xml,text/html" onChange={handlePct14Import} style={{display:"none"}} />
+                </label>
+              </div>
               {importMsg&&(
                 <div style={{fontSize:".72rem",padding:".5rem .75rem",borderRadius:5,marginTop:".8rem",
                   background: importMsg.startsWith("✓")?"#14532d22":"#450a0a22",
@@ -2789,6 +3009,12 @@ export default function App() {
                   {importMsg}
                 </div>
               )}
+            </div>
+
+            <div className="card" style={{padding:"1.1rem",marginBottom:"1rem"}}>
+              <div style={{fontSize:".72rem",color:"#53616f",marginBottom:".7rem",fontWeight:600}}>{t("minisafe.title")}</div>
+              <div style={{fontSize:".68rem",color:"#64748b",lineHeight:1.7,marginBottom:".8rem"}}>{t("minisafe.description")}</div>
+              <button className="btn ghost" onClick={()=>{setMiniSafeOpen(true);setMiniSafeError("");}}>{t("minisafe.open")}</button>
             </div>
 
             {/* Form */}
@@ -2959,7 +3185,7 @@ export default function App() {
                       <span style={{fontSize:".6rem",padding:".12rem .4rem",borderRadius:3,background:col+"20",color:col,fontWeight:600,flexShrink:0,whiteSpace:"nowrap"}}>{PI[d.platform]} {translatePlatform(language, d.platform)}</span>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{color:"#111827",fontWeight:600,fontSize:".82rem",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.name}</div>
-                        <div style={{color:"#6b7280",fontSize:".68rem"}}>{d.dev_id} · {d.eep.replace(/-sw$/,"")}{d.room?" · "+d.room:""}</div>
+                        <div style={{color:"#6b7280",fontSize:".68rem"}}>{d.dev_id} · {d.source_device_type || d.eep.replace(/-sw$/,"")}{d.room?" · "+d.room:""}</div>
                       </div>
                       <div style={{display:"flex",gap:".35rem",flexShrink:0}}>
                         <button className="btn edit" onClick={()=>handleEdit(i)}>{t("devices.editButton")}</button>
@@ -3091,11 +3317,84 @@ export default function App() {
         </div>
         </div>
       </main>
+      {miniSafeOpen&&(
+        <div className="modalOverlay" onMouseDown={event=>{if(event.target===event.currentTarget)setMiniSafeOpen(false);}}>
+          <div className="card" style={{width:"min(1180px,97vw)",maxHeight:"94vh",display:"flex",flexDirection:"column",padding:0,overflow:"hidden"}}>
+            <div style={{padding:"1rem 1.2rem",borderBottom:"1px solid var(--line)",display:"flex",justifyContent:"space-between",alignItems:"center",gap:"1rem"}}>
+              <div>
+                <strong>{t("minisafe.title")}</strong>
+                <div style={{fontSize:".68rem",color:"#64748b",marginTop:".2rem"}}>{t("minisafe.description")}</div>
+              </div>
+              <button className="btn ghost" onClick={()=>setMiniSafeOpen(false)}>✕</button>
+            </div>
+            <div style={{padding:"1rem 1.2rem",overflow:"auto"}}>
+              <textarea
+                value={miniSafeText}
+                onChange={event=>{setMiniSafeText(event.target.value);setMiniSafeError("");setMiniSafePreview([]);}}
+                placeholder={t("minisafe.placeholder")}
+                style={{width:"100%",minHeight:150,resize:"vertical",fontFamily:"Cascadia Mono, Consolas, monospace",fontSize:".7rem",lineHeight:1.45,padding:".7rem",border:"1px solid var(--line-strong)",borderRadius:7,outline:"none",color:"var(--text)",background:"#fff"}}
+              />
+              <div style={{display:"flex",gap:".55rem",alignItems:"center",flexWrap:"wrap",marginTop:".7rem"}}>
+                <button className="btn ghost" onClick={pasteMiniSafeClipboard}>{t("minisafe.paste")}</button>
+                <label className="btn ghost" style={{display:"inline-block",width:"auto",margin:0}}>
+                  {t("minisafe.chooseFile")}
+                  <input type="file" accept=".txt,.json,text/plain,application/json" onChange={handleMiniSafeFile} style={{display:"none"}} />
+                </label>
+                {miniSafeFileName&&<span className="statusPill">{miniSafeFileName}</span>}
+              </div>
+              {miniSafeError&&<div style={{fontSize:".72rem",padding:".55rem .7rem",borderRadius:6,marginTop:".7rem",background:"#fff0ee",color:"#9c251c",border:"1px solid #f1b7b1"}}>✗ {miniSafeError}</div>}
+              {miniSafePreview.length>0&&(
+                <div style={{marginTop:"1rem",border:"1px solid var(--line)",borderRadius:8,overflow:"hidden"}}>
+                  <div style={{padding:".7rem .8rem",background:"#eef5f8",borderBottom:"1px solid var(--line)",fontSize:".72rem",color:"#245873",fontWeight:800}}>
+                    {t("minisafe.found", { count:miniSafePreview.length })}
+                  </div>
+                  <div style={{overflowX:"auto"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:".7rem",minWidth:900}}>
+                      <thead><tr style={{background:"#f8fafc",color:"#53616f",textAlign:"left"}}>
+                        <th style={{padding:".55rem",width:38}}></th>
+                        <th style={{padding:".55rem"}}>{t("devices.name")}</th>
+                        <th style={{padding:".55rem"}}>{t("devices.deviceId")}</th>
+                        <th style={{padding:".55rem"}}>{t("minisafe.deviceType")}</th>
+                        <th style={{padding:".55rem"}}>{t("devices.roomOptional")}</th>
+                        <th style={{padding:".55rem",minWidth:320}}>{t("minisafe.profile")}</th>
+                      </tr></thead>
+                      <tbody>{miniSafePreview.map((row,index)=><tr key={`${row.dev_id}-${index}`} style={{borderTop:"1px solid #e2e8f0",opacity:row.selected?1:.7}}>
+                        <td style={{padding:".55rem",textAlign:"center"}}><input type="checkbox" checked={row.selected} disabled={!row.profileKey} onChange={event=>updateMiniSafePreview(index,{selected:event.target.checked})} style={{width:"auto"}}/></td>
+                        <td style={{padding:".55rem",fontWeight:700}}>{row.name}</td>
+                        <td style={{padding:".55rem",fontFamily:"Consolas,monospace",whiteSpace:"nowrap"}}>{row.dev_id}</td>
+                        <td style={{padding:".55rem"}}>{row.deviceText || row.data || "—"}</td>
+                        <td style={{padding:".55rem"}}>{row.room || "—"}</td>
+                        <td style={{padding:".42rem .55rem"}}>
+                          <select value={row.profileKey} onChange={event=>updateMiniSafePreview(index,{profileKey:event.target.value,selected:Boolean(event.target.value)})} style={{padding:".45rem .55rem",fontSize:".68rem"}}>
+                            <option value="">{t("minisafe.chooseProfile")}</option>
+                            {[...new Set(Object.values(EEP_DB).map(profile=>profile.group))].map(group=><optgroup key={group} label={translateGroup(language,group)}>
+                              {Object.entries(EEP_DB).filter(([,profile])=>profile.group===group).map(([key,profile])=><option key={key} value={key}>{translateDeviceLabel(language,profile.label)}</option>)}
+                            </optgroup>)}
+                          </select>
+                        </td>
+                      </tr>)}</tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div style={{padding:".8rem 1.2rem",borderTop:"1px solid var(--line)",display:"flex",justifyContent:"space-between",alignItems:"center",gap:".7rem",flexWrap:"wrap"}}>
+              <span style={{fontSize:".68rem",color:"#64748b"}}>{t("minisafe.senderIgnored")}</span>
+              <div style={{display:"flex",gap:".5rem"}}>
+                <button className="btn ghost" onClick={()=>setMiniSafeOpen(false)}>{t("common.cancel")}</button>
+                <button className="btn pri" onClick={importMiniSafeDevices} disabled={!miniSafePreview.some(row=>row.selected&&row.profileKey)}>
+                  {t("minisafe.importSelected", { count:miniSafePreview.filter(row=>row.selected&&row.profileKey).length })}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {deviceDbOpen && (() => {
         const entry = deviceDbEntries[deviceDbSelected] || {};
         const platformOptions = ["sensor","binary_sensor","switch","light","cover","climate"];
         const deviceClassOptions = {
-          sensor:["temperature","humidity","power","energy","voltage","current","wind_speed","carbon_dioxide","volatile_organic_compounds_parts","battery"],
+          sensor:["temperature","humidity","illuminance","power","energy","voltage","current","wind_speed","carbon_dioxide","volatile_organic_compounds_parts","battery"],
           binary_sensor:["door","window","opening","motion","occupancy","smoke","heat","moisture","battery","problem"],
           switch:["switch","outlet"], light:[], cover:["shutter","blind","awning","curtain","garage"], climate:[]
         };

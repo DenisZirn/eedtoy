@@ -1,3 +1,14 @@
+## 1.0.98
+
+- MiniSafe2-Konfigurationsimport aus dem E-Mail-Text sowie aus TXT-/JSON-Dateien ergänzt.
+- Automatische Vorschau nach Zwischenablage- oder Dateiauswahl; kein zusätzlicher Prüfen-Button.
+- MiniSafe2-Import als eigener, vom PCT14-Import getrennter Bereich.
+- Importiert werden ausschließlich Geräte-ID, Name, Gerätetyp und Raum physischer ELTAKO-EnOcean-Geräte.
+- Automatische EEP-Zuordnung für bekannte MiniSafe2-Geräte und manuelle Auswahl für unbekannte Gerätetypen.
+- FAH mit `A5-06-01` und FRW-ws mit `F6-02-01` ergänzt.
+- Gerätedatenbankmigration auf Schema 55.
+- Bestätigte FHK14-/FAE14LPR-Schreibkorrekturen und vollständige zweisprachige Fortschrittstexte übernommen.
+
 ## 1.0.97
 
 - FKS-B als eigener batteriebetriebener Heizkörper-Stellantrieb ergänzt; technisch wird er wie der FKS-H mit `A5-20-04` behandelt.

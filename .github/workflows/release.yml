@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version without v prefix, for example 1.0.96"
+        description: "Version without v prefix, for example 1.0.98"
         required: true
-        default: "1.0.96"
+        default: "1.0.98"
         type: string
       replace_existing:
         description: "Replace an existing release asset for this version"
