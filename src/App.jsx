@@ -1470,6 +1470,7 @@ export default function App() {
   const [disconnectingGateway, setDisconnectingGateway] = useState(false);
   const [detectMsg, setDetectMsg] = useState("");
   const [importMsg, setImportMsg] = useState("");
+  const [miniSafeImportMsg, setMiniSafeImportMsg] = useState("");
   const [miniSafeOpen, setMiniSafeOpen] = useState(false);
   const [miniSafeText, setMiniSafeText] = useState("");
   const [miniSafePreview, setMiniSafePreview] = useState([]);
@@ -1638,6 +1639,7 @@ export default function App() {
     setErrors({});
     setCopied(false);
     setImportMsg("");
+    setMiniSafeImportMsg("");
     setDetectMsg("");
     setLearnMsg("");
     setWriteSenderMsg("");
@@ -2159,8 +2161,8 @@ export default function App() {
     }
     setDevices(nextDevices);
     setMiniSafeOpen(false);
-    setImportMsg(t("minisafe.imported", { count:imported, duplicates }));
-    setTimeout(() => setImportMsg(""), 12000);
+    setMiniSafeImportMsg(t("minisafe.imported", { count:imported, duplicates }));
+    setTimeout(() => setMiniSafeImportMsg(""), 12000);
   };
 
   const handlePct14Import = async (event) => {
@@ -3015,6 +3017,11 @@ export default function App() {
               <div style={{fontSize:".72rem",color:"#53616f",marginBottom:".7rem",fontWeight:600}}>{t("minisafe.title")}</div>
               <div style={{fontSize:".68rem",color:"#64748b",lineHeight:1.7,marginBottom:".8rem"}}>{t("minisafe.description")}</div>
               <button className="btn ghost" onClick={()=>{setMiniSafeOpen(true);setMiniSafeError("");}}>{t("minisafe.open")}</button>
+              {miniSafeImportMsg&&(
+                <div style={{fontSize:".72rem",padding:".5rem .75rem",borderRadius:5,marginTop:".8rem",background:"#14532d22",color:"#22c55e",border:"1px solid #14532d"}}>
+                  {miniSafeImportMsg}
+                </div>
+              )}
             </div>
 
             {/* Form */}
@@ -3358,7 +3365,7 @@ export default function App() {
                         <th style={{padding:".55rem"}}>{t("devices.roomOptional")}</th>
                         <th style={{padding:".55rem",minWidth:320}}>{t("minisafe.profile")}</th>
                       </tr></thead>
-                      <tbody>{miniSafePreview.map((row,index)=><tr key={`${row.dev_id}-${index}`} style={{borderTop:"1px solid #e2e8f0",opacity:row.selected?1:.7}}>
+                      <tbody>{miniSafePreview.map((row,index)=><tr key={`${row.dev_id}-${index}`} style={{borderTop:"1px solid #e2e8f0",background:row.profileKey?"#fff":"#fff4bf",opacity:row.profileKey?(row.selected?1:.7):1,transition:"background .15s ease"}}>
                         <td style={{padding:".55rem",textAlign:"center"}}><input type="checkbox" checked={row.selected} disabled={!row.profileKey} onChange={event=>updateMiniSafePreview(index,{selected:event.target.checked})} style={{width:"auto"}}/></td>
                         <td style={{padding:".55rem",fontWeight:700}}>{row.name}</td>
                         <td style={{padding:".55rem",fontFamily:"Consolas,monospace",whiteSpace:"nowrap"}}>{row.dev_id}</td>

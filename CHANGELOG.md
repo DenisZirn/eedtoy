@@ -3,6 +3,8 @@
 - MiniSafe2-Konfigurationsimport aus dem E-Mail-Text sowie aus TXT-/JSON-Dateien ergänzt.
 - Automatische Vorschau nach Zwischenablage- oder Dateiauswahl; kein zusätzlicher Prüfen-Button.
 - MiniSafe2-Import als eigener, vom PCT14-Import getrennter Bereich.
+- Nicht zugewiesene MiniSafe2-Geräte bleiben bis zur Profilwahl gelb hervorgehoben.
+- MiniSafe2-Erfolgsmeldungen werden in der MiniSafe2-Kachel statt im PCT14-Bereich angezeigt.
 - Importiert werden ausschließlich Geräte-ID, Name, Gerätetyp und Raum physischer ELTAKO-EnOcean-Geräte.
 - Automatische EEP-Zuordnung für bekannte MiniSafe2-Geräte und manuelle Auswahl für unbekannte Gerätetypen.
 - FAH mit `A5-06-01` und FRW-ws mit `F6-02-01` ergänzt.

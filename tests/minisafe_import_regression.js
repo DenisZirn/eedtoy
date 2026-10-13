@@ -45,5 +45,13 @@ if (!appSource.includes('analyzeMiniSafeText(await readTextFileUtf8(file))')) th
 if (!appSource.includes('analyzeMiniSafeText(value);')) throw new Error('clipboard button must trigger automatic preview');
 if (!appSource.includes('className="card" style={{padding:"1.1rem",marginBottom:"1rem"}}')) throw new Error('MiniSafe2 import must use its own card');
 if (appSource.includes('minisafe.check') || appSource.includes('Konfiguration prüfen')) throw new Error('extra configuration-check button must not exist');
+if (!appSource.includes('background:row.profileKey?"#fff":"#fff4bf"')) throw new Error('rows without an assigned profile must stay highlighted in yellow');
+if (!appSource.includes('opacity:row.profileKey?(row.selected?1:.7):1')) throw new Error('yellow rows must remain fully visible until a profile is selected');
+if (!appSource.includes('setMiniSafeImportMsg(t("minisafe.imported"')) throw new Error('MiniSafe2 result must use its own status message');
+if (appSource.includes('setImportMsg(t("minisafe.imported"')) throw new Error('MiniSafe2 result must not be rendered in the PCT14 status area');
+const miniSafeCardStart = appSource.indexOf('<div className="card" style={{padding:"1.1rem",marginBottom:"1rem"}}>\n              <div style={{fontSize:".72rem",color:"#53616f",marginBottom:".7rem",fontWeight:600}}>{t("minisafe.title")}</div>');
+const deviceFormStart = appSource.indexOf('{/* Form */}', miniSafeCardStart);
+const miniSafeMessagePosition = appSource.indexOf('{miniSafeImportMsg&&(', miniSafeCardStart);
+if (miniSafeCardStart < 0 || miniSafeMessagePosition < miniSafeCardStart || miniSafeMessagePosition > deviceFormStart) throw new Error('MiniSafe2 result must be displayed inside the separate MiniSafe2 card');
 
 console.log('MiniSafe2 import regression: OK');

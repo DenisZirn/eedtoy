@@ -8,6 +8,8 @@ EEDTOY v1.0.98 ergänzt den lokalen Import einer per E-Mail versendeten MiniSafe
 - Alternativ eine TXT- oder JSON-Datei auswählen.
 - Die Gerätevorschau erscheint automatisch nach der Zwischenablage- oder Dateiauswahl; ein zusätzlicher Button „Konfiguration prüfen“ ist nicht erforderlich.
 - Der MiniSafe2-Import besitzt einen eigenen Bereich und ist vollständig vom PCT14-Import getrennt.
+- Geräte ohne zugewiesenes EEP-Profil bleiben in der Vorschau gelb hervorgehoben, bis ein Profil ausgewählt wurde.
+- Die MiniSafe2-Importmeldung erscheint in der eigenen MiniSafe2-Kachel und nicht im PCT14-Bereich.
 - Importiert werden ausschließlich physische ELTAKO-EnOcean-Geräte mit ihrer `address`, dem Namen, dem MiniSafe2-Gerätetyp und dem zugeordneten Raum.
 - `senderID`, Gateway-, Cloud-, Zugangsdaten-, Aktions- und Szenendaten werden ausdrücklich nicht übernommen.
 - Bekannte MiniSafe2-Gerätetypen werden automatisch einem EEDTOY-/EEP-Profil zugeordnet.
