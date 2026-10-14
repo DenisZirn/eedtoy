@@ -48,6 +48,8 @@ assertEqual(api.translate('en', 'yaml.backToDevices'), '← Edit devices', 'YAML
 assertEqual(api.translateRuntimeText('en', 'Kein Bus-COM-Port eingetragen. Bitte FAM14/FGW14-USB COM-Port wählen oder manuell eintragen.'), 'No bus COM port has been entered. Select or manually enter the FAM14/FGW14-USB COM port.', 'Backend error translation');
 assertEqual(api.translateRuntimeText('en', 'Die Gateway-Erkennung lieferte keine Base-ID.'), 'Gateway detection did not return a base ID.', 'Gateway base-ID fallback translation');
 assertEqual(api.translate('en', 'senderWrite.processed', { processed: 21, total: 39 }), '21 of 39 sender IDs processed', 'English sender-write progress');
+assertEqual(api.translate('de', 'senderWrite.done', { updated: 0, exists: 42, unsupported: 0, errors: 0 }), '✓ Fertig. Geschrieben: 0, bereits vorhanden: 42, nicht unterstützt: 0, Fehler: 0.', 'German sender-write summary');
+assertEqual(api.translate('en', 'senderWrite.done', { updated: 0, exists: 42, unsupported: 0, errors: 0 }), '✓ Done. Written: 0, already present: 42, unsupported: 0, errors: 0.', 'English sender-write summary');
 assertEqual(api.translateRuntimeText('en', 'Sender-ID 00-00-B0-23 für EEP 07-3F-7F existiert bereits.'), 'Sender ID 00-00-B0-23 for EEP 07-3F-7F already exists.', 'Sender-write event translation');
 assertEqual(api.translate('de', 'gateway.desc.famUsb'), 'ESP2 · 9600 Baud · Funk', 'German gateway description');
 assertEqual(api.translate('en', 'gateway.desc.famUsb'), 'ESP2 · 9,600 baud · wireless', 'English gateway description');
@@ -112,6 +114,7 @@ assert(!source.includes('createTreeWalker'), 'No DOM text-node rewriting');
 assert(appSource.includes('/PCT14\\s+(Adresse|address)\\b/i'), 'PCT14 imported devices remain detectable in both languages');
 assert(!appSource.includes('{processed} von {total} Sender-IDs verarbeitet'), 'Sender-write progress is not hard-coded in German');
 assert(!appSource.includes('"RS485-Bus verbinden …"'), 'Sender-write phases are not hard-coded in German');
+assert(appSource.includes('t("senderWrite.done", writeSenderSummary)'), 'Sender-write summary is rendered from structured counts in the active language');
 
 const referencedKeys = [...appSource.matchAll(/\bt\("([^"]+)"/g)].map((match) => match[1]);
 for (const key of new Set(referencedKeys)) {
