@@ -1,1 +1,146 @@
-±ç^{kzË"¢}œ…ªôºyšµÈ^
+name: Create GitHub Release
+
+on:
+  push:
+    branches:
+      - "release-v1.0.99-trigger"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version without v prefix, for example 1.0.99"
+        required: true
+        default: "1.0.99"
+        type: string
+      replace_existing:
+        description: "Replace an existing release asset for this version"
+        required: true
+        default: false
+        type: boolean
+concurrency:
+  group: release-${{ inputs.version }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      GH_REPO: ${{ github.repository }}
+      VERSION: "1.0.99"
+      RELEASE_TAG: "v1.0.99"
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Version prÃ¼fen
+        shell: python
+        run: |
+          from pathlib import Path
+          import json
+          import re
+          import os
+
+          version = os.environ["VERSION"].strip()
+          if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+              raise SystemExit(f"Invalid version: {version}")
+
+          package = json.loads(Path("package.json").read_text(encoding="utf-8"))
+          lock = json.loads(Path("package-lock.json").read_text(encoding="utf-8"))
+          app = Path("src/App.jsx").read_text(encoding="utf-8")
+          tests = Path("tests/yaml_generation_regression.js").read_text(encoding="utf-8")
+
+          assert package["version"] == version
+          assert lock["version"] == version
+          assert lock["packages"][""]["version"] == version
+          assert f'const APP_VERSION = "{version}";' in app
+          assert f"Application version is {version}" in tests
+          assert f"# Version: {version}" in tests
+
+      - name: Node.js einrichten
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Build-Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.10"
+
+      - name: Node-AbhÃ¤ngigkeiten installieren
+        run: npm ci
+
+      - name: Eingebettete Python-Laufzeit bauen
+        shell: pwsh
+        run: ./build/prepare_embedded_python.ps1 -PythonVersion "3.12.10" -BuildPython "python"
+
+      - name: Anwendung und Runtime prÃ¼fen
+        shell: pwsh
+        run: |
+          $python = Join-Path $PWD "python-runtime\python.exe"
+          if (!(Test-Path $python)) { throw "Embedded python.exe fehlt." }
+          & $python -I -c "import serial, serial_asyncio, aiocoap, yaml, eltakobus; from eltakobus.serial import RS485SerialInterfaceV2; print('embedded runtime OK')"
+          if ($LASTEXITCODE -ne 0) { throw "Embedded runtime validation failed." }
+          npm test
+          if ($LASTEXITCODE -ne 0) { throw "Application tests failed." }
+
+      - name: Windows-Installer bauen
+        run: npm run build:installer
+
+      - name: Installierten Build validieren
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem -Path dist-exe -Filter "EEDTOY-Setup-$env:VERSION.exe" -File | Select-Object -First 1
+          if (-not $installer) { throw "Kein Installer fÃ¼r Version $env:VERSION gefunden." }
+
+          $installDir = Join-Path $env:RUNNER_TEMP "EEDTOY-release-test"
+          $process = Start-Process -FilePath $installer.FullName -ArgumentList @('/S', "/D=$installDir") -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "NSIS installation failed with exit code $($process.ExitCode)." }
+
+          $installedPython = Join-Path $installDir "resources\python-runtime\python.exe"
+          $installedApp = Join-Path $installDir "EEDTOY.exe"
+          if (!(Test-Path $installedApp)) { throw "Installed EEDTOY.exe fehlt." }
+          if (!(Test-Path $installedPython)) { throw "Installed embedded python.exe fehlt." }
+          & $installedPython -I -c "import serial, serial_asyncio, aiocoap, yaml, eltakobus; from eltakobus.serial import RS485SerialInterfaceV2; print('installed runtime OK')"
+          if ($LASTEXITCODE -ne 0) { throw "Installed runtime validation failed." }
+
+      - name: Installer als Artefakt sichern
+        uses: actions/upload-artifact@v4
+        with:
+          name: EEDTOY-v${{ env.VERSION }}-Windows-Installer
+          path: dist-exe/EEDTOY-Setup-${{ env.VERSION }}.exe
+          if-no-files-found: error
+
+      - name: Release verÃ¶ffentlichen
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPLACE_EXISTING: ${{ inputs.replace_existing }}
+        run: |
+          $releaseExists = $false
+          gh release view $env:RELEASE_TAG --repo $env:GH_REPO *> $null
+          if ($LASTEXITCODE -eq 0) { $releaseExists = $true }
+
+          if ($releaseExists -and $env:REPLACE_EXISTING -ne "true") {
+            throw "Release $env:RELEASE_TAG already exists."
+          }
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -fa $env:RELEASE_TAG -m "EEDTOY $env:RELEASE_TAG"
+          git push origin $env:RELEASE_TAG --force
+
+          $installer = "dist-exe/EEDTOY-Setup-$env:VERSION.exe"
+          if (-not $releaseExists) {
+            gh release create $env:RELEASE_TAG $installer --repo $env:GH_REPO --verify-tag --title "EEDTOY $env:RELEASE_TAG" --notes-file RELEASE_NOTES.md --latest
+          }
+          else {
+            gh release upload $env:RELEASE_TAG $installer --repo $env:GH_REPO --clobber
+            gh release edit $env:RELEASE_TAG --repo $env:GH_REPO --title "EEDTOY $env:RELEASE_TAG" --notes-file RELEASE_NOTES.md --latest
+          }
