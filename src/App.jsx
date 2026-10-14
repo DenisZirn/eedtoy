@@ -1546,6 +1546,7 @@ export default function App() {
   const [writeTargetGatewayKey, setWriteTargetGatewayKey] = useState("");
   const [writingSenders, setWritingSenders] = useState(false);
   const [writeSenderMsg, setWriteSenderMsg] = useState("");
+  const [writeSenderSummary, setWriteSenderSummary] = useState(null);
   const [writeSenderLog, setWriteSenderLog] = useState([]);
   const [writeSenderProgress, setWriteSenderProgress] = useState({ processed:0, total:0, phase:"idle", message:"" });
   const [projectMsg, setProjectMsg] = useState("");
@@ -1702,6 +1703,7 @@ export default function App() {
     setDetectMsg("");
     setLearnMsg("");
     setWriteSenderMsg("");
+    setWriteSenderSummary(null);
     setWriteSenderLog([]);
     setStep(loadedStep === 3 && !loadedYaml ? 2 : loadedStep);
     setProjectFileName(result.fileName || `EEDTOY-${language === "en" ? "Project" : "Projekt"}.eedtoy`);
@@ -2356,6 +2358,7 @@ export default function App() {
     if (!port || !hasRs485Gateway) return;
 
     setDisconnectingGateway(true);
+    setWriteSenderSummary(null);
     if (writingSenders && window.electronAPI?.cancelWriteSenderIds) {
       setWriteSenderProgress(previous => ({ ...previous, phase:"canceling" }));
       await window.electronAPI.cancelWriteSenderIds();
@@ -2376,6 +2379,7 @@ export default function App() {
   };
 
   const handleWriteSenderIds = async () => {
+    setWriteSenderSummary(null);
     if (!isElectron) {
       setWriteSenderMsg(t("senderWrite.desktopOnly"));
       return;
@@ -2424,7 +2428,8 @@ export default function App() {
     }
     if (result.ok) {
       const c = result.counts || {};
-      setWriteSenderMsg(t("senderWrite.done", { updated: c.updated || 0, exists: c.exists || 0, unsupported: c.unsupported || 0, errors: c.error || 0 }));
+      setWriteSenderMsg("");
+      setWriteSenderSummary({ updated: c.updated || 0, exists: c.exists || 0, unsupported: c.unsupported || 0, errors: c.error || 0 });
     } else {
       setWriteSenderMsg("✗ " + runtimeText(result.error || t("senderWrite.failed")));
     }
@@ -3349,7 +3354,12 @@ export default function App() {
                 })()}
               </div>
               {!busWriteGatewayConnected&&<div style={{fontSize:".68rem",marginTop:".65rem",padding:".5rem .7rem",borderRadius:5,background:"#fff7ed",color:"#9a3412",border:"1px solid #fed7aa"}}>{t("yaml.writeDisabled")}</div>}
-              {writeSenderMsg&&<div style={{fontSize:".72rem",marginTop:".75rem",padding:".5rem .7rem",borderRadius:5,background:writeSenderMsg.startsWith("✓")?"#14532d22":writeSenderMsg.startsWith("✗")?"#450a0a22":"#eef5f8",color:writeSenderMsg.startsWith("✓")?"#166534":writeSenderMsg.startsWith("✗")?"#b42318":"#2f6f8f",border:"1px solid #c6d9e4"}}>{runtimeText(writeSenderMsg)}</div>}
+              {(writeSenderSummary||writeSenderMsg)&&(()=>{
+                const message = writeSenderSummary
+                  ? t("senderWrite.done", writeSenderSummary)
+                  : runtimeText(writeSenderMsg);
+                return <div style={{fontSize:".72rem",marginTop:".75rem",padding:".5rem .7rem",borderRadius:5,background:message.startsWith("✓")?"#14532d22":message.startsWith("✗")?"#450a0a22":"#eef5f8",color:message.startsWith("✓")?"#166534":message.startsWith("✗")?"#b42318":"#2f6f8f",border:"1px solid #c6d9e4"}}>{message}</div>;
+              })()}
               {writeSenderLog.length>0&&(
                 <div style={{marginTop:".75rem",maxHeight:170,overflowY:"auto",fontSize:".66rem",lineHeight:1.5,color:"#53616f",background:"#f7f9fb",border:"1px solid #d9e0e7",borderRadius:6,padding:".55rem .7rem"}}>
                   {writeSenderLog.slice(-80).map((e,i)=><div key={i}>{runtimeText(e.message || `${e.status}: ${e.device_id}`)}</div>)}
