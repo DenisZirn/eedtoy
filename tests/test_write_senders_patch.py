@@ -42,6 +42,44 @@ async def test_fhk_single_function_group_3_sender():
     assert await module._ensure_programmed_fhk_controller(dev, "FF-A6-07-01", 0, "FHK14") is False
 
 
+async def test_f2l14_confirmed_pct14_additive_double_rocker_entry():
+    dev = FakeDevice(memory_size=127)
+    assert await module._ensure_programmed_f2l14(dev, "00-00-B0-3C", "additive") is True
+    assert dev.memory[8] == bytes.fromhex("0000B03C07380301")
+    assert await module._ensure_programmed_f2l14(dev, "00-00-B0-3C", "additive") is False
+
+    dev.memory[8] = bytes.fromhex("07130D0307380301")
+    assert await module._ensure_programmed_f2l14(dev, "00-00-B0-3C", "additive") is True
+    assert dev.memory[9] == bytes.fromhex("0000B03C07380301")
+
+    exclusive = FakeDevice(memory_size=127)
+    assert await module._ensure_programmed_f2l14(exclusive, "00-00-B0-3C", "exclusive") is True
+    assert exclusive.memory[8] == bytes.fromhex("0000B03C07380300")
+
+
+async def test_f2l14_mode_change_replaces_existing_sender_and_cleans_duplicates():
+    dev = FakeDevice(memory_size=127)
+    physical_button = bytes.fromhex("07130D0307380301")
+    exclusive = bytes.fromhex("0000B03C07380300")
+    additive = bytes.fromhex("0000B03C07380301")
+    dev.memory[8] = physical_button
+    dev.memory[9] = exclusive
+
+    # Changing the same HA sender from exclusive to additive must reuse row 9.
+    assert await module._ensure_programmed_f2l14(dev, "00-00-B0-3C", "additive") is True
+    assert dev.memory[8] == physical_button
+    assert dev.memory[9] == additive
+    assert not any(dev.memory[10])
+
+    # Repair the duplicate layout produced by the previous test build.
+    dev.memory[10] = exclusive
+    assert await module._ensure_programmed_f2l14(dev, "00-00-B0-3C", "additive") is True
+    assert dev.memory[8] == physical_button
+    assert dev.memory[9] == additive
+    assert not any(dev.memory[10])
+    assert await module._ensure_programmed_f2l14(dev, "00-00-B0-3C", "additive") is False
+
+
 async def test_fhk_writer_ignores_duplicate_f2_before_f4():
     class DummyWriteError(Exception):
         pass
@@ -272,6 +310,8 @@ if __name__ == "__main__":
     test_fd2g14_uses_grimm_scan()
     test_multiple_senders_per_device_are_preserved()
     asyncio.run(test_fhk_single_function_group_3_sender())
+    asyncio.run(test_f2l14_confirmed_pct14_additive_double_rocker_entry())
+    asyncio.run(test_f2l14_mode_change_replaces_existing_sender_and_cleans_duplicates())
     asyncio.run(test_fhk_writer_ignores_duplicate_f2_before_f4())
     asyncio.run(test_fhk_writer_accepts_successful_write_after_lost_ack())
     asyncio.run(test_memory_layouts())

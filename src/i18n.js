@@ -73,7 +73,7 @@ const messages = {
     'gateway.continueToDevices': 'Weiter → Geräte hinzufügen',
 
     'devices.importTitle': '⬆ PCT14-Export importieren',
-    'devices.importDescription': 'Importiert unterstützte Series-14-Geräte aus einer PCT14-XML/HTML-Datei und fügt sie unten zur Geräteliste hinzu. Unterstützt werden unter anderem FSB14, FUD14, FDG14, FRGBW14, FSR14, FMS14, FHK14, FD2G14, FWG14MS, FWZ14 und DSZ14. Enthält die Datei ein FAM14 oder FGW14, erscheinen anschließend passende Gateway-Optionen.',
+    'devices.importDescription': 'Importiert unterstützte Series-14-Geräte aus einer PCT14-XML/HTML-Datei und fügt sie unten zur Geräteliste hinzu. Unterstützt werden unter anderem FSB14, FUD14, FDG14, FRGBW14, FSR14, FMS14, F2L14, FHK14, FD2G14, FWG14MS, FWZ14 und DSZ14. Enthält die Datei ein FAM14 oder FGW14, erscheinen anschließend passende Gateway-Optionen.',
     'devices.detectedFromPct14': 'Aus PCT14 erkannt',
     'devices.useFam14Gateway': 'FAM14 als Gateway nutzen',
     'devices.useFgw14Gateway': 'FGW14-USB als Gateway nutzen',
@@ -93,6 +93,9 @@ const messages = {
     'devices.senderHelp': 'Die Sender-ID wird aus der Gateway-Base-ID abgeleitet und automatisch hochgezählt. Sie kann bei Bedarf manuell geändert werden.',
     'devices.senderId': 'Sender-ID',
     'devices.senderEep': 'Sender-EEP',
+    'devices.f2l14Mode': 'F2L14-Stufenbetrieb',
+    'devices.f2l14Exclusive': 'Exklusiv – Stufe 2 nur Kontakt 2',
+    'devices.f2l14Additive': 'Addierend – Stufe 2 beide Kontakte',
     'devices.openTime': 'Öffnungszeit (s)',
     'devices.closeTime': 'Schließzeit (s)',
     'devices.listTitle': 'Geräte',
@@ -271,7 +274,7 @@ const messages = {
     'gateway.continueToDevices': 'Continue → Add devices',
 
     'devices.importTitle': '⬆ Import a PCT14 export',
-    'devices.importDescription': 'Imports supported Series 14 devices from a PCT14 XML/HTML file and adds them to the device list below. Supported models include FSB14, FUD14, FDG14, FRGBW14, FSR14, FMS14, FHK14, FD2G14, FWG14MS, FWZ14 and DSZ14. If the file contains a FAM14 or FGW14, the matching gateway options are shown afterwards.',
+    'devices.importDescription': 'Imports supported Series 14 devices from a PCT14 XML/HTML file and adds them to the device list below. Supported models include FSB14, FUD14, FDG14, FRGBW14, FSR14, FMS14, F2L14, FHK14, FD2G14, FWG14MS, FWZ14 and DSZ14. If the file contains a FAM14 or FGW14, the matching gateway options are shown afterwards.',
     'devices.detectedFromPct14': 'Detected in PCT14',
     'devices.useFam14Gateway': 'Use FAM14 as gateway',
     'devices.useFgw14Gateway': 'Use FGW14-USB as gateway',
@@ -291,6 +294,9 @@ const messages = {
     'devices.senderHelp': 'The sender ID is derived from the gateway base ID and incremented automatically. It can be changed manually when required.',
     'devices.senderId': 'Sender ID',
     'devices.senderEep': 'Sender EEP',
+    'devices.f2l14Mode': 'F2L14 stage mode',
+    'devices.f2l14Exclusive': 'Exclusive – stage 2 uses contact 2 only',
+    'devices.f2l14Additive': 'Additive – stage 2 uses both contacts',
     'devices.openTime': 'Opening time (s)',
     'devices.closeTime': 'Closing time (s)',
     'devices.listTitle': 'Devices',
@@ -408,6 +414,7 @@ const groupTranslations = {
   'Luftqualität': 'Air quality',
   'Raumregler / Klima': 'Room controllers / climate',
   'Heizung / Stellantrieb': 'Heating / valve actuators',
+  'Lüftung': 'Ventilation',
   'Zähler': 'Meters',
   'Wetterstation': 'Weather station',
   'Licht / Dimmer': 'Lighting / dimmers',
@@ -442,6 +449,7 @@ const deviceLabelTranslations = {
   'FTR55/65-Familie – Betriebsart TF61: Heizanforderung EIN/AUS (A5-38-08)': 'FTR55/65 family – TF61 operating mode: heating demand ON/OFF (A5-38-08)',
   'FKS-SV – Smart Valve / Heizkörper-Stellantrieb (A5-20-01)': 'FKS-SV – Smart valve / radiator actuator (A5-20-01)',
   'FKS-B – Batterie-Heizkörper-Stellantrieb wie FKS-H (A5-20-04)': 'FKS-B – Battery-powered radiator actuator, compatible with FKS-H (A5-20-04)',
+  'F2L14 – 2-Stufen-Lüftungsrelais (F6-02-01)': 'F2L14 – 2-stage ventilation relay (F6-02-01)',
   'FWZ12, FWZ14, DSZ14 – Funk-/Wechselstromzähler kWh (A5-12-01)': 'FWZ12, FWZ14, DSZ14 – Wireless single-phase energy meters, kWh (A5-12-01)',
   'F3Z14D – 3-Kanal-S0-Drehstromzähler (A5-12-01)': 'F3Z14D – 3-channel S0 energy meter (A5-12-01)',
   'FWS61, FWG14MS – Wetterstation Wind + Regen + Temperatur (A5-13-01)': 'FWS61, FWG14MS – Weather station: wind, rain and temperature (A5-13-01)',
@@ -559,6 +567,7 @@ const platformTranslations = {
   switch: 'switch',
   cover: 'cover',
   climate: 'climate',
+  fan: 'fan',
 };
 
 const runtimeReplacements = [

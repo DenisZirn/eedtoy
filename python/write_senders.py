@@ -80,6 +80,7 @@ def load_sender_map(path: str) -> Dict[str, List[Dict[str, Any]]]:
             "platform": str(item.get("platform") or "").strip(),
             "source_gateway_type": str(item.get("source_gateway_type") or "").strip(),
             "source_gateway_base_id": norm_id(item.get("source_gateway_base_id") or ""),
+            "f2l14_mode": str(item.get("f2l14_mode") or "exclusive").strip().lower(),
         })
     return result
 
@@ -269,6 +270,59 @@ async def _ensure_programmed_fms14(dev: Any, sender_id: str, channel: int = 0) -
     if target_memory_id is None:
         raise RuntimeError("Kein freier Speicherplatz zum Einlernen des FMS14-Controller-Senders gefunden")
     await _write_mem_line_with_readback(dev, target_memory_id, expected_line)
+    return True
+
+
+async def _ensure_programmed_f2l14(dev: Any, sender_id: str, mode: str = "exclusive") -> Optional[bool]:
+    """Program the F2L14 virtual double rocker for the selected stage mode.
+
+    A real PCT14 export from F2L14 manual v4 / software 65 confirms the
+    eight-byte entry layout: sender + button 7 + function 56 + channel mask 3
+    PCT14 references confirm value 0 for rotary position 1 (exclusive) and
+    value 1 for position 2 (additive). Entry 1 maps to memory row 8.
+    """
+    sender = _sender_bytes_from_id(sender_id)
+    normalized_mode = str(mode or "exclusive").strip().lower()
+    if normalized_mode not in {"exclusive", "additive"}:
+        raise ValueError(f"Ungültige F2L14-Betriebsart: {mode}")
+    assignment = sender + bytes((7, 56, 3))
+    expected_line = assignment + bytes((1 if normalized_mode == "additive" else 0,))
+    memory_size = int(getattr(dev, "memory_size", 0) or 0)
+    if memory_size <= 8 or not hasattr(dev, "read_mem_line") or not hasattr(dev, "write_mem_line"):
+        return None
+
+    first_empty = None
+    matching_rows = []
+    exact_rows = []
+    for memory_id in range(8, memory_size):
+        line = await dev.read_mem_line(memory_id)
+        if line == expected_line:
+            exact_rows.append(memory_id)
+        if line[:7] == assignment:
+            matching_rows.append(memory_id)
+        if not any(line) and first_empty is None:
+            first_empty = memory_id
+
+    # One HA sender must occupy exactly one F2L14 entry.  A mode change only
+    # changes the final PCT14 value byte, so replace the existing row in place
+    # instead of consuming a second row.  Also repair duplicates written by
+    # earlier test builds while leaving entries from physical pushbuttons alone.
+    if matching_rows:
+        target_row = exact_rows[0] if exact_rows else matching_rows[0]
+        changed = False
+        if not exact_rows:
+            await _write_mem_line_with_readback(dev, target_row, expected_line)
+            changed = True
+        for duplicate_row in matching_rows:
+            if duplicate_row == target_row:
+                continue
+            await _write_mem_line_with_readback(dev, duplicate_row, bytes(8))
+            changed = True
+        return changed
+
+    if first_empty is None:
+        raise RuntimeError("Kein freier Speicherplatz zum Einlernen des F2L14-Controller-Senders gefunden")
+    await _write_mem_line_with_readback(dev, first_empty, expected_line)
     return True
 
 
@@ -555,6 +609,7 @@ async def ensure_programmed_for_device(fam14_base_id_int: int, dev: Any, sender_
             is_frgbw = sender_eep == "07-37-F7" or device_eep == "07-37-F7" or "FRGBW" in combined_label.upper()
             is_fsr14ssr = "FSR14SSR" in combined_label.upper()
             is_fms14 = "FMS14" in combined_label.upper()
+            is_f2l14 = "F2L14" in combined_label.upper()
             is_fhk = any(token in combined_label.upper() for token in ("FHK14", "F4HK14", "FAE14SSR", "FAE14LPR"))
             if not sender_id or not sender_eep:
                 continue
@@ -569,6 +624,8 @@ async def ensure_programmed_for_device(fam14_base_id_int: int, dev: Any, sender_
                         update_result = await _ensure_programmed_fsr14ssr(dev, sender_id, channel)
                     elif is_fms14 and sender_eep == "A5-38-08":
                         update_result = await _ensure_programmed_fms14(dev, sender_id, channel)
+                    elif is_f2l14 and sender_eep == "F6-02-01":
+                        update_result = await _ensure_programmed_f2l14(dev, sender_id, entry.get("f2l14_mode", "exclusive"))
                     elif is_fhk and sender_eep == "A5-10-06":
                         update_result = await _ensure_programmed_fhk_controller(dev, sender_id, channel, entry_type)
                     elif isinstance(dev, HasProgrammableRPS) or isinstance(dev, DimmerStyle) or hasattr(dev, "ensure_programmed"):

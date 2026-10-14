@@ -1,3 +1,14 @@
+## 1.0.99
+
+- F2L14 aus PCT14 als eine gemeinsame zweistufige Lüfterentität importiert.
+- Betriebsarten `exklusiv` und `addierend` werden aus PCT14 übernommen und in der Oberfläche auswählbar angeboten.
+- Die HA-Sender-ID wird als bestätigter F6-02-01-Stufentaster mit Taste 7, Funktion 56 und beiden Kanälen direkt in den F2L14 geschrieben.
+- Ein Wechsel der F2L14-Betriebsart überschreibt den bestehenden Eintrag derselben Sender-ID, statt einen zweiten Eintrag anzulegen.
+- Doppelte F2L14-Moduseinträge aus früheren Testständen werden automatisch bereinigt; physische Taster bleiben erhalten.
+- MiniSafe2-Konfigurationsimport aus E-Mail-Text, Zwischenablage sowie TXT-/JSON-Dateien übernommen.
+- FAH (`A5-06-01`) und FRW-ws (`F6-02-01`) ergänzt.
+- Gerätedatenbankmigration auf Schema 56.
+
 ## 1.0.98
 
 - MiniSafe2-Konfigurationsimport aus dem E-Mail-Text sowie aus TXT-/JSON-Dateien ergänzt.

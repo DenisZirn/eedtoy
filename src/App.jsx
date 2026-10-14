@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getStoredLanguage, storeLanguage, translate, translateDeviceLabel, translateDeviceName, translateGroup, translatePlatform, translateRuntimeText } from "./i18n.js";
 
-const APP_VERSION = "1.0.98";
+const APP_VERSION = "1.0.99";
 
 
 function serializeDeviceDatabaseYaml(database) {
@@ -88,6 +88,9 @@ const DEFAULT_EEP_DB = {
   "A5-20-01-FKS-SV": { group:"Heizung / Stellantrieb", label:"FKS-SV – Smart Valve / Heizkörper-Stellantrieb (A5-20-01)", platform:"climate", needs_sender:true, teach_in_telegram:"80-08-0D-80", sender_eep:"A5-20-01", eep_out:"A5-20-01", fks_sv_device:true, eltako:"FKS-SV" },
   "A5-20-04-FKS-B": { group:"Heizung / Stellantrieb", label:"FKS-B – Batterie-Heizkörper-Stellantrieb wie FKS-H (A5-20-04)", platform:"climate", needs_sender:true, teach_in_telegram:"80-20-0D-80", sender_eep:"A5-20-04", eep_out:"A5-20-04", device_family:"FKS-B", bidirectional:true, min_target_temperature:10, max_target_temperature:30, eltako:"FKS-B" },
 
+  // ── Lüftung ──────────────────────────────────────────────────
+  "F6-02-01-F2L14": { group:"Lüftung", label:"F2L14 – 2-Stufen-Lüftungsrelais (F6-02-01)", platform:"fan", needs_sender:true, teach_in_telegram:"30", sender_eep:"F6-02-01", eep_out:"F6-02-01", device_family:"F2L14", address_span:2, f2l14_mode:"exclusive", eltako:"F2L14" },
+
   // ── Zähler ────────────────────────────────────────────────────
   "A5-12-01": { group:"Zähler", label:"FWZ12, FWZ14, DSZ14 – Funk-/Wechselstromzähler kWh (A5-12-01)", platform:"sensor", eep_out:"A5-12-01", teach_in_telegram:"48-08-0D-80", eltako:"FWZ12, FWZ14, DSZ14" },
   "A5-12-01-F3Z14D": { group:"Zähler", label:"F3Z14D – 3-Kanal-S0-Drehstromzähler (A5-12-01)", platform:"sensor", eep_out:"A5-12-01", teach_in_telegram:"48-08-0D-80", meter_tariffs:"[1]", eltako:"F3Z14D" },
@@ -159,7 +162,7 @@ const DEVICE_DB_STORAGE_KEY = "eedtoy.customDeviceDatabase.v1";
 const DEVICE_DB_DELETED_KEYS = "__deleted_keys";
 const DEVICE_DB_MODE_KEY = "__eedtoy_database_mode";
 const DEVICE_DB_SCHEMA_KEY = "__eedtoy_database_schema";
-const DEVICE_DB_SCHEMA_VERSION = 55;
+const DEVICE_DB_SCHEMA_VERSION = 56;
 const DEVICE_DB_MODE_AUTHORITATIVE = "authoritative";
 const PROFILE_KEY_ALIASES = {
   "07-37-F7-FRGBW14": "07-3F-7F-FRGBW14",
@@ -293,12 +296,18 @@ function migrateCustomDeviceDatabase(input) {
         database["A5-20-04-FKS-B"] = { ...DEFAULT_EEP_DB["A5-20-04-FKS-B"] };
       }
 
-      // v1.0.98 Test Release: Add FAH illuminance and FRW-ws smoke/battery
+      // v1.0.99: Add FAH illuminance and FRW-ws smoke/battery
       // profiles once. Later edits or intentional deletions remain untouched.
       if (schemaVersion < 55) {
         for (const key of ["A5-06-01-FAH", "F6-02-01-FRW-WS"]) {
           if (!database[key]) database[key] = { ...DEFAULT_EEP_DB[key] };
         }
+      }
+
+      // F2L14 is represented by one HA fan entity while retaining both
+      // consecutive Series-14 feedback addresses for its two relay stages.
+      if (schemaVersion < 56 && !database["F6-02-01-F2L14"]) {
+        database["F6-02-01-F2L14"] = { ...DEFAULT_EEP_DB["F6-02-01-F2L14"] };
       }
 
       // FIX50: The documented first-ID offset was a manual typo. F4USM61B
@@ -498,6 +507,8 @@ function applyCurrentDatabaseProfile(device) {
     meter_tariffs: normalized.meter_tariffs,
     min_target_temperature: normalized.min_target_temperature,
     max_target_temperature: normalized.max_target_temperature,
+    stage_1_id: normalized.stage_1_id,
+    stage_2_id: normalized.stage_2_id,
   };
   return {
     ...normalized,
@@ -897,7 +908,7 @@ function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", la
     // serial_path wird nicht exportiert; der Port wird im HA-Config-Flow gewählt.
     out += `    devices:\n`;
 
-    const ORDER = ["light","switch","cover","sensor","binary_sensor","climate"];
+    const ORDER = ["light","switch","cover","fan","sensor","binary_sensor","climate"];
     for (const plat of ORDER) {
       const platformDevices = (byPlat[plat] || []).filter(d => {
         const p = profileFor(d.eep);
@@ -945,6 +956,15 @@ function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", la
         if (deviceFamily === "FRW-WS") {
           out += `        device_family: FRW-ws\n`;
           out += `        battery_low_data: "0x30"\n`;
+        }
+        if (deviceFamily === "F2L14") {
+          const stage1Device = { ...d, dev_id: d.stage_1_id || d.dev_id };
+          const stage2Device = { ...d, dev_id: d.stage_2_id || addIdOffset(d.dev_id, 1) };
+          out += `        device_family: F2L14\n`;
+          out += `        stage_1_id: "${deviceIdForGateway(stage1Device, gw, pct14BaseId)}"\n`;
+          out += `        stage_2_id: "${deviceIdForGateway(stage2Device, gw, pct14BaseId)}"\n`;
+          out += `        speed_count: 2\n`;
+          out += `        f2l14_mode: "${String(d.f2l14_mode || p.f2l14_mode || "exclusive").toLowerCase()}"\n`;
         }
         if (p.fbht_temperature) out += `        fbht_temperature: true\n`;
         if (p.ffg7b_three_state) out += `        ffg7b_three_state: true\n`;
@@ -1071,7 +1091,6 @@ function buildSenderProgrammingEntries(devices, targetGateways, pct14BaseId) {
   for (const d of devices || []) {
     const p = profileFor(d.eep);
     if (!p.needs_sender || !isPct14ImportedDevice(d)) continue;
-
     const device_id = busDeviceIdForProgramming(d, pct14BaseId);
     const sender_eep = String(d.sender_eep || p.sender_eep || p.eep_out || d.eep || "").trim().toUpperCase();
     if (!device_id || !sender_eep) continue;
@@ -1103,6 +1122,7 @@ function buildSenderProgrammingEntries(devices, targetGateways, pct14BaseId) {
         name: d.name || device_id,
         source_gateway_type: targetGateway.type || "",
         source_gateway_base_id: targetGateway.base_id || "",
+        f2l14_mode: String(d.f2l14_mode || p.f2l14_mode || "exclusive").toLowerCase(),
       });
     }
   }
@@ -1165,6 +1185,7 @@ function getPct14Mapping(modelName) {
   if (name.startsWith("FSR14-2") || name.startsWith("FSR14_2")) return { eep:"M5-38-08-FSR14-2X", platform:"light" };
   if (name.startsWith("FSR14")) return { eep:"M5-38-08-FSR14-2X", platform:"light" };
   if (name.startsWith("FMS14")) return { eep:"M5-38-08-FMS14", platform:"light", sender_eep:"A5-38-08", channels:2 };
+  if (name.startsWith("F2L14")) return { eep:"F6-02-01-F2L14", platform:"fan", sender_eep:"F6-02-01", logical_fan:true, address_span:2 };
   if (name.startsWith("FMZ14")) return { eep:"M5-38-08-FMZ14", platform:"light", sender_eep:"F6-02-01" };
   if (name.startsWith("FAE14LPR")) return { eep:"A5-10-06-FAE14LPR", platform:"climate", min_target_temperature:16, max_target_temperature:25 };
   if (name.startsWith("FTS14EM")) return { eep:"F6-02-01-FTS14EM-UT", platform:"binary_sensor", fts14em:true };
@@ -1182,6 +1203,7 @@ function normalizePct14ModelName(modelName, language = "de") {
   if (upper.startsWith("FSR14-1") || upper.startsWith("FSR14_1")) return "FSR14_1X";
   if (upper.startsWith("F4SR14")) return "F4SR14_LED";
   if (upper.startsWith("FMS14")) return "FMS14";
+  if (upper.startsWith("F2L14")) return "F2L14";
   if (upper.startsWith("FWG14MS")) return "FWG14MS";
   if (upper.startsWith("F3Z14D")) return "F3Z14D";
   return modelName || (language === "en" ? "Device" : "Gerät");
@@ -1263,6 +1285,43 @@ function parsePct14Xml(text, currentBaseId = "", options = {}, language = "de") 
       continue;
     }
 
+    // The two F2L14 bus addresses are relay feedback channels of one physical
+    // two-stage fan. Import them as one logical fan so Home Assistant exposes
+    // Off / Stage 1 / Stage 2 instead of two unrelated switches.
+    if (mapping.logical_fan) {
+      const modelName = normalizePct14ModelName(model, language);
+      const firstDescription = channels.find(c => c.getAttribute("description")?.trim())?.getAttribute("description")?.trim() || "";
+      const stage1Id = busIdFromAddress(address);
+      const stage2Id = busIdFromAddress(address + 1);
+      const p = profileFor(mapping.eep);
+      const learnedStageEntry = Array.from(device.querySelectorAll("rangeofid > entry")).find(entry =>
+        Number(textOf(entry, "entry_function", "-1")) === 56 &&
+        Number(textOf(entry, "entry_button", "-1")) === 7 &&
+        Number(textOf(entry, "entry_channel", "-1")) === 3
+      );
+      const f2l14Mode = learnedStageEntry && Number(textOf(learnedStageEntry, "entry_value", "0")) === 1
+        ? "additive"
+        : "exclusive";
+      imported.push({
+        ...emptyForm,
+        name: firstDescription || `${modelName} ${stage1Id}`,
+        dev_id: stage1Id,
+        stage_1_id: stage1Id,
+        stage_2_id: stage2Id,
+        eep: mapping.eep,
+        platform: "fan",
+        device_type: "F2L14",
+        model: "F2L14",
+        eltako: "F2L14",
+        device_family: "F2L14",
+        room: `PCT14 ${language === "en" ? "address" : "Adresse"} ${address} · ${language === "en" ? "2 stages" : "2 Stufen"}`,
+        sender_id: p.needs_sender ? busIdFromAddress(0xB000 + address) : "",
+        sender_eep: mapping.sender_eep ?? p.sender_eep ?? "",
+        f2l14_mode: f2l14Mode,
+      });
+      continue;
+    }
+
     const senderByChannel = new Map();
     for (const entry of Array.from(device.querySelectorAll("rangeofid > entry"))) {
       const raw = textOf(entry, "entry_id", "");
@@ -1334,7 +1393,7 @@ function firstAvailableProfileKey() {
 function createEmptyForm(preferredProfileKey = "") {
   const resolvedPreferred = PROFILE_KEY_ALIASES[String(preferredProfileKey || "").toUpperCase()] || String(preferredProfileKey || "");
   const profileKey = EEP_DB[resolvedPreferred] ? resolvedPreferred : firstAvailableProfileKey();
-  return { name:"", dev_id:"", physical_unique_id:"", eep:profileKey, room:"", device_class:"", sender_id:"", sender_eep:"", time_opens:"", time_closes:"", min_target_temperature:"", max_target_temperature:"", device_type:"", model:"", eltako:"", id_range:"1" };
+  return { name:"", dev_id:"", physical_unique_id:"", eep:profileKey, room:"", device_class:"", sender_id:"", sender_eep:"", time_opens:"", time_closes:"", min_target_temperature:"", max_target_temperature:"", device_type:"", model:"", eltako:"", id_range:"1", f2l14_mode:"exclusive" };
 }
 
 // MiniSafe2 configurations arrive either as plain JSON or embedded in the text
@@ -1968,6 +2027,7 @@ export default function App() {
       battery_status: isF4usm ? Boolean(p.battery_status) : false,
       battery_eep: isF4usm ? String(p.battery_eep || "") : "",
       physical_unique_id: isF4usm && [1, 2, 4, 5, 7].includes(operatingMode) ? f.physical_unique_id : "",
+      f2l14_mode: family === "F2L14" ? String(f.f2l14_mode || p.f2l14_mode || "exclusive") : "exclusive",
     }));
     setErrors({});
   };
@@ -2025,6 +2085,7 @@ export default function App() {
       invert: isF4usmProfile ? false : Boolean(form.invert),
       battery_status: isF4usmProfile ? Boolean(profile.battery_status) : Boolean(form.battery_status),
       battery_eep: isF4usmProfile ? String(profile.battery_eep || "") : String(form.battery_eep || ""),
+      f2l14_mode: selectedFamily === "F2L14" ? String(form.f2l14_mode || profile.f2l14_mode || "exclusive") : String(form.f2l14_mode || "exclusive"),
     };
     const e = validate(entry);
     const duplicateIndex = devices.findIndex((existing, index) =>
@@ -3136,6 +3197,16 @@ export default function App() {
                   <label>{t("devices.deviceClass")}</label>
                   <select value={form.device_class} onChange={e=>setForm(f=>({...f,device_class:e.target.value}))}>
                     {profile.device_classes.map(dc=><option key={dc} value={dc}>{dc}</option>)}
+                  </select>
+                </div>
+              )}
+
+              {String(profile.device_family || "").toUpperCase()==="F2L14"&&(
+                <div style={{maxWidth:320,marginBottom:".65rem"}}>
+                  <label>{t("devices.f2l14Mode")}</label>
+                  <select value={form.f2l14_mode||profile.f2l14_mode||"exclusive"} onChange={e=>setForm(f=>({...f,f2l14_mode:e.target.value}))}>
+                    <option value="exclusive">{t("devices.f2l14Exclusive")}</option>
+                    <option value="additive">{t("devices.f2l14Additive")}</option>
                   </select>
                 </div>
               )}

@@ -11,6 +11,7 @@ EEDTOY ist ein Desktop-Konfigurator für EnOcean-Geräte, ELTAKO-Gateways, PCT14
 - echtes COM-Port-Dropdown bei mehreren erkannten Schnittstellen
 - PCT14/XML-Import
 - MiniSafe2-Konfigurationsimport aus E-Mail-Text oder TXT-/JSON-Datei
+- F2L14-Import als zweistufiger Lüfter mit exklusiver oder addierender Betriebsart
 - automatische Geräte-ID-Erkennung über EnOcean-Telegramme
 - verwaltete Sender-IDs und Kollisionsprüfung
 - Home-Assistant-YAML-Export

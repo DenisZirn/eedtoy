@@ -1,6 +1,17 @@
-# EEDTOY v1.0.98
+# EEDTOY v1.0.99
 
-EEDTOY v1.0.98 ergänzt den lokalen Import einer per E-Mail versendeten MiniSafe2-Konfiguration, nimmt FAH und FRW-ws in die Gerätedatenbank auf und enthält die zuletzt bestätigten Korrekturen für die Series-14-Senderprogrammierung.
+EEDTOY v1.0.99 ergänzt den F2L14 als zweistufigen Lüfter, den lokalen Import einer per E-Mail versendeten MiniSafe2-Konfiguration, FAH und FRW-ws sowie die zuletzt bestätigten Korrekturen für die Series-14-Senderprogrammierung.
+
+## F2L14 – zweistufiger Lüfter
+
+- PCT14 erkennt den F2L14 und importiert beide Relaisadressen als eine gemeinsame Home-Assistant-Lüfterentität.
+- Die Stufenbetriebsart kann als `exklusiv` oder `addierend` ausgewählt werden.
+- Vorhandene PCT14-Einträge übernehmen ihre gespeicherte Betriebsart automatisch.
+- EEDTOY schreibt die Home-Assistant-Sender-ID als F6-02-01-Doppelwippe mit Taste 7, Funktion 56 und beiden Kanälen in den Aktor.
+- Ein Wechsel zwischen `exklusiv` und `addierend` aktualisiert denselben Sendereintrag direkt, statt eine zweite Speicherzeile anzulegen.
+- Bereits durch frühere Teststände entstandene doppelte Moduseinträge derselben HA-Sender-ID werden automatisch bereinigt.
+- Eingelernte physische Taster mit anderen Sender-IDs bleiben unverändert erhalten.
+- Die erzeugte YAML enthält `stage_1_id`, `stage_2_id`, zwei Lüfterstufen und den ausgewählten `f2l14_mode`.
 
 ## MiniSafe2-Konfigurationsimport
 
@@ -20,7 +31,7 @@ EEDTOY v1.0.98 ergänzt den lokalen Import einer per E-Mail versendeten MiniSafe
 
 - **FAH** mit EEP `A5-06-01`, Geräteklasse `illuminance` und Lerntelegramm `18-08-0D-80`.
 - **FRW-ws** mit EEP `F6-02-01`, Geräteklasse `smoke` und dokumentierter Batterie-Warnung bei Datentelegramm `0x30`.
-- Bestehende lokale Gerätedatenbanken werden einmalig auf Schema 55 migriert; eigene Änderungen bleiben erhalten.
+- Bestehende lokale Gerätedatenbanken werden einmalig auf Schema 56 migriert; eigene Änderungen bleiben erhalten.
 
 ## Senderprogrammierung und Stabilität
 
@@ -34,7 +45,7 @@ EEDTOY v1.0.98 ergänzt den lokalen Import einer per E-Mail versendeten MiniSafe
 
 ### Windows
 
-`EEDTOY-Setup-1.0.98.exe` herunterladen und ausführen. Python 3.12 und die benötigten Module sind vollständig enthalten; die Installation funktioniert offline.
+`EEDTOY-Setup-1.0.99.exe` herunterladen und ausführen. Python 3.12 und die benötigten Module sind vollständig enthalten; die Installation funktioniert offline.
 
 Die Anwendung ist derzeit nicht digital signiert. Windows SmartScreen kann beim ersten Start eine Sicherheitswarnung anzeigen.
 
