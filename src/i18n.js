@@ -89,6 +89,7 @@ const messages = {
     'devices.roomOptional': 'Raum (optional)',
     'devices.roomPlaceholder': 'z. B. Wohnzimmer',
     'devices.deviceEep': 'ELTAKO-Gerät / EEP-Profil',
+    'devices.controlProfile': 'Steuerung',
     'database.deviceType': 'Technischer Gerätetyp (device_type)',
     'database.deviceTypeRequired': 'Bitte den technischen Gerätetyp für Profil {{key}} eintragen.',
     'devices.deviceClass': 'Geräteklasse',
@@ -121,7 +122,17 @@ const messages = {
     'minisafe.deviceType': 'MiniSafe2-Gerätetyp',
     'minisafe.profile': 'EEDTOY-/EEP-Profil',
     'minisafe.chooseProfile': 'Profil manuell auswählen …',
-    'minisafe.senderIgnored': 'Importiert werden ausschließlich address, Name, Gerätetyp und Raum. MiniSafe2-senderID, Cloud-, Gateway- und Aktionsdaten werden ignoriert.',
+    'minisafe.useSenderIds': 'Sender-IDs der Aktoren übernehmen',
+    'minisafe.senderAutomaticHint': 'Neue Sender-IDs werden wie beim manuellen Anlegen fortlaufend aus dem freien Adressbereich des gewählten Gateways vergeben.',
+    'minisafe.senderImportHint': 'Die vollständigen Sender-IDs aus senderID oder getStates (Zuordnung über sid) werden übernommen. Das Gateway muss diese IDs senden können.',
+    'minisafe.senderPreview': 'Sender-ID: {{id}}',
+    'minisafe.senderIssue.missing': 'fehlt',
+    'minisafe.senderIssue.invalid': 'ungültig',
+    'minisafe.senderIssue.ambiguous': 'widersprüchliche Zuordnung',
+    'minisafe.senderMissing': 'Für „{{name}}“ ({{id}}) fehlt die MiniSafe2-Sender-ID. Bitte den vollständigen E-Mail-Text einschließlich getStates einfügen oder die Sender-ID-Übernahme ausschalten.',
+    'minisafe.senderInvalid': 'Die MiniSafe2-Sender-ID für „{{name}}“ ({{id}}) ist ungültig.',
+    'minisafe.senderAmbiguous': 'Für „{{name}}“ ({{id}}) enthält die Konfiguration unterschiedliche Sender-IDs. Bitte die Zuordnung prüfen.',
+    'minisafe.senderUnavailable': 'Für „{{name}}“ ({{id}}) kann keine freie Sender-ID vergeben werden. Bitte die Gateway-Base-ID und den verfügbaren Adressbereich prüfen.',
     'minisafe.importSelected': '{{count}} Geräte importieren',
     'minisafe.imported': '✓ {{count}} MiniSafe2-Geräte importiert; {{duplicates}} bereits vorhandene Einträge übersprungen.',
     'minisafe.empty': 'Bitte den MiniSafe2-Config-Text einfügen oder eine Datei auswählen.',
@@ -301,6 +312,7 @@ const messages = {
     'devices.roomOptional': 'Room (optional)',
     'devices.roomPlaceholder': 'e.g. Living room',
     'devices.deviceEep': 'ELTAKO device / EEP profile',
+    'devices.controlProfile': 'control',
     'database.deviceType': 'Technical device type (device_type)',
     'database.deviceTypeRequired': 'Enter the technical device type for profile {{key}}.',
     'devices.deviceClass': 'Device class',
@@ -333,7 +345,17 @@ const messages = {
     'minisafe.deviceType': 'MiniSafe2 device type',
     'minisafe.profile': 'EEDTOY/EEP profile',
     'minisafe.chooseProfile': 'Select profile manually …',
-    'minisafe.senderIgnored': 'Only address, name, device type and room are imported. MiniSafe2 senderID, cloud, gateway and action data are ignored.',
+    'minisafe.useSenderIds': 'Use actuator sender IDs from MiniSafe2',
+    'minisafe.senderAutomaticHint': 'New sender IDs are assigned consecutively from the selected gateway’s free address range, just like when adding devices manually.',
+    'minisafe.senderImportHint': 'Full sender IDs from senderID or getStates (matched by sid) are retained. The gateway must be able to transmit these IDs.',
+    'minisafe.senderPreview': 'Sender ID: {{id}}',
+    'minisafe.senderIssue.missing': 'missing',
+    'minisafe.senderIssue.invalid': 'invalid',
+    'minisafe.senderIssue.ambiguous': 'conflicting assignment',
+    'minisafe.senderMissing': 'The MiniSafe2 sender ID for “{{name}}” ({{id}}) is missing. Paste the complete email including getStates or turn off sender ID import.',
+    'minisafe.senderInvalid': 'The MiniSafe2 sender ID for “{{name}}” ({{id}}) is invalid.',
+    'minisafe.senderAmbiguous': 'The configuration contains different sender IDs for “{{name}}” ({{id}}). Please check the assignment.',
+    'minisafe.senderUnavailable': 'No free sender ID can be assigned to “{{name}}” ({{id}}). Check the gateway base ID and available address range.',
     'minisafe.importSelected': 'Import {{count}} devices',
     'minisafe.imported': '✓ Imported {{count}} MiniSafe2 devices; skipped {{duplicates}} entries that already existed.',
     'minisafe.empty': 'Paste the MiniSafe2 config text or select a file.',
@@ -705,6 +727,16 @@ export function translateDeviceLabel(language, label) {
   const sourceLabel = String(label);
   if (deviceLabelTranslations[sourceLabel]) return deviceLabelTranslations[sourceLabel];
   return sourceLabel.replace(deviceLabelPattern, (source) => deviceLabelReplacementMap.get(source) || source);
+}
+
+// Display the actual control EEP while preserving the legacy YAML decoder.
+export function translateDeviceProfileLabel(language, profile) {
+  const label = translateDeviceLabel(language, profile?.label || "");
+  const senderEep = String(profile?.sender_eep || "").trim().toUpperCase();
+  if (String(profile?.eep_out || "").toUpperCase() !== "M5-38-08"
+      || !/^(A5|F6|D5|D2)-[0-9A-F]{2}-[0-9A-F]{2}$/.test(senderEep)) return label;
+  return label.replace(/\(M5-38-08(?:\s*\/\s*A5-38-08)?\)/g,
+    `(${senderEep}, ${translate(language, "devices.controlProfile")})`);
 }
 
 export function translateDeviceName(language, name) {

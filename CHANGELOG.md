@@ -1,5 +1,8 @@
 ## 1.1.00
 
+- MiniSafe2-Import kann mit der Option „Sender-IDs der Aktoren übernehmen“ vollständige Sender-IDs aus Geräteeinträgen oder aus `getStates` über die passende `sid` übernehmen und dauerhaft in Projekt und YAML erhalten.
+- Bei ausgeschalteter Übernahme verwendet der Import die normale fortlaufende Vergabe freier Gateway-Sender-IDs; unvollständige oder widersprüchliche Senderzuordnungen werden vor dem Import gemeldet.
+- Geräteauswahl zeigt bei Relais das tatsächliche Steuer-EEP statt des internen M5-Decodernamens; YAML-Decoder und Sensorprofile bleiben erhalten.
 - Home-Assistant-YAML exportiert zentral genau einen stabilen technischen `device_type` pro bekanntem Geräteprofil, unabhängig vom Anzeigenamen oder der Sprache.
 - Interne Felder `device_family`, `profile_key` und `rocker_positions` bleiben aus der HA-YAML entfernt; benötigte profilspezifische Optionen bleiben erhalten.
 - FWG14MS verwendet die tatsächliche Wetter-Empfangs-ID anhand der Drehschalterposition; PCT14-Busadresse wird separat als `bus_address` gespeichert.

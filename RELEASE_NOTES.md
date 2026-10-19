@@ -1,6 +1,6 @@
 # EEDTOY v1.1.00
 
-EEDTOY v1.1.00 verbessert den Home-Assistant-YAML-Export, korrigiert die Empfangs-ID des FWG14MS und erweitert die automatische ID-Erkennung für Funk-Sensoren. Der Release übernimmt den zuletzt bestätigten Teststand einschließlich der getrennten Anzeige für Geräte- und Batterie-ID.
+EEDTOY v1.1.00 verbessert den Home-Assistant-YAML-Export, korrigiert die Empfangs-ID des FWG14MS und erweitert die automatische ID-Erkennung für Funk-Sensoren. Der MiniSafe2-Import kann bestehende Aktor-Sender-IDs übernehmen oder neue freie IDs für das gewählte Gateway vergeben. Die Geräteauswahl zeigt bei Relais das tatsächliche Steuer-EEP mit einer eindeutigen Kennzeichnung.
 
 ## Technischer Gerätetyp im Home-Assistant-Export
 
@@ -59,11 +59,24 @@ Mehrere gleichzeitig sendende Funk-Sensoren derselben Telegrammfamilie lassen si
 - Der MiniSafe2-Import besitzt einen eigenen Bereich und ist vollständig vom PCT14-Import getrennt.
 - Geräte ohne zugewiesenes EEP-Profil bleiben in der Vorschau gelb hervorgehoben, bis ein Profil ausgewählt wurde.
 - Die MiniSafe2-Importmeldung erscheint in der eigenen MiniSafe2-Kachel und nicht im PCT14-Bereich.
-- Importiert werden ausschließlich physische ELTAKO-EnOcean-Geräte mit ihrer `address`, dem Namen, dem MiniSafe2-Gerätetyp und dem zugeordneten Raum.
-- `senderID`, Gateway-, Cloud-, Zugangsdaten-, Aktions- und Szenendaten werden ausdrücklich nicht übernommen.
+- Importiert werden physische ELTAKO-EnOcean-Geräte mit ihrer `address`, dem Namen, dem MiniSafe2-Gerätetyp und dem zugeordneten Raum.
+- Die Option **Sender-IDs der Aktoren übernehmen** ist beim Start ausgeschaltet.
+- Ohne Haken werden neue freie Sender-IDs wie beim manuellen Anlegen fortlaufend aus dem Adressbereich des gewählten Gateways vergeben. Bei einer FAM-USB-Basis `FF-A6-04-80` sind dies beispielsweise `FF-A6-04-81`, `FF-A6-04-82` usw. Belegte IDs werden übersprungen; Sensoren erhalten keine Sender-ID.
+- Mit Haken werden vollständige `senderID`-Werte aus den Geräteeinträgen oder dem Abschnitt `getStates` übernommen. Die Zuordnung erfolgt über `sid` und wird gegen die Geräteadresse geprüft.
+- Die Vorschau zeigt bei aktivierter Übernahme die gefundenen Aktor-Sender-IDs. Fehlende, ungültige oder widersprüchliche Zuordnungen werden vor dem Import gemeldet; es wird keine unvollständige Geräteliste übernommen.
+- Übernommene Sender-IDs bleiben beim Speichern und Laden eines Projekts sowie im YAML-Export erhalten. Das verwendete Gateway muss diese IDs tatsächlich senden können; seine Basis-ID wird durch den Import nicht verändert.
+- Zusätzliche Zustandszeilen aus `getStates` erzeugen keine weiteren Geräte. Gateway-, Cloud-, Zugangsdaten-, Aktions- und Szenendaten werden nicht übernommen.
 - Bekannte MiniSafe2-Gerätetypen werden automatisch einem EEDTOY-/EEP-Profil zugeordnet.
 - Nicht eindeutig zuordenbare Gerätetypen können vor dem Import manuell einem Profil zugewiesen werden.
 - Bereits vorhandene Geräte-IDs werden übersprungen.
+
+## Klarere EEP-Anzeige in der Geräteauswahl
+
+- Relaisprofile zeigen in der Geräteauswahl und der MiniSafe2-Profilzuordnung ihr tatsächliches Steuer-EEP, beispielsweise **FSR61-230V – Relais/Lichtaktor (A5-38-08, Steuerung)**.
+- Bei Profilen mit Tastersteuerung wie FMZ14 wird entsprechend `F6-02-01, Steuerung` angezeigt.
+- Sensorprofile wie FTKE behalten ihre bisherige EEP-Angabe `F6-10-00`.
+- Der interne Rückmelde-Decoder `M5-38-08` und die bestehende YAML-Zuordnung bleiben für die Kompatibilität mit der HA-ELTAKO-Integration erhalten.
+- Die Anzeige ist auf Deutsch und Englisch verfügbar; die Geräteauswahl behält ihr bisheriges Layout.
 
 ## Weitere unterstützte Geräteprofile
 

@@ -21,7 +21,7 @@ const appPath = path.join(root, 'src', 'App.jsx');
 const storage = new Map();
 
 let source = fs.readFileSync(i18nPath, 'utf8').replace(/export\s+/g, '');
-source += '\nthis.__api = { messages, deviceLabelTranslations, translate, translateGroup, translateDeviceLabel, translatePlatform, translateRuntimeText, getStoredLanguage, storeLanguage };';
+source += '\nthis.__api = { messages, deviceLabelTranslations, translate, translateGroup, translateDeviceLabel, translateDeviceProfileLabel, translatePlatform, translateRuntimeText, getStoredLanguage, storeLanguage };';
 
 const context = {
   console,
@@ -147,4 +147,22 @@ for (const row of deviceRows) {
   assert(!translatedLabel.includes('temperaturee'), `Device label has no overlapping replacement artifact: ${row.label}`);
 }
 
+vm.runInContext(databaseSource + '\nthis.defaultProfiles = DEFAULT_EEP_DB;', context);
+const originalProfiles = JSON.stringify(context.defaultProfiles);
+for (const [key, profile] of Object.entries(context.defaultProfiles)) {
+  Object.freeze(profile);
+  for (const language of ['de', 'en']) {
+    const label = api.translateDeviceProfileLabel(language, profile);
+    if (profile.eep_out === 'M5-38-08') {
+      assert(!label.includes('M5-38-08'), `Device selection hides the internal M5 decoder: ${language} ${key}`);
+      assert(label.includes(profile.sender_eep), `Device selection shows the actual control EEP: ${language} ${key}`);
+      assert(label.includes(language === 'en' ? 'control' : 'Steuerung'), `Actuator control EEP is explicitly identified: ${language} ${key}`);
+    } else {
+      assertEqual(label, api.translateDeviceLabel(language, profile.label), `Other device-profile labels stay unchanged: ${language} ${key}`);
+    }
+  }
+}
+const ftke = Object.values(context.defaultProfiles).find(profile => profile.eep_out === 'F6-10-00' && profile.eltako?.includes('FTKE'));
+assert(ftke && api.translateDeviceProfileLabel('de', ftke).includes('F6-10-00'), 'FTKE keeps its actual F6-10-00 profile');
+assertEqual(JSON.stringify(context.defaultProfiles), originalProfiles, 'Display formatting does not modify YAML profiles or database entries');
 console.log('All key-based i18n regression tests passed.');

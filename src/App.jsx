@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { getStoredLanguage, storeLanguage, translate, translateDeviceLabel, translateDeviceName, translateGroup, translatePlatform, translateRuntimeText } from "./i18n.js";
+import { getStoredLanguage, storeLanguage, translate, translateDeviceLabel, translateDeviceProfileLabel, translateDeviceName, translateGroup, translatePlatform, translateRuntimeText } from "./i18n.js";
 
 const APP_VERSION = "1.1.00";
 
@@ -741,7 +741,7 @@ function usedControllerIdsForGateway(devices, gw, pct14BaseId = "", excludeDevic
     const physical = normalizeId(deviceIdForGateway(device, gw, pct14BaseId));
     if (physical) used.add(physical);
     const profile = profileFor(device?.eep);
-    if (!profile.needs_sender || isFksSvDevice(device)) continue;
+    if (!profile.needs_sender || (isFksSvDevice(device) && device.sender_id_source !== "minisafe2")) continue;
     const sender = normalizeId(senderIdForGateway(device, gw, pct14BaseId));
     if (sender) used.add(sender);
   }
@@ -761,7 +761,7 @@ function normalizeFksSenderAssignments(gateway, devices, pct14BaseId = "") {
   const used = usedControllerIdsForGateway(deduped, gateway, pct14BaseId);
   let changed = 0;
   const normalized = deduped.map(device => {
-    if (!isFksSvDevice(device)) return device;
+    if (!isFksSvDevice(device) || device.sender_id_source === "minisafe2") return device;
     let candidate = normalizeId(fksSenderIdForGateway(device, gateway));
     if (!candidate || used.has(candidate)) candidate = allocateFreeSenderId(gateway, used);
     if (!candidate) return device;
@@ -1131,6 +1131,8 @@ function deviceIdForGateway(device, gw, pct14BaseId) {
 }
 
 function senderIdForGateway(device, gw, pct14BaseId) {
+  // An explicitly imported sender is a complete address, never a gateway offset.
+  if (device?.sender_id_source === "minisafe2") return normalizeId(device.sender_id);
   if (isFksSvDevice(device)) return fksSenderIdForGateway(device, gw);
   const offset = addressFromBusId(device.dev_id);
   if (offset == null || !isPct14ImportedDevice(device)) return device.sender_id;
@@ -1493,7 +1495,7 @@ function createEmptyForm(preferredProfileKey = "") {
 
 // MiniSafe2 configurations arrive either as plain JSON or embedded in the text
 // of an e-mail.  The e-mail variant may contain HTML entities and escaped
-// underscores, so only the two required arrays are recovered as a fallback.
+// underscores. Read only rooms, devices and the optional getStates sender list.
 function decodeMiniSafeMailText(value) {
   const source = String(value || "")
     .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
@@ -1507,8 +1509,8 @@ function decodeMiniSafeMailText(value) {
   return source.replace(/\\(?!["\\/bfnrtu])/g, "");
 }
 
-function extractMiniSafeJsonArray(source, key) {
-  const keyIndex = source.search(new RegExp(`"${key}"\\s*:`));
+function extractMiniSafeJsonArray(source, key = "") {
+  const keyIndex = key ? source.search(new RegExp(`"${key}"\\s*:`)) : 0;
   if (keyIndex < 0) return null;
   const start = source.indexOf("[", keyIndex);
   if (start < 0) return null;
@@ -1533,6 +1535,48 @@ function extractMiniSafeJsonArray(source, key) {
   return null;
 }
 
+function normalizeMiniSafeSenderId(value) {
+  const clean = String(value || "").trim().toUpperCase().replace(/[-:]/g, "");
+  if (!/^[0-9A-F]{8}$/.test(clean) || clean === "00000000" || clean === "FFFFFFFF") return "";
+  return clean.match(/.{2}/g).join("-");
+}
+
+function miniSafeSid(value) {
+  return String(value ?? "").trim().toUpperCase().replace(/^0+(?=.)/, "");
+}
+
+function parseMiniSafeSenderStates(source) {
+  let arrayText = extractMiniSafeJsonArray(source, "getStates");
+  if (!arrayText) {
+    const marker = /^[^\r\n]*:[ \t]*\/?getStates[ \t]*:?[ \t]*$/im.exec(source);
+    if (marker) {
+      const tail = source.slice(marker.index + marker[0].length).trimStart();
+      if (tail.startsWith("[")) arrayText = extractMiniSafeJsonArray(tail);
+    }
+  }
+  if (!arrayText) return [];
+  try {
+    return JSON.parse(arrayText).filter(state => state && typeof state === "object"
+      && String(state.type || "").toUpperCase() === "ENOCEAN" && state.virtual !== true);
+  } catch (_stateError) {
+    return [];
+  }
+}
+
+function miniSafeSenderForDevice(device, states) {
+  const info = device.info || {};
+  const sid = miniSafeSid(info.sid);
+  const address = normalizeMiniSafeSenderId(info.address);
+  const matches = sid ? states.filter(state => miniSafeSid(state.sid) === sid
+    && (!state.adr || normalizeMiniSafeSenderId(state.adr) === address)
+    && (state.gateway == null || info.gateway == null || String(state.gateway) === String(info.gateway))) : [];
+  const rawIds = [info.senderID, ...matches.map(state => state.senderID)].filter(value => value != null && String(value).trim());
+  const ids = [...new Set(rawIds.map(normalizeMiniSafeSenderId).filter(Boolean))];
+  if (ids.length > 1) return { sender_id:"", senderIssue:"ambiguous" };
+  if (ids.length === 1) return { sender_id:ids[0], senderIssue:"" };
+  return { sender_id:"", senderIssue:rawIds.length ? "invalid" : "missing" };
+}
+
 function parseMiniSafeConfigText(value) {
   const decoded = decodeMiniSafeMailText(value).trim();
   if (!decoded) throw new Error("minisafe.empty");
@@ -1542,13 +1586,13 @@ function parseMiniSafeConfigText(value) {
     const parsed = JSON.parse(candidate);
     const system = parsed?.system || parsed;
     if (!Array.isArray(system?.devices)) throw new Error("minisafe.noDevices");
-    return { rooms:Array.isArray(system.rooms) ? system.rooms : [], devices:system.devices };
+    return { rooms:Array.isArray(system.rooms) ? system.rooms : [], devices:system.devices, senderStates:parseMiniSafeSenderStates(decoded) };
   } catch (_fullDocumentError) {
     const roomsText = extractMiniSafeJsonArray(candidate, "rooms") || "[]";
     const devicesText = extractMiniSafeJsonArray(candidate, "devices");
     if (!devicesText) throw new Error("minisafe.invalid");
     try {
-      return { rooms:JSON.parse(roomsText), devices:JSON.parse(devicesText) };
+      return { rooms:JSON.parse(roomsText), devices:JSON.parse(devicesText), senderStates:parseMiniSafeSenderStates(decoded) };
     } catch (_arrayError) {
       throw new Error("minisafe.invalid");
     }
@@ -1599,6 +1643,8 @@ function parseMiniSafeDevices(value) {
         deviceText:String(info.deviceText || info.data || "").trim(),
         target:String(info._target || "").trim(),
         data:String(info.data || "").trim(),
+        sid:miniSafeSid(info.sid),
+        ...miniSafeSenderForDevice(device, config.senderStates),
         profileKey,
       };
     });
@@ -1630,6 +1676,7 @@ export default function App() {
   const [miniSafePreview, setMiniSafePreview] = useState([]);
   const [miniSafeError, setMiniSafeError] = useState("");
   const [miniSafeFileName, setMiniSafeFileName] = useState("");
+  const [miniSafeUseSenderIds, setMiniSafeUseSenderIds] = useState(false);
   const [learningId, setLearningId] = useState(false);
   const [learningIdTarget, setLearningIdTarget] = useState("");
   const [cancelingLearnId, setCancelingLearnId] = useState(false);
@@ -2370,7 +2417,7 @@ export default function App() {
         profile_key:row.profileKey,
         platform:selectedProfile.platform || "sensor",
         device_class:selectedProfile.default_dc || "",
-        sender_id:selectedProfile.needs_sender ? autoSenderIdForGateway(gateway, nextDevices) : "",
+        sender_id:"",
         sender_eep:selectedProfile.needs_sender ? (selectedProfile.sender_eep || "") : "",
         device_type:selectedProfile.device_type || "",
         model:row.deviceText || selectedProfile.eltako || "",
@@ -2384,6 +2431,14 @@ export default function App() {
       if (duplicate) {
         duplicates += 1;
         continue;
+      }
+      if (selectedProfile.needs_sender) {
+        entry.sender_id = miniSafeUseSenderIds ? normalizeMiniSafeSenderId(row.sender_id) : autoSenderIdForGateway(gateway, nextDevices);
+        if (!entry.sender_id) {
+          setMiniSafeError(t(miniSafeUseSenderIds ? `minisafe.sender${row.senderIssue === "ambiguous" ? "Ambiguous" : row.senderIssue === "invalid" ? "Invalid" : "Missing"}` : "minisafe.senderUnavailable", { name:entry.name, id:entry.dev_id }));
+          return;
+        }
+        if (miniSafeUseSenderIds) entry.sender_id_source = "minisafe2";
       }
       nextDevices.push(entry);
       imported += 1;
@@ -3387,7 +3442,7 @@ export default function App() {
                   {[...new Set(Object.values(EEP_DB).map(e => e.group))].map(g=>(
                     <optgroup key={g} label={`── ${translateGroup(language, g)}`}>
                       {Object.entries(EEP_DB).filter(([,v])=>v.group===g).map(([k,v])=>(
-                        <option key={k} value={k}>{translateDeviceLabel(language, v.label)}</option>
+                        <option key={k} value={k}>{translateDeviceProfileLabel(language, v)}</option>
                       ))}
                     </optgroup>
                   ))}
@@ -3655,14 +3710,17 @@ export default function App() {
                       <tbody>{miniSafePreview.map((row,index)=><tr key={`${row.dev_id}-${index}`} style={{borderTop:"1px solid #e2e8f0",background:row.profileKey?"#fff":"#fff4bf",opacity:row.profileKey?(row.selected?1:.7):1,transition:"background .15s ease"}}>
                         <td style={{padding:".55rem",textAlign:"center"}}><input type="checkbox" checked={row.selected} disabled={!row.profileKey} onChange={event=>updateMiniSafePreview(index,{selected:event.target.checked})} style={{width:"auto"}}/></td>
                         <td style={{padding:".55rem",fontWeight:700}}>{row.name}</td>
-                        <td style={{padding:".55rem",fontFamily:"Consolas,monospace",whiteSpace:"nowrap"}}>{row.dev_id}</td>
+                        <td style={{padding:".55rem",fontFamily:"Consolas,monospace",whiteSpace:"nowrap"}}>
+                          {row.dev_id}
+                          {miniSafeUseSenderIds&&EEP_DB[row.profileKey]?.needs_sender&&<div style={{fontSize:".62rem",marginTop:".2rem",color:row.sender_id?"#53616f":"#9c251c"}}>{t("minisafe.senderPreview", { id:row.sender_id || t(`minisafe.senderIssue.${row.senderIssue || "missing"}`) })}</div>}
+                        </td>
                         <td style={{padding:".55rem"}}>{row.deviceText || row.data || "—"}</td>
                         <td style={{padding:".55rem"}}>{row.room || "—"}</td>
                         <td style={{padding:".42rem .55rem"}}>
                           <select value={row.profileKey} onChange={event=>updateMiniSafePreview(index,{profileKey:event.target.value,selected:Boolean(event.target.value)})} style={{padding:".45rem .55rem",fontSize:".68rem"}}>
                             <option value="">{t("minisafe.chooseProfile")}</option>
                             {[...new Set(Object.values(EEP_DB).map(profile=>profile.group))].map(group=><optgroup key={group} label={translateGroup(language,group)}>
-                              {Object.entries(EEP_DB).filter(([,profile])=>profile.group===group).map(([key,profile])=><option key={key} value={key}>{translateDeviceLabel(language,profile.label)}</option>)}
+                              {Object.entries(EEP_DB).filter(([,profile])=>profile.group===group).map(([key,profile])=><option key={key} value={key}>{translateDeviceProfileLabel(language,profile)}</option>)}
                             </optgroup>)}
                           </select>
                         </td>
@@ -3673,7 +3731,13 @@ export default function App() {
               )}
             </div>
             <div style={{padding:".8rem 1.2rem",borderTop:"1px solid var(--line)",display:"flex",justifyContent:"space-between",alignItems:"center",gap:".7rem",flexWrap:"wrap"}}>
-              <span style={{fontSize:".68rem",color:"#64748b"}}>{t("minisafe.senderIgnored")}</span>
+              <div style={{fontSize:".68rem",color:"#64748b",maxWidth:620}}>
+                <label style={{display:"flex",alignItems:"center",gap:".45rem",width:"auto",margin:0,color:"var(--text)",cursor:"pointer"}}>
+                  <input type="checkbox" checked={miniSafeUseSenderIds} onChange={event=>{setMiniSafeUseSenderIds(event.target.checked);setMiniSafeError("");}} style={{width:"auto"}} />
+                  {t("minisafe.useSenderIds")}
+                </label>
+                <div style={{marginTop:".35rem"}}>{t(miniSafeUseSenderIds ? "minisafe.senderImportHint" : "minisafe.senderAutomaticHint")}</div>
+              </div>
               <div style={{display:"flex",gap:".5rem"}}>
                 <button className="btn ghost" onClick={()=>setMiniSafeOpen(false)}>{t("common.cancel")}</button>
                 <button className="btn pri" onClick={importMiniSafeDevices} disabled={!miniSafePreview.some(row=>row.selected&&row.profileKey)}>
