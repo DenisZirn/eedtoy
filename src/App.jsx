@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getStoredLanguage, storeLanguage, translate, translateDeviceLabel, translateDeviceName, translateGroup, translatePlatform, translateRuntimeText } from "./i18n.js";
 
-const APP_VERSION = "1.0.99";
+const APP_VERSION = "1.1.00";
 
 
 function serializeDeviceDatabaseYaml(database) {
@@ -37,7 +37,7 @@ function parseDeviceDatabaseYaml(text) {
   if (!Object.keys(result).length) throw new Error("No devices found");
   result[DEVICE_DB_MODE_KEY] = DEVICE_DB_MODE_AUTHORITATIVE;
   result[DEVICE_DB_SCHEMA_KEY] = DEVICE_DB_SCHEMA_VERSION;
-  return result;
+  return withTechnicalDeviceTypes(result);
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -45,124 +45,125 @@ function parseDeviceDatabaseYaml(text) {
 // ─────────────────────────────────────────────────────────────────
 const DEFAULT_EEP_DB = {
   // ── Taster / Schalter ────────────────────────────────────────
-  "F6-02-01-2CH": { group:"Taster / Schalter", label:"F2T55 – Taster 2-Kanal EU (F6-02-01)", platform:"binary_sensor", eep_out:"F6-02-01", eltako:"F2T55 2-Kanal" },
-  "F6-02-01-4CH": { group:"Taster / Schalter", label:"FT55, F4T55E – Taster 4-Kanal EU (F6-02-01)", platform:"binary_sensor", eep_out:"F6-02-01", eltako:"FT55, F4T55E 4-Kanal" },
-  "F6-01-01": { group:"Taster / Schalter", label:"FNSN55EB, FNS65EB – Näherungsschalter (F6-01-01)", eep_out:"F6-01-01", platform:"binary_sensor", device_classes:["presence"], default_dc:"presence", eltako:"FNSN55EB, FNS65EB", needs_sender:false },
-  "F6-02-01-FTS14EM-UT": { group:"Taster / Schalter", label:"FTS14EM UT", platform:"binary_sensor", eep_out:"F6-02-01", device_family:"FTS14EM", operating_mode:"UT", id_count:10, eltako:"FTS14EM UT" },
-  "F6-02-01-FTS14EM-RT": { group:"Taster / Schalter", label:"FTS14EM RT", platform:"binary_sensor", eep_out:"F6-02-01", device_family:"FTS14EM", operating_mode:"RT", id_count:10, eltako:"FTS14EM RT" },
+  "F6-02-01-2CH": { group:"Taster / Schalter", label:"F2T55 – Taster 2-Kanal EU (F6-02-01)", platform:"binary_sensor", eep_out:"F6-02-01", device_type:"F2T55", eltako:"F2T55 2-Kanal" },
+  "F6-02-01-4CH": { group:"Taster / Schalter", label:"FT55, F4T55E – Taster 4-Kanal EU (F6-02-01)", platform:"binary_sensor", eep_out:"F6-02-01", device_type:"FT55", eltako:"FT55, F4T55E 4-Kanal" },
+  "F6-01-01": { group:"Taster / Schalter", label:"FNSN55EB, FNS65EB – Näherungsschalter (F6-01-01)", eep_out:"F6-01-01", platform:"binary_sensor", device_classes:["presence"], default_dc:"presence", device_type:"FNSN55EB", eltako:"FNSN55EB, FNS65EB", needs_sender:false },
+  "F6-02-01-FTS14EM-UT": { group:"Taster / Schalter", label:"FTS14EM UT", platform:"binary_sensor", eep_out:"F6-02-01", device_family:"FTS14EM", operating_mode:"UT", id_count:10, device_type:"FTS14EM", eltako:"FTS14EM UT" },
+  "F6-02-01-FTS14EM-RT": { group:"Taster / Schalter", label:"FTS14EM RT", platform:"binary_sensor", eep_out:"F6-02-01", device_family:"FTS14EM", operating_mode:"RT", id_count:10, device_type:"FTS14EM", eltako:"FTS14EM RT" },
 
   // ── Kontakte ──────────────────────────────────────────────────
-  "D5-00-01": { group:"Kontakt", label:"FTK, FTKB, FFKB, FTKB-gr – Fenster-/Türkontakt (D5-00-01)", platform:"binary_sensor", eep_out:"D5-00-01", teach_in_telegram:"00-00-00-00", device_classes:["window","door","opening"], default_dc:"window", eltako:"FTK, FTKB, FFKB, FTKB-gr" },
-  "F6-10-00-FFG7B": { group:"Kontakt", label:"FTKE, FFTE, FFG7B – Fensterkontakt / Fenstergriff (F6-10-00)", platform:"sensor", eep_out:"F6-10-00", teach_in_telegram:"F0", ffg7b_three_state:true, eltako:"FTKE, FFTE, FFG7B" },
-  "A5-14-09-FFG7B": { group:"Kontakt", label:"FFG7B – Fensterkontakt / Fenstergriff (A5-14-09)", platform:"sensor", eep_out:"A5-14-09", teach_in_telegram:"50-48-0D-80", ffg7b_three_state:true, eltako:"FFG7B" },
+  "D5-00-01": { group:"Kontakt", label:"FTK, FTKB, FFKB, FTKB-gr – Fenster-/Türkontakt (D5-00-01)", platform:"binary_sensor", eep_out:"D5-00-01", teach_in_telegram:"00-00-00-00", device_classes:["window","door","opening"], default_dc:"window", device_type:"FTK", eltako:"FTK, FTKB, FFKB, FTKB-gr" },
+  "F6-10-00-FFG7B": { group:"Kontakt", label:"FTKE, FFTE, FFG7B – Fensterkontakt / Fenstergriff (F6-10-00)", platform:"sensor", eep_out:"F6-10-00", teach_in_telegram:"F0", ffg7b_three_state:true, device_type:"FTKE", eltako:"FTKE, FFTE, FFG7B" },
+  "A5-14-09-FFG7B": { group:"Kontakt", label:"FFG7B – Fensterkontakt / Fenstergriff (A5-14-09)", platform:"sensor", eep_out:"A5-14-09", teach_in_telegram:"50-48-0D-80", ffg7b_three_state:true, device_type:"FFG7B", eltako:"FFG7B" },
 
   // ── Bewegungsmelder ───────────────────────────────────────────
-  "A5-07-01": { group:"Bewegungsmelder", label:"FBH55ESB, FB55EB – Bewegungsmelder (A5-07-01)", platform:"binary_sensor", eep_out:"A5-07-01", teach_in_telegram:"1C-08-0D-80", device_classes:["motion","occupancy"], default_dc:"motion", eltako:"FBH55ESB, FB55EB" },
-  "A5-08-01-FBH-FBHT": { group:"Bewegungsmelder", label:"FBH55ESB / FBHT55ESB – Bewegung + Helligkeit automatisch (A5-08-01)", platform:"sensor", eep_out:"A5-08-01", teach_in_telegram:"20-08-0D-85", eltako:"FBH55ESB, FBHT55ESB", fbht_temperature:true },
+  "A5-07-01": { group:"Bewegungsmelder", label:"FBH55ESB, FB55EB – Bewegungsmelder (A5-07-01)", platform:"binary_sensor", eep_out:"A5-07-01", teach_in_telegram:"1C-08-0D-80", device_classes:["motion","occupancy"], default_dc:"motion", device_type:"FBH55ESB", eltako:"FBH55ESB, FB55EB" },
+  "A5-08-01-FBH-FBHT": { group:"Bewegungsmelder", label:"FBH55ESB / FBHT55ESB – Bewegung + Helligkeit automatisch (A5-08-01)", platform:"sensor", eep_out:"A5-08-01", teach_in_telegram:"20-08-0D-85", device_type:"FBH55ESB", eltako:"FBH55ESB, FBHT55ESB", fbht_temperature:true },
 
   // ── Rauch / Hitze ─────────────────────────────────────────────
-  "F6-02-01-FRW-WS": { group:"Rauch / Hitze", label:"FRW-ws – Rauchwarnmelder mit Batteriewarnung (F6-02-01)", platform:"binary_sensor", eep_out:"F6-02-01", device_classes:["smoke"], default_dc:"smoke", device_family:"FRW-WS", battery_low_data:"0x30", eltako:"FRW-ws" },
-  "A5-30-03-FRWB": { group:"Rauch / Hitze", label:"FRWB – Rauchmelder (A5-30-03)", platform:"binary_sensor", eep_out:"A5-30-03", teach_in_telegram:"C0-18-2D-80", device_classes:["smoke"], default_dc:"smoke", eltako:"FRWB" },
-  "A5-30-03-FHMB": { group:"Rauch / Hitze", label:"FHMB – Rauch-/Hitzemelder (A5-30-03)", platform:"binary_sensor", eep_out:"A5-30-03", teach_in_telegram:"C0-18-2D-80", device_classes:["smoke","heat"], default_dc:"smoke", eltako:"FHMB" },
+  "F6-02-01-FRW-WS": { group:"Rauch / Hitze", label:"FRW-ws – Rauchwarnmelder mit Batteriewarnung (F6-02-01)", platform:"binary_sensor", eep_out:"F6-02-01", device_classes:["smoke"], default_dc:"smoke", device_family:"FRW-WS", battery_low_data:"0x30", device_type:"FRW-ws", eltako:"FRW-ws" },
+  "A5-30-03-FRWB": { group:"Rauch / Hitze", label:"FRWB – Rauchmelder (A5-30-03)", platform:"binary_sensor", eep_out:"A5-30-03", teach_in_telegram:"C0-18-2D-80", device_classes:["smoke"], default_dc:"smoke", device_type:"FRWB", eltako:"FRWB" },
+  "A5-30-03-FHMB": { group:"Rauch / Hitze", label:"FHMB – Rauch-/Hitzemelder (A5-30-03)", platform:"binary_sensor", eep_out:"A5-30-03", teach_in_telegram:"C0-18-2D-80", device_classes:["smoke","heat"], default_dc:"smoke", device_type:"FHMB", eltako:"FHMB" },
 
   // ── Temperatur / Feuchte ──────────────────────────────────────
-  "A5-04-02-FFT60SB": { group:"Temperatur / Feuchte", label:"FFT60SB – Temperatur + Feuchte −20…60 °C (A5-04-02)", platform:"sensor", eep_out:"A5-04-02", teach_in_telegram:"10-10-0D-87", eltako:"FFT60SB" },
-  "A5-04-03-FFT60SB": { group:"Temperatur / Feuchte", label:"FFT60SB – Temperatur + Feuchte −20…60 °C (A5-04-03)", platform:"sensor", eep_out:"A5-04-03", teach_in_telegram:"10-18-0D-80", eltako:"FFT60SB" },
-  "A5-04-02-FTFSB": { group:"Temperatur / Feuchte", label:"FTFSB – Temperatur + Feuchte −20…60 °C (A5-04-02)", platform:"sensor", eep_out:"A5-04-02", teach_in_telegram:"10-10-0D-87", eltako:"FTFSB" },
-  "A5-04-03-FTFSB": { group:"Temperatur / Feuchte", label:"FTFSB – Temperatur + Feuchte −20…60 °C (A5-04-03)", platform:"sensor", eep_out:"A5-04-03", teach_in_telegram:"10-18-0D-80", eltako:"FTFSB" },
-  "A5-04-02-FLGTF": { group:"Temperatur / Feuchte", label:"FLGTF – Temperatur + Feuchte −20…60 °C / 0…100 % (A5-04-02)", platform:"sensor", eep_out:"A5-04-02", teach_in_telegram:"10-10-0D-87", eltako:"FLGTF" },
+  "A5-04-02-FFT60SB": { group:"Temperatur / Feuchte", label:"FFT60SB – Temperatur + Feuchte −20…60 °C (A5-04-02)", platform:"sensor", eep_out:"A5-04-02", teach_in_telegram:"10-10-0D-87", device_type:"FFT60SB", eltako:"FFT60SB" },
+  "A5-04-03-FFT60SB": { group:"Temperatur / Feuchte", label:"FFT60SB – Temperatur + Feuchte −20…60 °C (A5-04-03)", platform:"sensor", eep_out:"A5-04-03", teach_in_telegram:"10-18-0D-80", device_type:"FFT60SB", eltako:"FFT60SB" },
+  "A5-04-02-FTFSB": { group:"Temperatur / Feuchte", label:"FTFSB – Temperatur + Feuchte −20…60 °C (A5-04-02)", platform:"sensor", eep_out:"A5-04-02", teach_in_telegram:"10-10-0D-87", device_type:"FTFSB", eltako:"FTFSB" },
+  "A5-04-03-FTFSB": { group:"Temperatur / Feuchte", label:"FTFSB – Temperatur + Feuchte −20…60 °C (A5-04-03)", platform:"sensor", eep_out:"A5-04-03", teach_in_telegram:"10-18-0D-80", device_type:"FTFSB", eltako:"FTFSB" },
+  "A5-04-02-FLGTF": { group:"Temperatur / Feuchte", label:"FLGTF – Temperatur + Feuchte −20…60 °C / 0…100 % (A5-04-02)", platform:"sensor", eep_out:"A5-04-02", teach_in_telegram:"10-10-0D-87", device_type:"FLGTF", eltako:"FLGTF" },
 
   // ── Luftqualität ──────────────────────────────────────────────
-  "A5-09-0C-FLGTF": { group:"Luftqualität", label:"FLGTF – TVOC + Temperatur + Feuchte automatisch (A5-09-0C + A5-04-02)", platform:"sensor", eep_out:"A5-09-0C", teach_in_telegram:"24-60-0D-80", eltako:"FLGTF" },
-  "A5-09-04-FCO2TF65": { group:"Luftqualität", label:"FCO2TF65 – CO2 + Temperatur + Feuchte (A5-09-04)", platform:"sensor", eep_out:"A5-09-04", teach_in_telegram:"24-20-0D-80", eltako:"FCO2TF65" },
+  "A5-09-0C-FLGTF": { group:"Luftqualität", label:"FLGTF – TVOC + Temperatur + Feuchte automatisch (A5-09-0C + A5-04-02)", platform:"sensor", eep_out:"A5-09-0C", teach_in_telegram:"24-60-0D-80", device_type:"FLGTF", eltako:"FLGTF" },
+  "A5-09-04-FCO2TF65": { group:"Luftqualität", label:"FCO2TF65 – CO2 + Temperatur + Feuchte (A5-09-04)", platform:"sensor", eep_out:"A5-09-04", teach_in_telegram:"24-20-0D-80", device_type:"FCO2TF65", eltako:"FCO2TF65" },
 
   // ── Raumregler / Klima ────────────────────────────────────────
-  "A5-10-06": { group:"Raumregler / Klima", label:"FHK14 / F4HK14 / FAE14SSR – Heizung/Klima Temperatur + Sollwert + Fan (A5-10-06)", platform:"climate", eep_out:"A5-10-06", needs_sender:true, teach_in_telegram:"40-30-0D-87", sender_eep:"A5-10-06", eltako:"FHK14, F4HK14, FAE14SSR" },
-  "A5-10-06-FAE14LPR": { group:"Raumregler / Klima", label:"FAE14LPR – Heizung/Klima wie FAE14SSR (A5-10-06)", platform:"climate", eep_out:"A5-10-06", needs_sender:true, sender_eep:"A5-10-06", teach_in_telegram:"40-30-0D-87", device_family:"FAE14LPR", bidirectional:true, min_target_temperature:16, max_target_temperature:25, eltako:"FAE14LPR" },
-  "A5-10-06-FUTH55": { group:"Raumregler / Klima", label:"FUTH55 / FUTH55ED / FUTH65D – Temperaturregler + Sollwert (A5-10-06)", platform:"climate", eep_out:"A5-10-06", needs_sender:true, sender_eep:"A5-10-06", futh55ed_mode:"fhk", teach_in_telegram:"40-30-0D-87", min_target_temperature:12, max_target_temperature:28, eltako:"FUTH55, FUTH55ED, FUTH65D", note:"Für die Sollwertsteuerung muss die Home-Assistant-Sender-ID im FUTH55 eingelernt werden." },
-  "A5-10-12-FUTH55-HYGROSTAT": { group:"Raumregler / Klima", label:"FUTH55 / FUTH55ED / FUTH65D – Hygrostat: Temperatur + Feuchte + Sollwert (A5-10-12)", platform:"sensor", eep_out:"A5-10-12", futh55ed_mode:"hygrostat", teach_in_telegram:"40-90-0D-80", eltako:"FUTH55, FUTH55ED, FUTH65D" },
-  "A5-10-06-FTR-FHK": { group:"Raumregler / Klima", label:"FTR55/65-Familie – Betriebsart FHK: Soll- und Isttemperatur (A5-10-06)", platform:"sensor", eep_out:"A5-10-06", room_controller_mode:"fhk", teach_in_telegram:"40-30-0D-87", min_target_temperature:12, max_target_temperature:28, frost_temperature:8, eltako:"FTR65DSB, FTR55DSB, FTR55EHB, FTR55ESB, FTR65HB, FTRF65HB, FTR55HB, FTR65SB, FTRF65SB, FTR55SB" },
-  "A5-38-08-FTR-TF61": { group:"Raumregler / Klima", label:"FTR55/65-Familie – Betriebsart TF61: Heizanforderung EIN/AUS (A5-38-08)", platform:"binary_sensor", eep_out:"A5-38-08", room_controller_mode:"tf61", teach_in_telegram:"E0-40-0D-80", hysteresis:1, eltako:"FTR65DSB, FTR55DSB, FTR55EHB, FTR55ESB, FTR65HB, FTRF65HB, FTR55HB, FTR65SB, FTRF65SB, FTR55SB" },
+  "A5-10-06": { group:"Raumregler / Klima", label:"FHK14 / F4HK14 / FAE14SSR – Heizung/Klima Temperatur + Sollwert + Fan (A5-10-06)", platform:"climate", eep_out:"A5-10-06", needs_sender:true, teach_in_telegram:"40-30-0D-87", sender_eep:"A5-10-06", device_type:"FHK14", eltako:"FHK14, F4HK14, FAE14SSR" },
+  "A5-10-06-FAE14LPR": { group:"Raumregler / Klima", label:"FAE14LPR – Heizung/Klima wie FAE14SSR (A5-10-06)", platform:"climate", eep_out:"A5-10-06", needs_sender:true, sender_eep:"A5-10-06", teach_in_telegram:"40-30-0D-87", device_family:"FAE14LPR", bidirectional:true, min_target_temperature:16, max_target_temperature:25, device_type:"FAE14LPR", eltako:"FAE14LPR" },
+  "A5-10-06-FUTH55": { group:"Raumregler / Klima", label:"FUTH55 / FUTH55ED / FUTH65D – Temperaturregler + Sollwert (A5-10-06)", platform:"climate", eep_out:"A5-10-06", needs_sender:true, sender_eep:"A5-10-06", futh55ed_mode:"fhk", teach_in_telegram:"40-30-0D-87", min_target_temperature:12, max_target_temperature:28, device_type:"FUTH55", eltako:"FUTH55, FUTH55ED, FUTH65D", note:"Für die Sollwertsteuerung muss die Home-Assistant-Sender-ID im FUTH55 eingelernt werden." },
+  "A5-10-12-FUTH55-HYGROSTAT": { group:"Raumregler / Klima", label:"FUTH55 / FUTH55ED / FUTH65D – Hygrostat: Temperatur + Feuchte + Sollwert (A5-10-12)", platform:"sensor", eep_out:"A5-10-12", futh55ed_mode:"hygrostat", teach_in_telegram:"40-90-0D-80", device_type:"FUTH55", eltako:"FUTH55, FUTH55ED, FUTH65D" },
+  "A5-10-06-FTR-FHK": { group:"Raumregler / Klima", label:"FTR55/65-Familie – Betriebsart FHK: Soll- und Isttemperatur (A5-10-06)", platform:"sensor", eep_out:"A5-10-06", room_controller_mode:"fhk", teach_in_telegram:"40-30-0D-87", min_target_temperature:12, max_target_temperature:28, frost_temperature:8, device_type:"FTR65DSB", eltako:"FTR65DSB, FTR55DSB, FTR55EHB, FTR55ESB, FTR65HB, FTRF65HB, FTR55HB, FTR65SB, FTRF65SB, FTR55SB" },
+  "A5-38-08-FTR-TF61": { group:"Raumregler / Klima", label:"FTR55/65-Familie – Betriebsart TF61: Heizanforderung EIN/AUS (A5-38-08)", platform:"binary_sensor", eep_out:"A5-38-08", room_controller_mode:"tf61", teach_in_telegram:"E0-40-0D-80", hysteresis:1, device_type:"FTR65DSB", eltako:"FTR65DSB, FTR55DSB, FTR55EHB, FTR55ESB, FTR65HB, FTRF65HB, FTR55HB, FTR65SB, FTRF65SB, FTR55SB" },
 
   // ── Heizung / Stellantrieb ───────────────────────────────────
-  "A5-20-01-FKS-SV": { group:"Heizung / Stellantrieb", label:"FKS-SV – Smart Valve / Heizkörper-Stellantrieb (A5-20-01)", platform:"climate", needs_sender:true, teach_in_telegram:"80-08-0D-80", sender_eep:"A5-20-01", eep_out:"A5-20-01", fks_sv_device:true, eltako:"FKS-SV" },
-  "A5-20-04-FKS-B": { group:"Heizung / Stellantrieb", label:"FKS-B – Batterie-Heizkörper-Stellantrieb wie FKS-H (A5-20-04)", platform:"climate", needs_sender:true, teach_in_telegram:"80-20-0D-80", sender_eep:"A5-20-04", eep_out:"A5-20-04", device_family:"FKS-B", bidirectional:true, min_target_temperature:10, max_target_temperature:30, eltako:"FKS-B" },
+  "A5-20-01-FKS-SV": { group:"Heizung / Stellantrieb", label:"FKS-SV – Smart Valve / Heizkörper-Stellantrieb (A5-20-01)", platform:"climate", needs_sender:true, teach_in_telegram:"80-08-0D-80", sender_eep:"A5-20-01", eep_out:"A5-20-01", fks_sv_device:true, device_type:"FKS-SV", eltako:"FKS-SV" },
+  "A5-20-04-FKS-B": { group:"Heizung / Stellantrieb", label:"FKS-B – Batterie-Heizkörper-Stellantrieb wie FKS-H (A5-20-04)", platform:"climate", needs_sender:true, teach_in_telegram:"80-20-0D-80", sender_eep:"A5-20-04", eep_out:"A5-20-04", device_family:"FKS-B", bidirectional:true, min_target_temperature:10, max_target_temperature:30, device_type:"FKS-B", eltako:"FKS-B" },
 
   // ── Lüftung ──────────────────────────────────────────────────
-  "F6-02-01-F2L14": { group:"Lüftung", label:"F2L14 – 2-Stufen-Lüftungsrelais (F6-02-01)", platform:"fan", needs_sender:true, teach_in_telegram:"30", sender_eep:"F6-02-01", eep_out:"F6-02-01", device_family:"F2L14", address_span:2, f2l14_mode:"exclusive", eltako:"F2L14" },
+  "F6-02-01-F2L14": { group:"Lüftung", label:"F2L14 – 2-Stufen-Lüftungsrelais (F6-02-01)", platform:"fan", needs_sender:true, teach_in_telegram:"30", sender_eep:"F6-02-01", eep_out:"F6-02-01", device_family:"F2L14", address_span:2, f2l14_mode:"exclusive", device_type:"F2L14", eltako:"F2L14" },
 
   // ── Zähler ────────────────────────────────────────────────────
-  "A5-12-01": { group:"Zähler", label:"FWZ12, FWZ14, DSZ14 – Funk-/Wechselstromzähler kWh (A5-12-01)", platform:"sensor", eep_out:"A5-12-01", teach_in_telegram:"48-08-0D-80", eltako:"FWZ12, FWZ14, DSZ14" },
-  "A5-12-01-F3Z14D": { group:"Zähler", label:"F3Z14D – 3-Kanal-S0-Drehstromzähler (A5-12-01)", platform:"sensor", eep_out:"A5-12-01", teach_in_telegram:"48-08-0D-80", meter_tariffs:"[1]", eltako:"F3Z14D" },
+  "A5-12-01": { group:"Zähler", label:"FWZ12, FWZ14, DSZ14 – Funk-/Wechselstromzähler kWh (A5-12-01)", platform:"sensor", eep_out:"A5-12-01", teach_in_telegram:"48-08-0D-80", device_type:"FWZ12", eltako:"FWZ12, FWZ14, DSZ14" },
+  "A5-12-01-F3Z14D": { group:"Zähler", label:"F3Z14D – 3-Kanal-S0-Drehstromzähler (A5-12-01)", platform:"sensor", eep_out:"A5-12-01", teach_in_telegram:"48-08-0D-80", meter_tariffs:"[1]", device_type:"F3Z14D", eltako:"F3Z14D" },
 
   // ── Wetterstation ─────────────────────────────────────────────
-  "A5-06-01-FAH": { group:"Wetterstation", label:"FAH – Helligkeitssensor 0…30.000 lx (A5-06-01)", platform:"sensor", eep_out:"A5-06-01", teach_in_telegram:"18-08-0D-80", device_classes:["illuminance"], default_dc:"illuminance", device_family:"FAH", eltako:"FAH" },
-  "A5-13-01": { group:"Wetterstation", label:"FWS61, FWG14MS – Wetterstation Wind + Regen + Temperatur (A5-13-01)", platform:"sensor", eep_out:"A5-13-01", teach_in_telegram:"4C-08-0D-80", eltako:"FWS61, FWG14MS" },
+  "A5-06-01-FAH": { group:"Wetterstation", label:"FAH – Helligkeitssensor 0…30.000 lx (A5-06-01)", platform:"sensor", eep_out:"A5-06-01", teach_in_telegram:"18-08-0D-80", device_classes:["illuminance"], default_dc:"illuminance", device_family:"FAH", device_type:"FAH", eltako:"FAH" },
+  "A5-13-01": { group:"Wetterstation", label:"FWS61 – Wetterstation Wind + Regen + Temperatur (A5-13-01)", platform:"sensor", eep_out:"A5-13-01", teach_in_telegram:"4C-08-0D-80", device_type:"FWS61", eltako:"FWS61" },
+  "A5-13-01-FWG14MS": { group:"Wetterstation", label:"FWG14MS – Wetterdaten-Gateway (A5-13-01)", platform:"sensor", eep_out:"A5-13-01", teach_in_telegram:"4C-08-0D-80", device_family:"FWG14MS", device_type:"FWG14MS", eltako:"FWG14MS" },
 
   // ── Licht / Dimmer ────────────────────────────────────────────
-  "A5-38-08-FUD14": { group:"Licht / Dimmer", label:"FUD14 – Dimmaktor (A5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"A5-38-08", eltako:"FUD14" },
-  "A5-38-08-FDG14": { group:"Licht / Dimmer", label:"FDG14 – DALI-Gateway / Dimmaktor (A5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"A5-38-08", dimming_speed:0, eltako:"FDG14" },
-  "A5-38-08-FUD71": { group:"Licht / Dimmer", label:"FUD71 – Dimmaktor (A5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"A5-38-08", eltako:"FUD71" },
-  "A5-38-08-FD2G14": { group:"Licht / Dimmer", label:"FD2G14 – DALI-Gateway (A5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"A5-38-08", eltako:"FD2G14" },
-  "A5-38-08-FUD61NP-230V": { group:"Licht / Dimmer", label:"FUD61NP-230V – Dimmaktor (A5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"A5-38-08", eltako:"FUD61NP-230V" },
-  "A5-38-08-FUD61NPN-230V": { group:"Licht / Dimmer", label:"FUD61NPN-230V – Dimmer/Relais (A5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"A5-38-08", eltako:"FUD61NPN-230V" },
-  "A5-38-08-FD62NP-230V": { group:"Licht / Dimmer", label:"FD62NP-230V – Dimmer/Relais (A5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"A5-38-08", eltako:"FD62NP-230V" },
-  "A5-38-08-FD62NPN-230V": { group:"Licht / Dimmer", label:"FD62NPN-230V – Dimmer/Relais (A5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"A5-38-08", eltako:"FD62NPN-230V" },
+  "A5-38-08-FUD14": { group:"Licht / Dimmer", label:"FUD14 – Dimmaktor (A5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"A5-38-08", device_type:"FUD14", eltako:"FUD14" },
+  "A5-38-08-FDG14": { group:"Licht / Dimmer", label:"FDG14 – DALI-Gateway / Dimmaktor (A5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"A5-38-08", dimming_speed:0, device_type:"FDG14", eltako:"FDG14" },
+  "A5-38-08-FUD71": { group:"Licht / Dimmer", label:"FUD71 – Dimmaktor (A5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"A5-38-08", device_type:"FUD71", eltako:"FUD71" },
+  "A5-38-08-FD2G14": { group:"Licht / Dimmer", label:"FD2G14 – DALI-Gateway (A5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"A5-38-08", device_type:"FD2G14", eltako:"FD2G14" },
+  "A5-38-08-FUD61NP-230V": { group:"Licht / Dimmer", label:"FUD61NP-230V – Dimmaktor (A5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"A5-38-08", device_type:"FUD61NP-230V", eltako:"FUD61NP-230V" },
+  "A5-38-08-FUD61NPN-230V": { group:"Licht / Dimmer", label:"FUD61NPN-230V – Dimmer/Relais (A5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"A5-38-08", device_type:"FUD61NPN-230V", eltako:"FUD61NPN-230V" },
+  "A5-38-08-FD62NP-230V": { group:"Licht / Dimmer", label:"FD62NP-230V – Dimmer/Relais (A5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"A5-38-08", device_type:"FD62NP-230V", eltako:"FD62NP-230V" },
+  "A5-38-08-FD62NPN-230V": { group:"Licht / Dimmer", label:"FD62NPN-230V – Dimmer/Relais (A5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"A5-38-08", device_type:"FD62NPN-230V", eltako:"FD62NPN-230V" },
 
   // ── Licht / RGBW ──────────────────────────────────────────────
-  "07-3F-7F-FRGBW14": { group:"Licht / RGBW", label:"FRGBW14 – RGBW/Farbsteuerung freies Profil (07-3F-7F)", platform:"light", needs_sender:true, teach_in_telegram:"FF-F8-0D-87", sender_eep:"07-3F-7F", eep_out:"07-3F-7F", eltako:"FRGBW14", rgbw:true },
-  "07-3F-7F-FRGBW71L": { group:"Licht / RGBW", label:"FRGBW71L – RGBW/Farbsteuerung freies Profil (07-3F-7F)", platform:"light", needs_sender:true, teach_in_telegram:"FF-F8-0D-87", sender_eep:"07-3F-7F", eep_out:"07-3F-7F", eltako:"FRGBW71L", rgbw:true },
+  "07-3F-7F-FRGBW14": { group:"Licht / RGBW", label:"FRGBW14 – RGBW/Farbsteuerung freies Profil (07-3F-7F)", platform:"light", needs_sender:true, teach_in_telegram:"FF-F8-0D-87", sender_eep:"07-3F-7F", eep_out:"07-3F-7F", device_type:"FRGBW14", eltako:"FRGBW14", rgbw:true },
+  "07-3F-7F-FRGBW71L": { group:"Licht / RGBW", label:"FRGBW71L – RGBW/Farbsteuerung freies Profil (07-3F-7F)", platform:"light", needs_sender:true, teach_in_telegram:"FF-F8-0D-87", sender_eep:"07-3F-7F", eep_out:"07-3F-7F", device_type:"FRGBW71L", eltako:"FRGBW71L", rgbw:true },
 
   // ── Licht / Relais ────────────────────────────────────────────
-  "M5-38-08-FSR14-2X": { group:"Licht / Relais", label:"FSR14-2x – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR14-2x" },
-  "M5-38-08-FSR14-4X": { group:"Licht / Relais", label:"FSR14-4x – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR14-4x" },
-  "M5-38-08-F4SR14-LED": { group:"Licht / Relais", label:"F4SR14-LED – 4-Kanal Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"F4SR14-LED", channels:4 },
-  "M5-38-08-FSR71-2X-230V": { group:"Licht / Relais", label:"FSR71-2x-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR71-2x-230V" },
-  "M5-38-08-FSR71NP-2X-230V": { group:"Licht / Relais", label:"FSR71NP-2x-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR71NP-2x-230V" },
-  "M5-38-08-FSR71NP-4X-230V": { group:"Licht / Relais", label:"FSR71NP-4x-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR71NP-4x-230V", device_family:"FSR71NP-4X-230V", channels:4 },
-  "M5-38-08-FMS14": { group:"Licht / Relais", label:"FMS14 – 2-Kanal-Multifunktions-Stromstoßschalter (M5-38-08 / A5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FMS14", device_family:"FMS14", channels:2 },
-  "M5-38-08-FMZ14": { group:"Licht / Relais", label:"FMZ14 – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"F6-02-01", eep_out:"M5-38-08", eltako:"FMZ14" },
-  "M5-38-08-FSR61-230V": { group:"Licht / Relais", label:"FSR61-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR61-230V" },
-  "M5-38-08-FSR61NP-230V": { group:"Licht / Relais", label:"FSR61NP-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR61NP-230V" },
-  "M5-38-08-FSR61-8-24VUC": { group:"Licht / Relais", label:"FSR61/8-24V UC – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR61/8-24V UC" },
-  "M5-38-08-FSR61G-230V": { group:"Licht / Relais", label:"FSR61G-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR61G-230V" },
-  "M5-38-08-FSR61LN-230V": { group:"Licht / Relais", label:"FSR61LN-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FSR61LN-230V" },
-  "M5-38-08-FLC61NP-230V": { group:"Licht / Relais", label:"FLC61NP-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FLC61NP-230V" },
-  "M5-38-08-FR62-230V": { group:"Licht / Relais", label:"FR62-230V – Relais/Steckdosenaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FR62-230V" },
-  "M5-38-08-FR62NP-230V": { group:"Licht / Relais", label:"FR62NP-230V – Relais/Steckdosenaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FR62NP-230V" },
-  "M5-38-08-FL62-230V": { group:"Licht / Relais", label:"FL62-230V – Relais/Steckdosenaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FL62-230V" },
-  "M5-38-08-FL62NP-230V": { group:"Licht / Relais", label:"FL62NP-230V – Relais/Steckdosenaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", eltako:"FL62NP-230V" },
+  "M5-38-08-FSR14-2X": { group:"Licht / Relais", label:"FSR14-2x – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", device_type:"FSR14-2x", eltako:"FSR14-2x" },
+  "M5-38-08-FSR14-4X": { group:"Licht / Relais", label:"FSR14-4x – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", device_type:"FSR14-4x", eltako:"FSR14-4x" },
+  "M5-38-08-F4SR14-LED": { group:"Licht / Relais", label:"F4SR14-LED – 4-Kanal Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", device_type:"F4SR14-LED", eltako:"F4SR14-LED", channels:4 },
+  "M5-38-08-FSR71-2X-230V": { group:"Licht / Relais", label:"FSR71-2x-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", device_type:"FSR71-2x-230V", eltako:"FSR71-2x-230V" },
+  "M5-38-08-FSR71NP-2X-230V": { group:"Licht / Relais", label:"FSR71NP-2x-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", device_type:"FSR71NP-2x-230V", eltako:"FSR71NP-2x-230V" },
+  "M5-38-08-FSR71NP-4X-230V": { group:"Licht / Relais", label:"FSR71NP-4x-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", device_type:"FSR71NP-4x-230V", eltako:"FSR71NP-4x-230V", device_family:"FSR71NP-4X-230V", channels:4 },
+  "M5-38-08-FMS14": { group:"Licht / Relais", label:"FMS14 – 2-Kanal-Multifunktions-Stromstoßschalter (M5-38-08 / A5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", device_type:"FMS14", eltako:"FMS14", device_family:"FMS14", channels:2 },
+  "M5-38-08-FMZ14": { group:"Licht / Relais", label:"FMZ14 – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"F6-02-01", eep_out:"M5-38-08", device_type:"FMZ14", eltako:"FMZ14" },
+  "M5-38-08-FSR61-230V": { group:"Licht / Relais", label:"FSR61-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", device_type:"FSR61-230V", eltako:"FSR61-230V" },
+  "M5-38-08-FSR61NP-230V": { group:"Licht / Relais", label:"FSR61NP-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", device_type:"FSR61NP-230V", eltako:"FSR61NP-230V" },
+  "M5-38-08-FSR61-8-24VUC": { group:"Licht / Relais", label:"FSR61/8-24V UC – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", device_type:"FSR61/8-24VUC", eltako:"FSR61/8-24V UC" },
+  "M5-38-08-FSR61G-230V": { group:"Licht / Relais", label:"FSR61G-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", device_type:"FSR61G-230V", eltako:"FSR61G-230V" },
+  "M5-38-08-FSR61LN-230V": { group:"Licht / Relais", label:"FSR61LN-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", device_type:"FSR61LN-230V", eltako:"FSR61LN-230V" },
+  "M5-38-08-FLC61NP-230V": { group:"Licht / Relais", label:"FLC61NP-230V – Relais/Lichtaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", device_type:"FLC61NP-230V", eltako:"FLC61NP-230V" },
+  "M5-38-08-FR62-230V": { group:"Licht / Relais", label:"FR62-230V – Relais/Steckdosenaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", device_type:"FR62-230V", eltako:"FR62-230V" },
+  "M5-38-08-FR62NP-230V": { group:"Licht / Relais", label:"FR62NP-230V – Relais/Steckdosenaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", device_type:"FR62NP-230V", eltako:"FR62NP-230V" },
+  "M5-38-08-FL62-230V": { group:"Licht / Relais", label:"FL62-230V – Relais/Steckdosenaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", device_type:"FL62-230V", eltako:"FL62-230V" },
+  "M5-38-08-FL62NP-230V": { group:"Licht / Relais", label:"FL62NP-230V – Relais/Steckdosenaktor (M5-38-08)", platform:"light", needs_sender:true, teach_in_telegram:"E0-40-0D-80", sender_eep:"A5-38-08", eep_out:"M5-38-08", device_type:"FL62NP-230V", eltako:"FL62NP-230V" },
 
   // ── Jalousie / Rollladen ──────────────────────────────────────
-  "G5-3F-7F-FSB14": { group:"Jalousie / Rollladen", label:"FSB14, FSB14/12-24V DC – Jalousie / Rollladen (G5-3F-7F)", platform:"cover", needs_sender:true, teach_in_telegram:"FF-F8-0D-80", sender_eep:"H5-3F-7F", eep_out:"G5-3F-7F", device_classes:["shutter","blind","awning","curtain"], default_dc:"shutter", eltako:"FSB14, FSB14/12-24V DC" },
-  "G5-3F-7F-FSB61-230V": { group:"Jalousie / Rollladen", label:"FSB61-230V – Jalousie / Rollladen (G5-3F-7F)", platform:"cover", needs_sender:true, teach_in_telegram:"FF-F8-0D-80", sender_eep:"H5-3F-7F", eep_out:"G5-3F-7F", device_classes:["shutter","blind","awning","curtain"], default_dc:"shutter", eltako:"FSB61-230V" },
-  "G5-3F-7F-FSB71-230V": { group:"Jalousie / Rollladen", label:"FSB71-230V – Jalousie / Rollladen (G5-3F-7F)", platform:"cover", needs_sender:true, teach_in_telegram:"FF-F8-0D-80", sender_eep:"H5-3F-7F", eep_out:"G5-3F-7F", device_classes:["shutter","blind","awning","curtain"], default_dc:"shutter", eltako:"FSB71-230V" },
-  "G5-3F-7F-FSB61NP-230V": { group:"Jalousie / Rollladen", label:"FSB61NP-230V – Jalousie / Rollladen (G5-3F-7F)", platform:"cover", needs_sender:true, teach_in_telegram:"FF-F8-0D-80", sender_eep:"H5-3F-7F", eep_out:"G5-3F-7F", device_classes:["shutter","blind","awning","curtain"], default_dc:"shutter", eltako:"FSB61NP-230V" },
-  "G5-3F-7F-FJ62-12-36VDC": { group:"Jalousie / Rollladen", label:"FJ62/12-36V DC – Jalousie / Rollladen (G5-3F-7F)", platform:"cover", needs_sender:true, teach_in_telegram:"FF-F8-0D-80", sender_eep:"H5-3F-7F", eep_out:"G5-3F-7F", device_classes:["shutter","blind","awning","curtain"], default_dc:"shutter", eltako:"FJ62/12-36V DC" },
-  "G5-3F-7F-FJ62NP-230V": { group:"Jalousie / Rollladen", label:"FJ62NP-230V – Jalousie / Rollladen (G5-3F-7F)", platform:"cover", needs_sender:true, teach_in_telegram:"FF-F8-0D-80", sender_eep:"H5-3F-7F", eep_out:"G5-3F-7F", device_classes:["shutter","blind","awning","curtain"], default_dc:"shutter", eltako:"FJ62NP-230V" },
+  "G5-3F-7F-FSB14": { group:"Jalousie / Rollladen", label:"FSB14, FSB14/12-24V DC – Jalousie / Rollladen (G5-3F-7F)", platform:"cover", needs_sender:true, teach_in_telegram:"FF-F8-0D-80", sender_eep:"H5-3F-7F", eep_out:"G5-3F-7F", device_classes:["shutter","blind","awning","curtain"], default_dc:"shutter", device_type:"FSB14", eltako:"FSB14, FSB14/12-24V DC" },
+  "G5-3F-7F-FSB61-230V": { group:"Jalousie / Rollladen", label:"FSB61-230V – Jalousie / Rollladen (G5-3F-7F)", platform:"cover", needs_sender:true, teach_in_telegram:"FF-F8-0D-80", sender_eep:"H5-3F-7F", eep_out:"G5-3F-7F", device_classes:["shutter","blind","awning","curtain"], default_dc:"shutter", device_type:"FSB61-230V", eltako:"FSB61-230V" },
+  "G5-3F-7F-FSB71-230V": { group:"Jalousie / Rollladen", label:"FSB71-230V – Jalousie / Rollladen (G5-3F-7F)", platform:"cover", needs_sender:true, teach_in_telegram:"FF-F8-0D-80", sender_eep:"H5-3F-7F", eep_out:"G5-3F-7F", device_classes:["shutter","blind","awning","curtain"], default_dc:"shutter", device_type:"FSB71-230V", eltako:"FSB71-230V" },
+  "G5-3F-7F-FSB61NP-230V": { group:"Jalousie / Rollladen", label:"FSB61NP-230V – Jalousie / Rollladen (G5-3F-7F)", platform:"cover", needs_sender:true, teach_in_telegram:"FF-F8-0D-80", sender_eep:"H5-3F-7F", eep_out:"G5-3F-7F", device_classes:["shutter","blind","awning","curtain"], default_dc:"shutter", device_type:"FSB61NP-230V", eltako:"FSB61NP-230V" },
+  "G5-3F-7F-FJ62-12-36VDC": { group:"Jalousie / Rollladen", label:"FJ62/12-36V DC – Jalousie / Rollladen (G5-3F-7F)", platform:"cover", needs_sender:true, teach_in_telegram:"FF-F8-0D-80", sender_eep:"H5-3F-7F", eep_out:"G5-3F-7F", device_classes:["shutter","blind","awning","curtain"], default_dc:"shutter", device_type:"FJ62/12-36VDC", eltako:"FJ62/12-36V DC" },
+  "G5-3F-7F-FJ62NP-230V": { group:"Jalousie / Rollladen", label:"FJ62NP-230V – Jalousie / Rollladen (G5-3F-7F)", platform:"cover", needs_sender:true, teach_in_telegram:"FF-F8-0D-80", sender_eep:"H5-3F-7F", eep_out:"G5-3F-7F", device_classes:["shutter","blind","awning","curtain"], default_dc:"shutter", device_type:"FJ62NP-230V", eltako:"FJ62NP-230V" },
 
   // ── Funk-Modul ────────────────────────────────────────────────
-  "F6-02-01-FSM60B-BA1": { group:"Funk-Modul", label:"FSM60B Betriebsart 1 (F6-02-01)", platform:"binary_sensor", eep_out:"F6-02-01", eltako:"FSM60B Betriebsart 1" },
-  "F6-02-01-FSM60B-BA2": { group:"Funk-Modul", label:"FSM60B Betriebsart 2 (F6-02-01)", platform:"binary_sensor", eep_out:"F6-02-01", eltako:"FSM60B Betriebsart 2" },
-  "A5-30-03-FSM60B-BA3": { group:"Funk-Modul", label:"FSM60B Betriebsart 3 (A5-30-03)", platform:"binary_sensor", eep_out:"A5-30-03", device_classes:["moisture"], default_dc:"moisture", eltako:"FSM60B Betriebsart 3" },
-  "A5-30-01-FSM60B-BA4": { group:"Funk-Modul", label:"FSM60B Betriebsart 4 (A5-30-01)", platform:"switch", eep_out:"A5-30-01", eltako:"FSM60B Betriebsart 4" },
+  "F6-02-01-FSM60B-BA1": { group:"Funk-Modul", label:"FSM60B Betriebsart 1 (F6-02-01)", platform:"binary_sensor", eep_out:"F6-02-01", device_type:"FSM60B", eltako:"FSM60B Betriebsart 1" },
+  "F6-02-01-FSM60B-BA2": { group:"Funk-Modul", label:"FSM60B Betriebsart 2 (F6-02-01)", platform:"binary_sensor", eep_out:"F6-02-01", device_type:"FSM60B", eltako:"FSM60B Betriebsart 2" },
+  "A5-30-03-FSM60B-BA3": { group:"Funk-Modul", label:"FSM60B Betriebsart 3 (A5-30-03)", platform:"binary_sensor", eep_out:"A5-30-03", device_classes:["moisture"], default_dc:"moisture", device_type:"FSM60B", eltako:"FSM60B Betriebsart 3" },
+  "A5-30-01-FSM60B-BA4": { group:"Funk-Modul", label:"FSM60B Betriebsart 4 (A5-30-01)", platform:"switch", eep_out:"A5-30-01", device_type:"FSM60B", eltako:"FSM60B Betriebsart 4" },
 
   // ── F4USM61B Universal-Sendemodul ────────────────────────────
-  "F6-02-01-F4USM61B-M1": { group:"Funk-Modul", label:"F4USM61B – Modus 1: 4-fach-Taster (F6-02-01)", platform:"binary_sensor", eep_out:"F6-02-01", eltako:"F4USM61B Modus 1", device_family:"F4USM61B", operating_mode:1, battery_status:true, battery_eep:"A5-07-01", id_count:1, channels:1, invert:false },
-  "A5-38-08-F4USM61B-M2": { group:"Funk-Modul", label:"F4USM61B – Modus 2: 2 × EIN/AUS (A5-38-08)", platform:"binary_sensor", eep_out:"A5-38-08", eltako:"F4USM61B Modus 2", device_family:"F4USM61B", operating_mode:2, battery_status:true, battery_eep:"A5-07-01", id_count:2, channels:2, invert:false },
-  "A5-08-01-F4USM61B-M3": { group:"Funk-Modul", label:"F4USM61B – Modus 3: 2 × Bewegung (A5-08-01)", platform:"sensor", eep_out:"A5-08-01", eltako:"F4USM61B Modus 3", device_family:"F4USM61B", operating_mode:3, id_count:2, channels:2, invert:false },
-  "D5-00-01-F4USM61B-M4": { group:"Funk-Modul", label:"F4USM61B – Modus 4: 2 × Fenster-/Türkontakt (D5-00-01)", platform:"binary_sensor", eep_out:"D5-00-01", device_classes:["window","door","opening"], default_dc:"window", eltako:"F4USM61B Modus 4", device_family:"F4USM61B", operating_mode:4, battery_status:true, battery_eep:"A5-07-01", id_count:2, channels:2, invert:false },
-  "F6-02-01-F4USM61B-M5": { group:"Funk-Modul", label:"F4USM61B – Modus 5: 2 × 2-fach-Taster (F6-02-01)", platform:"binary_sensor", eep_out:"F6-02-01", eltako:"F4USM61B Modus 5", device_family:"F4USM61B", operating_mode:5, battery_status:true, battery_eep:"A5-07-01", id_count:2, channels:2, invert:false },
-  "A5-08-01-F4USM61B-M6": { group:"Funk-Modul", label:"F4USM61B – Modus 6: Bewegung invertiert (A5-08-01)", platform:"sensor", eep_out:"A5-08-01", eltako:"F4USM61B Modus 6", device_family:"F4USM61B", operating_mode:6, id_count:2, channels:2, invert:true },
-  "D5-00-01-F4USM61B-M7": { group:"Funk-Modul", label:"F4USM61B – Modus 7: Fenster-/Türkontakt invertiert (D5-00-01)", platform:"binary_sensor", eep_out:"D5-00-01", device_classes:["window","door","opening"], default_dc:"window", eltako:"F4USM61B Modus 7", device_family:"F4USM61B", operating_mode:7, battery_status:true, battery_eep:"A5-07-01", id_count:2, channels:2, invert:true },
-  "A5-07-01-F4USM61B-M8": { group:"Funk-Modul", label:"F4USM61B – Modus 8: 2 × Bewegungsmelder (A5-07-01)", platform:"binary_sensor", eep_out:"A5-07-01", device_classes:["motion","occupancy"], default_dc:"motion", eltako:"F4USM61B Modus 8", device_family:"F4USM61B", operating_mode:8, id_count:2, channels:2, invert:false },
+  "F6-02-01-F4USM61B-M1": { group:"Funk-Modul", label:"F4USM61B – Modus 1: 4-fach-Taster (F6-02-01)", platform:"binary_sensor", eep_out:"F6-02-01", device_type:"F4USM61B", eltako:"F4USM61B Modus 1", device_family:"F4USM61B", operating_mode:1, battery_status:true, battery_eep:"A5-07-01", id_count:1, channels:1, invert:false },
+  "A5-38-08-F4USM61B-M2": { group:"Funk-Modul", label:"F4USM61B – Modus 2: 2 × EIN/AUS (A5-38-08)", platform:"binary_sensor", eep_out:"A5-38-08", device_type:"F4USM61B", eltako:"F4USM61B Modus 2", device_family:"F4USM61B", operating_mode:2, battery_status:true, battery_eep:"A5-07-01", id_count:2, channels:2, invert:false },
+  "A5-08-01-F4USM61B-M3": { group:"Funk-Modul", label:"F4USM61B – Modus 3: 2 × Bewegung (A5-08-01)", platform:"sensor", eep_out:"A5-08-01", device_type:"F4USM61B", eltako:"F4USM61B Modus 3", device_family:"F4USM61B", operating_mode:3, id_count:2, channels:2, invert:false },
+  "D5-00-01-F4USM61B-M4": { group:"Funk-Modul", label:"F4USM61B – Modus 4: 2 × Fenster-/Türkontakt (D5-00-01)", platform:"binary_sensor", eep_out:"D5-00-01", device_classes:["window","door","opening"], default_dc:"window", device_type:"F4USM61B", eltako:"F4USM61B Modus 4", device_family:"F4USM61B", operating_mode:4, battery_status:true, battery_eep:"A5-07-01", id_count:2, channels:2, invert:false },
+  "F6-02-01-F4USM61B-M5": { group:"Funk-Modul", label:"F4USM61B – Modus 5: 2 × 2-fach-Taster (F6-02-01)", platform:"binary_sensor", eep_out:"F6-02-01", device_type:"F4USM61B", eltako:"F4USM61B Modus 5", device_family:"F4USM61B", operating_mode:5, battery_status:true, battery_eep:"A5-07-01", id_count:2, channels:2, invert:false },
+  "A5-08-01-F4USM61B-M6": { group:"Funk-Modul", label:"F4USM61B – Modus 6: Bewegung invertiert (A5-08-01)", platform:"sensor", eep_out:"A5-08-01", device_type:"F4USM61B", eltako:"F4USM61B Modus 6", device_family:"F4USM61B", operating_mode:6, id_count:2, channels:2, invert:true },
+  "D5-00-01-F4USM61B-M7": { group:"Funk-Modul", label:"F4USM61B – Modus 7: Fenster-/Türkontakt invertiert (D5-00-01)", platform:"binary_sensor", eep_out:"D5-00-01", device_classes:["window","door","opening"], default_dc:"window", device_type:"F4USM61B", eltako:"F4USM61B Modus 7", device_family:"F4USM61B", operating_mode:7, battery_status:true, battery_eep:"A5-07-01", id_count:2, channels:2, invert:true },
+  "A5-07-01-F4USM61B-M8": { group:"Funk-Modul", label:"F4USM61B – Modus 8: 2 × Bewegungsmelder (A5-07-01)", platform:"binary_sensor", eep_out:"A5-07-01", device_classes:["motion","occupancy"], default_dc:"motion", device_type:"F4USM61B", eltako:"F4USM61B Modus 8", device_family:"F4USM61B", operating_mode:8, id_count:2, channels:2, invert:false },
 };
 
 const DEVICE_DB_STORAGE_KEY = "eedtoy.customDeviceDatabase.v1";
 const DEVICE_DB_DELETED_KEYS = "__deleted_keys";
 const DEVICE_DB_MODE_KEY = "__eedtoy_database_mode";
 const DEVICE_DB_SCHEMA_KEY = "__eedtoy_database_schema";
-const DEVICE_DB_SCHEMA_VERSION = 56;
+const DEVICE_DB_SCHEMA_VERSION = 58;
 const DEVICE_DB_MODE_AUTHORITATIVE = "authoritative";
 const PROFILE_KEY_ALIASES = {
   "07-37-F7-FRGBW14": "07-3F-7F-FRGBW14",
@@ -179,6 +180,18 @@ function deviceDatabaseEntriesOnly(database) {
   return Object.fromEntries(Object.entries(source).filter(([key]) => ![DEVICE_DB_DELETED_KEYS, DEVICE_DB_MODE_KEY, DEVICE_DB_SCHEMA_KEY].includes(key)));
 }
 
+function withTechnicalDeviceTypes(database) {
+  // Schema 58: add explicit technical types to older known profiles without replacing user edits,
+  // restoring deleted profiles, or interpreting any device's display name.
+  return Object.fromEntries(Object.entries(database).map(([key, profile]) => {
+    const defaultKey = PROFILE_KEY_ALIASES[key] || key;
+    const defaultType = DEFAULT_EEP_DB[defaultKey]?.device_type;
+    return [key, defaultType && profile && typeof profile === "object" && !String(profile.device_type || "").trim()
+      ? { ...profile, device_type: defaultType }
+      : profile];
+  }));
+}
+
 function mergeDeviceDatabase(defaults, custom) {
   const stored = custom && typeof custom === "object" && !Array.isArray(custom) ? { ...custom } : {};
 
@@ -186,7 +199,7 @@ function mergeDeviceDatabase(defaults, custom) {
   // authoritative database. Defaults are no longer merged at startup. This is
   // what makes additions, edits, key renames and deletions survive restarts.
   if (stored[DEVICE_DB_MODE_KEY] === DEVICE_DB_MODE_AUTHORITATIVE) {
-    return deviceDatabaseEntriesOnly(stored);
+    return withTechnicalDeviceTypes(deviceDatabaseEntriesOnly(stored));
   }
 
   // Compatibility for databases created by older EEDTOY versions. Those files
@@ -196,7 +209,7 @@ function mergeDeviceDatabase(defaults, custom) {
   const legacyEntries = deviceDatabaseEntriesOnly(stored);
   const merged = { ...defaults, ...legacyEntries };
   for (const key of deletedKeys) delete merged[String(key || "").toUpperCase()];
-  return merged;
+  return withTechnicalDeviceTypes(merged);
 }
 function migrateCustomDeviceDatabase(input) {
   const database = input && typeof input === "object" && !Array.isArray(input) ? { ...input } : {};
@@ -310,6 +323,13 @@ function migrateCustomDeviceDatabase(input) {
         database["F6-02-01-F2L14"] = { ...DEFAULT_EEP_DB["F6-02-01-F2L14"] };
       }
 
+      // FWG14MS transmits weather data from one of two device-position ID
+      // ranges. Its PCT14 bus address is metadata and must not be exported as
+      // the EnOcean receive ID. Keep FWS61 on the generic A5-13-01 profile.
+      if (schemaVersion < 57 && !database["A5-13-01-FWG14MS"]) {
+        database["A5-13-01-FWG14MS"] = { ...DEFAULT_EEP_DB["A5-13-01-FWG14MS"] };
+      }
+
       // FIX50: The documented first-ID offset was a manual typo. F4USM61B
       // channel 1 always starts at the original learned ID; remove the obsolete
       // field from every persisted F4USM61B profile.
@@ -323,7 +343,7 @@ function migrateCustomDeviceDatabase(input) {
       }
       database[DEVICE_DB_SCHEMA_KEY] = DEVICE_DB_SCHEMA_VERSION;
     }
-    return database;
+    return withTechnicalDeviceTypes(database);
   }
   const oldFrwb = database["A5-30-01"];
   if (oldFrwb && String(oldFrwb.eltako || oldFrwb.label || "").toUpperCase().includes("FRWB")) {
@@ -364,7 +384,7 @@ function migrateCustomDeviceDatabase(input) {
     const text = `${key} ${entry.label || ""} ${entry.eltako || ""}`.toUpperCase();
     if (text.includes("FTS14EM")) delete database[key];
   }
-  return database;
+  return withTechnicalDeviceTypes(database);
 }
 function loadCustomDeviceDatabase() {
   try {
@@ -404,6 +424,21 @@ function profileFor(eep) {
   return EEP_DB[resolvedKey] || GENERIC_EEP_PROFILES[resolvedKey] || {};
 }
 
+function idLearningFilterForProfile(profileKey) {
+  const profile = profileFor(profileKey);
+  const eep = String(profile.eep_out || profileKey || "").toUpperCase();
+  const key = String(profileKey || "").toUpperCase();
+  const resolvedKey = PROFILE_KEY_ALIASES[key] || key;
+  const family = String(profile.device_family || "").toUpperCase();
+  // Wired inputs/weather gateways and bus meters need their real bus IDs.
+  if (["FTS14EM", "FWG14MS", "F3Z14D"].includes(family) ||
+      ["F6-02-01-FTS14EM-UT", "F6-02-01-FTS14EM-RT", "A5-13-01-FWG14MS", "A5-12-01-F3Z14D"].includes(resolvedKey)) return "";
+  // FUTH room controllers are radio sensors even in their bidirectional mode.
+  // Actuator learning otherwise keeps its existing behavior.
+  if (profile.needs_sender && !profile.futh55ed_mode) return "";
+  return { F6:"radio-rps", D5:"radio-1bs", A5:"radio-4bs", D2:"radio-vld" }[eep.split("-")[0]] || "";
+}
+
 function normalizeProfileSearchText(value) {
   return String(value || "")
     .toUpperCase()
@@ -430,7 +465,6 @@ function resolveProfileKeyForDevice(device) {
     device.model,
     device.eltako,
     device.device_family,
-    device.name,
   ].filter(Boolean).join(" "));
   const storedPlatform = String(device.platform || "").toLowerCase();
   const storedSenderEep = String(device.sender_eep || "").toUpperCase();
@@ -447,7 +481,7 @@ function resolveProfileKeyForDevice(device) {
     const profilePlatform = String(profile.platform || "").toLowerCase();
     const profileSenderEep = String(profile.sender_eep || "").toUpperCase();
     const profileFamily = normalizeProfileSearchText(profile.device_family);
-    const profileNames = [profile.eltako, profile.label]
+    const profileNames = [profile.device_type, profile.eltako, profile.label]
       .filter(Boolean)
       .flatMap(value => String(value).split(/[,/]/))
       .map(normalizeProfileSearchText)
@@ -478,7 +512,19 @@ function resolveProfileKeyForDevice(device) {
 }
 
 function normalizeLoadedDeviceProfile(device) {
-  const normalized = { ...emptyForm, ...(device || {}) };
+  let normalized = { ...emptyForm, ...(device || {}) };
+  const descriptor = `${normalized.device_type || ""} ${normalized.model || ""} ${normalized.eltako || ""}`.toUpperCase();
+  if (descriptor.includes("FWG14MS") && String(normalized.eep || "").toUpperCase() === "A5-13-01") {
+    normalized = {
+      ...normalized,
+      eep: "A5-13-01-FWG14MS",
+      profile_key: "A5-13-01-FWG14MS",
+      device_family: "FWG14MS",
+      bus_address: normalizeId(normalized.bus_address) || normalizeId(normalized.dev_id),
+      fwg14ms_id_range: String(normalized.fwg14ms_id_range || "1"),
+      dev_id: fwg14msBaseIdForRange(normalized.fwg14ms_id_range || "1"),
+    };
+  }
   const profileKey = resolveProfileKeyForDevice(normalized);
   return profileKey ? { ...normalized, eep: profileKey, profile_key: profileKey } : normalized;
 }
@@ -499,6 +545,8 @@ function applyCurrentDatabaseProfile(device) {
     channel: normalized.channel,
     base_id: normalized.base_id,
     id_range: normalized.id_range,
+    fwg14ms_id_range: normalized.fwg14ms_id_range,
+    bus_address: normalized.bus_address,
     input_number: normalized.input_number,
     physical_unique_id: normalized.physical_unique_id,
     time_opens: normalized.time_opens,
@@ -509,6 +557,7 @@ function applyCurrentDatabaseProfile(device) {
     max_target_temperature: normalized.max_target_temperature,
     stage_1_id: normalized.stage_1_id,
     stage_2_id: normalized.stage_2_id,
+    f2l14_mode: normalized.f2l14_mode,
   };
   return {
     ...normalized,
@@ -519,7 +568,7 @@ function applyCurrentDatabaseProfile(device) {
     platform: profile.platform || normalized.platform,
     sender_eep: profile.sender_eep || "",
     device_family: profile.device_family || "",
-    device_type: profile.eltako || normalized.device_type,
+    device_type: profile.device_type || "",
     model: profile.eltako || normalized.model,
     eltako: profile.eltako || normalized.eltako,
   };
@@ -527,12 +576,20 @@ function applyCurrentDatabaseProfile(device) {
 
 function deviceTypeForDevice(device) {
   const p = profileFor(device?.eep);
-  return device?.device_type || device?.model || device?.eltako || p.eltako || String(device?.name || "").split(" ")[0] || "Gerät";
+  return device?.device_type || device?.model || device?.eltako || p.device_type || "Gerät";
+}
+
+function exportDeviceTypeForDevice(device) {
+  // Expanded channels retain their selected source profile, even when a
+  // secondary FLGTF entity uses a different EEP. Instance snapshots and names
+  // must never override the technical type stored in the current profile.
+  const key = String(device?.profile_key || device?.eep || "").toUpperCase();
+  return String(EEP_DB[PROFILE_KEY_ALIASES[key] || key]?.device_type || "").trim();
 }
 
 function isRgbwDevice(device) {
   const p = profileFor(device?.eep);
-  const typeText = `${deviceTypeForDevice(device)} ${device?.name || ""} ${device?.eep || ""}`.toUpperCase();
+  const typeText = `${deviceTypeForDevice(device)} ${device?.eep || ""}`.toUpperCase();
   return Boolean(p.rgbw || typeText.includes("FRGBW") || ["07-3F-7F","07-37-F7","07-3F-F7"].includes(String(device?.eep || "").toUpperCase()));
 }
 
@@ -556,6 +613,15 @@ const FTS14EM_ID_RANGES = [
   { value: "301", label: "301", baseId: "00-00-13-01" },
   { value: "401", label: "401", baseId: "00-00-14-01" },
 ];
+
+const FWG14MS_ID_RANGES = [
+  { value: "1", baseId: "00-00-18-00", endId: "00-00-18-0C" },
+  { value: "2", baseId: "00-00-18-10", endId: "00-00-18-1C" },
+];
+
+function fwg14msBaseIdForRange(range) {
+  return FWG14MS_ID_RANGES.find(item => item.value === String(range || "1"))?.baseId || "00-00-18-00";
+}
 
 function fts14emBaseIdForRange(range) {
   return FTS14EM_ID_RANGES.find(item => item.value === String(range || "1"))?.baseId || "00-00-10-01";
@@ -590,7 +656,7 @@ function exportEepForDevice(device) {
 }
 
 function isFlgtfDevice(device) {
-  const text = `${device?.name || ""} ${device?.device_type || ""} ${device?.model || ""} ${device?.eltako || ""}`.toUpperCase();
+  const text = `${profileFor(device?.eep).device_type || ""} ${device?.device_type || ""} ${device?.model || ""} ${device?.eltako || ""}`.toUpperCase();
   return text.includes("FLGTF") || String(device?.eep || "").includes("FLGTF");
 }
 
@@ -607,7 +673,7 @@ function normalizeId(id) {
 
 function isFksSvDevice(device) {
   const profile = profileFor(device?.eep);
-  return Boolean(profile.fks_sv_device || String(device?.name || "").toUpperCase().includes("FKS-SV"));
+  return Boolean(profile.fks_sv_device || String(device?.device_type || device?.model || "").toUpperCase() === "FKS-SV");
 }
 
 function isFbhOperatingMode(device) {
@@ -793,7 +859,7 @@ function expandMultiIdExportDevices(devices) {
       continue;
     }
 
-    const normalizedDeviceName = String(device?.name || device?.device_type || device?.model || device?.eltako || "")
+    const normalizedDeviceName = String(device?.device_type || device?.model || device?.eltako || "")
       .toUpperCase()
       .replace(/[^A-Z0-9]/g, "");
     const isFsr71FourChannel = family === "FSR71NP-4X-230V"
@@ -924,43 +990,34 @@ function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", la
         const exportSenderId = senderIdForGateway(d, gw, pct14BaseId);
         out += `      - id: "${exportDevId}"\n`;
         out += `        eep: "${eepOut}"\n`;
-        out += `        name: "${d.name}"\n`;
+        out += `        name: ${JSON.stringify(String(d.name || ""))}\n`;
+        const deviceType = exportDeviceTypeForDevice(d);
+        if (deviceType) out += `        device_type: ${JSON.stringify(deviceType)}\n`;
         const deviceFamily = String(p.device_family || d.device_family || "").toUpperCase();
         if (deviceFamily === "FTS14EM") {
-          out += `        device_family: FTS14EM\n`;
           out += `        operating_mode: "${String(d.operating_mode || p.operating_mode || "UT").toUpperCase()}"\n`;
           if (d.base_id) out += `        base_id: "${d.base_id}"\n`;
           if (d.id_range) out += `        id_range: "${d.id_range}"\n`;
           if (d.input_number) out += `        input_number: ${Number(d.input_number)}\n`;
           if (d.invert) out += `        inverted: true\n`;
         }
-        if (deviceFamily === "FAE14LPR") {
-          out += `        device_family: FAE14LPR\n`;
-        }
         if (deviceFamily === "FSR71NP-4X-230V" || deviceFamily === "FSR71-4X-230V") {
-          out += `        device_family: FSR71NP-4x-230V\n`;
           if (d.channel) out += `        channel: ${Number(d.channel)}\n`;
         }
         if (deviceFamily === "F4USM61B") {
           const operatingMode = Number(d.operating_mode || p.operating_mode || 0);
-          out += `        device_family: F4USM61B\n`;
           if (operatingMode) out += `        operating_mode: ${operatingMode}\n`;
           if (d.base_id) out += `        base_id: "${d.base_id}"\n`;
           if (d.physical_unique_id) out += `        physical_unique_id: "${d.physical_unique_id}"\n`;
           // F4USM61B inversion is defined exclusively by operating_mode in the HA integration.
           // Do not export a generic inverted flag, which can cause double inversion.
         }
-        if (deviceFamily === "FAH") {
-          out += `        device_family: FAH\n`;
-        }
         if (deviceFamily === "FRW-WS") {
-          out += `        device_family: FRW-ws\n`;
           out += `        battery_low_data: "0x30"\n`;
         }
         if (deviceFamily === "F2L14") {
           const stage1Device = { ...d, dev_id: d.stage_1_id || d.dev_id };
           const stage2Device = { ...d, dev_id: d.stage_2_id || addIdOffset(d.dev_id, 1) };
-          out += `        device_family: F2L14\n`;
           out += `        stage_1_id: "${deviceIdForGateway(stage1Device, gw, pct14BaseId)}"\n`;
           out += `        stage_2_id: "${deviceIdForGateway(stage2Device, gw, pct14BaseId)}"\n`;
           out += `        speed_count: 2\n`;
@@ -971,6 +1028,9 @@ function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", la
         if (p.futh55ed_mode) out += `        futh55ed_mode: "${p.futh55ed_mode}"\n`;
         if (p.room_controller_mode) out += `        room_controller_mode: "${p.room_controller_mode}"\n`;
         if (p.teach_in_telegram) out += `        teach_in_telegram: "${p.teach_in_telegram}"\n`;
+        if (deviceFamily === "FWG14MS" && normalizeId(d.bus_address)) {
+          out += `        bus_address: "${normalizeId(d.bus_address)}"\n`;
+        }
         if (p.hysteresis != null) out += `        hysteresis: ${p.hysteresis}\n`;
         if (p.frost_temperature != null) out += `        frost_temperature: ${p.frost_temperature}\n`;
         if (p.dimming_speed != null) out += `        dimming_speed: ${p.dimming_speed}\n`;
@@ -1058,6 +1118,10 @@ function isPct14ImportedDevice(device) {
 }
 
 function deviceIdForGateway(device, gw, pct14BaseId) {
+  const family = String(profileFor(device?.eep).device_family || device?.device_family || "").toUpperCase();
+  if (family === "FWG14MS") {
+    return fwg14msBaseIdForRange(device.fwg14ms_id_range || "1");
+  }
   const offset = addressFromBusId(device.dev_id);
   if (offset == null || !isPct14ImportedDevice(device)) return device.dev_id;
   if (gw?.type === "fam-usb" && pct14BaseId) {
@@ -1095,7 +1159,7 @@ function buildSenderProgrammingEntries(devices, targetGateways, pct14BaseId) {
     const sender_eep = String(d.sender_eep || p.sender_eep || p.eep_out || d.eep || "").trim().toUpperCase();
     if (!device_id || !sender_eep) continue;
 
-    const typeText = `${deviceTypeForDevice(d)} ${d.name || ""}`.toUpperCase();
+    const typeText = String(deviceTypeForDevice(d)).toUpperCase();
     const hasSingleControllerSlotPerChannel = /(^|\s)(?:FHK14|F4HK14|FAE14SSR|FAE14LPR)(?:\s|$)/.test(typeText);
     const gatewayPriority = { fgw14usb: 3, "fam-usb": 2, fam14: 1 };
     const programmingGateways = hasSingleControllerSlotPerChannel
@@ -1190,7 +1254,7 @@ function getPct14Mapping(modelName) {
   if (name.startsWith("FAE14LPR")) return { eep:"A5-10-06-FAE14LPR", platform:"climate", min_target_temperature:16, max_target_temperature:25 };
   if (name.startsWith("FTS14EM")) return { eep:"F6-02-01-FTS14EM-UT", platform:"binary_sensor", fts14em:true };
   if (name.startsWith("FHK14") || name.startsWith("F4HK14") || name.startsWith("FAE14SSR")) return { eep:"A5-10-06", platform:"climate", min_target_temperature:16, max_target_temperature:25 };
-  if (name.startsWith("FWG14MS")) return { eep:"A5-13-01", platform:"sensor", weather:true };
+  if (name.startsWith("FWG14MS")) return { eep:"A5-13-01-FWG14MS", platform:"sensor", weather:true, fwg14ms:true };
   if (name.startsWith("F3Z14D")) return { eep:"A5-12-01-F3Z14D", platform:"sensor", channels:3, meter_tariffs:"[1]" };
   if (name.startsWith("FWZ14") || name.startsWith("DSZ14")) return { eep:"A5-12-01", platform:"sensor" };
   return null;
@@ -1226,6 +1290,7 @@ function parsePct14Xml(text, currentBaseId = "", options = {}, language = "de") 
   const unsupported = [];
   const extraGateways = [];
   let missingSender = 0;
+  let fwg14msCount = 0;
   const hasFam14Gateway = Boolean(rootBase && baseId);
   let hasFgw14Gateway = false;
 
@@ -1257,6 +1322,36 @@ function parsePct14Xml(text, currentBaseId = "", options = {}, language = "de") 
       if (options.includeFgw14Gateway) {
         extraGateways.push({ type:"fgw14usb", base_id: baseId || currentBaseId, source:"pct14-fgw14" });
       }
+      continue;
+    }
+
+    // FWG14MS weather telegrams do not use the PCT14 bus address as their
+    // sender ID. The rotary switch selects one of two fixed ID ranges; the
+    // first ID in that range carries A5-13-01 weather data. Preserve the bus
+    // address separately for traceability and never derive the range from it.
+    if (mapping.fwg14ms) {
+      if (fwg14msCount >= FWG14MS_ID_RANGES.length) {
+        unsupported.push(`${model || "FWG14MS"} (${language === "en" ? "only positions 1 and 2 are supported" : "nur Position 1 und 2 werden unterstützt"})`);
+        continue;
+      }
+      const selectedRange = FWG14MS_ID_RANGES[fwg14msCount];
+      const busAddress = busIdFromAddress(address);
+      const modelName = normalizePct14ModelName(model, language);
+      imported.push({
+        ...emptyForm,
+        name: `${modelName} ${busAddress}`,
+        dev_id: selectedRange.baseId,
+        bus_address: busAddress,
+        fwg14ms_id_range: selectedRange.value,
+        eep: mapping.eep,
+        platform: "sensor",
+        device_type: "FWG14MS",
+        model: "FWG14MS",
+        eltako: "FWG14MS",
+        device_family: "FWG14MS",
+        room: `PCT14 ${language === "en" ? "address" : "Adresse"} ${address} · ${language === "en" ? "ID range position" : "ID-Bereich Position"} ${selectedRange.value}`,
+      });
+      fwg14msCount += 1;
       continue;
     }
 
@@ -1393,7 +1488,7 @@ function firstAvailableProfileKey() {
 function createEmptyForm(preferredProfileKey = "") {
   const resolvedPreferred = PROFILE_KEY_ALIASES[String(preferredProfileKey || "").toUpperCase()] || String(preferredProfileKey || "");
   const profileKey = EEP_DB[resolvedPreferred] ? resolvedPreferred : firstAvailableProfileKey();
-  return { name:"", dev_id:"", physical_unique_id:"", eep:profileKey, room:"", device_class:"", sender_id:"", sender_eep:"", time_opens:"", time_closes:"", min_target_temperature:"", max_target_temperature:"", device_type:"", model:"", eltako:"", id_range:"1", f2l14_mode:"exclusive" };
+  return { name:"", dev_id:"", physical_unique_id:"", eep:profileKey, room:"", device_class:"", sender_id:"", sender_eep:"", time_opens:"", time_closes:"", min_target_temperature:"", max_target_temperature:"", device_type:"", model:"", eltako:"", id_range:"1", fwg14ms_id_range:"1", bus_address:"", f2l14_mode:"exclusive" };
 }
 
 // MiniSafe2 configurations arrive either as plain JSON or embedded in the text
@@ -1536,7 +1631,13 @@ export default function App() {
   const [miniSafeError, setMiniSafeError] = useState("");
   const [miniSafeFileName, setMiniSafeFileName] = useState("");
   const [learningId, setLearningId] = useState(false);
+  const [learningIdTarget, setLearningIdTarget] = useState("");
+  const [cancelingLearnId, setCancelingLearnId] = useState(false);
+  const learnRequestRef = useRef(null);
+  const learnRequestSequenceRef = useRef(0);
+  const learnMessageTimerRef = useRef(null);
   const [learnMsg, setLearnMsg] = useState("");
+  const [learnMsgTarget, setLearnMsgTarget] = useState("device");
   const [importFam14Gateway, setImportFam14Gateway] = useState(true);
   const [importFgw14Gateway, setImportFgw14Gateway] = useState(true);
   const [pct14DetectedFam14, setPct14DetectedFam14] = useState(false);
@@ -1876,131 +1977,182 @@ export default function App() {
     setTimeout(() => setDetectMsg(""), 10000);
   };
 
+  const showLearnMessage = (message, timeoutMs = 0, target = learnRequestRef.current?.target || "device") => {
+    clearTimeout(learnMessageTimerRef.current);
+    setLearnMsg(message);
+    setLearnMsgTarget(target);
+    if (timeoutMs > 0) learnMessageTimerRef.current = setTimeout(() => setLearnMsg(""), timeoutMs);
+  };
+
+  const finishLearnRequest = (request) => {
+    if (typeof request.removeProgressListener === "function") request.removeProgressListener();
+    request.removeProgressListener = null;
+    if (learnRequestRef.current !== request) return;
+    learnRequestRef.current = null;
+    setLearningId(false);
+    setLearningIdTarget("");
+  };
+
+  const runIdLearning = async (target, message, listen, onSuccess) => {
+    // A ref guards rapid clicks before React has rendered the disabled state.
+    if (learnRequestRef.current) return;
+    const request = { id: ++learnRequestSequenceRef.current, target, canceled:false, cancelPending:false, finished:false };
+    learnRequestRef.current = request;
+    setLearningId(true);
+    setLearningIdTarget(target);
+    showLearnMessage(message);
+    try {
+      const result = await listen(request);
+      if (learnRequestRef.current !== request || request.canceled) return;
+      if (result?.canceled) {
+        showLearnMessage(t("status.learnCanceled"), 8000);
+      } else if (result?.ok && result.id) {
+        onSuccess(result);
+      } else {
+        showLearnMessage("✗ " + runtimeText(result?.error || t("status.noDeviceId")), 12000);
+      }
+    } catch (error) {
+      if (learnRequestRef.current === request && !request.canceled) {
+        showLearnMessage("✗ " + runtimeText(error?.message || t("status.noDeviceId")), 12000);
+      }
+    } finally {
+      request.finished = true;
+      if (typeof request.removeProgressListener === "function") request.removeProgressListener();
+      request.removeProgressListener = null;
+      if (!request.cancelPending) finishLearnRequest(request);
+    }
+  };
+
+  const handleCancelLearnDeviceId = async () => {
+    const request = learnRequestRef.current;
+    if (!request || request.cancelPending) return;
+    // Suppress late success/progress immediately, then wait for the actual
+    // receiver to stop and release its COM port before enabling another search.
+    request.canceled = true;
+    request.cancelPending = true;
+    if (typeof request.removeProgressListener === "function") request.removeProgressListener();
+    request.removeProgressListener = null;
+    setCancelingLearnId(true);
+    showLearnMessage(t("status.learnCanceling"));
+    try {
+      const result = await window.electronAPI.cancelLearnDeviceId(request.id);
+      if (!result?.ok) throw new Error(result?.error || t("project.unknownError"));
+      if (learnRequestRef.current === request) {
+        finishLearnRequest(request);
+        showLearnMessage(t("status.learnCanceled"), 8000, request.target);
+      }
+    } catch (error) {
+      if (learnRequestRef.current === request) {
+        showLearnMessage(t("status.learnCancelFailed", { error:runtimeText(error?.message || t("project.unknownError")) }), 12000);
+        if (request.finished) finishLearnRequest(request);
+      }
+    } finally {
+      request.cancelPending = false;
+      setCancelingLearnId(false);
+    }
+  };
+
+  useEffect(() => () => {
+    clearTimeout(learnMessageTimerRef.current);
+    const request = learnRequestRef.current;
+    if (!request) return;
+    request.canceled = true;
+    learnRequestRef.current = null;
+    if (typeof request.removeProgressListener === "function") request.removeProgressListener();
+    Promise.resolve(window.electronAPI?.cancelLearnDeviceId?.(request.id)).catch(() => {});
+  }, []);
+
   const handleLearnDeviceId = async () => {
     if (!isElectron) {
-      setLearnMsg(t("status.learnDesktopOnly"));
+      showLearnMessage(t("status.learnDesktopOnly"));
       return;
     }
     if (!gateway.serial_path?.trim()) {
-      setLearnMsg(t("status.learnMissingPort"));
+      showLearnMessage(t("status.learnMissingPort"));
       return;
     }
-    setLearningId(true);
-    setLearnMsg(t("status.learning"));
-    const result = await window.electronAPI.learnDeviceId(gateway.serial_path, gateway.type, 20000);
-    setLearningId(false);
-    if (result.ok && result.id) {
-      setForm(f => ({ ...f, dev_id: result.id }));
-      setLearnMsg(t("status.deviceIdDetected", { id: result.id, rorg: result.rorg ? ` (RORG ${result.rorg})` : "" }));
-      setTimeout(() => setLearnMsg(""), 10000);
-    } else {
-      setLearnMsg("✗ " + runtimeText(result.error || t("status.noDeviceId")));
-      setTimeout(() => setLearnMsg(""), 12000);
-    }
+    const learnFilter = idLearningFilterForProfile(form.eep);
+    return runIdLearning("device", t(learnFilter ? "status.learningRadioSensor" : "status.learning"),
+      request => window.electronAPI.learnDeviceId(gateway.serial_path, gateway.type, 20000, request.id, learnFilter),
+      result => {
+        setForm(f => ({ ...f, dev_id: result.id }));
+        showLearnMessage(t("status.deviceIdDetected", { id:result.id }), 10000);
+      });
   };
 
   const handleLearnFts14emBaseId = async () => {
     if (!isElectron) {
-      setLearnMsg(t("status.learnDesktopOnly"));
+      showLearnMessage(t("status.learnDesktopOnly"));
       return;
     }
     if (!gateway.serial_path?.trim()) {
-      setLearnMsg(t("status.learnMissingPort"));
+      showLearnMessage(t("status.learnMissingPort"));
       return;
     }
     if (!["fam14", "fgw14usb"].includes(String(gateway.type || "").toLowerCase())) {
-      setLearnMsg(language === "en"
+      showLearnMessage(language === "en"
         ? "✗ FTS14EM telegrams are available only through the ELTAKO RS485 bus (FGW14-USB/FAM14)."
         : "✗ FTS14EM-Telegramme sind nur über den ELTAKO-RS485-Bus (FGW14-USB/FAM14) verfügbar.");
       return;
     }
-
     const selectedProfile = profileFor(form.eep);
-    if (String(selectedProfile.device_family || "").toUpperCase() !== "FTS14EM") {
-      return handleLearnDeviceId();
-    }
+    if (String(selectedProfile.device_family || "").toUpperCase() !== "FTS14EM") return handleLearnDeviceId();
 
-    setLearningId(true);
-    setLearnMsg(language === "en"
+    return runIdLearning("device", language === "en"
       ? "Press the same button connected to E1 five times. Detected presses: 0/5"
-      : "Dieselbe an E1 angeschlossene Taste fünfmal drücken. Erkannte Betätigungen: 0/5");
-
-    let removeProgressListener = null;
-    if (window.electronAPI.onFts14emLearnProgress) {
-      removeProgressListener = window.electronAPI.onFts14emLearnProgress(progress => {
-        const count = Math.min(5, Number(progress?.count || 0));
-        const id = progress?.id ? ` (${progress.id})` : "";
-        setLearnMsg(language === "en"
-          ? `Press the same E1 button five times. Detected presses: ${count}/5${id}`
-          : `Dieselbe E1-Taste fünfmal drücken. Erkannte Betätigungen: ${count}/5${id}`);
+      : "Dieselbe an E1 angeschlossene Taste fünfmal drücken. Erkannte Betätigungen: 0/5",
+      request => {
+        if (window.electronAPI.onFts14emLearnProgress) {
+          request.removeProgressListener = window.electronAPI.onFts14emLearnProgress(progress => {
+            if (learnRequestRef.current !== request || request.canceled || progress?.requestId !== request.id) return;
+            const count = Math.min(5, Number(progress?.count || 0));
+            const id = progress?.id ? ` (${progress.id})` : "";
+            showLearnMessage(language === "en"
+              ? `Press the same E1 button five times. Detected presses: ${count}/5${id}`
+              : `Dieselbe E1-Taste fünfmal drücken. Erkannte Betätigungen: ${count}/5${id}`);
+          });
+        }
+        return window.electronAPI.learnFts14emBaseId(gateway.serial_path, gateway.type, 30000, request.id);
+      },
+      result => {
+        const detectedId = normalizeId(result.id);
+        const duplicateIndex = devices.findIndex(existing =>
+          String(existing.device_family || profileFor(existing.eep).device_family || "").toUpperCase() === "FTS14EM" &&
+          normalizeId(existing.dev_id) === detectedId
+        );
+        if (duplicateIndex >= 0) {
+          setForm(f => ({ ...f, dev_id: detectedId }));
+          showLearnMessage(language === "en"
+            ? `✗ FTS14EM base ID ${detectedId} is already present. Nothing was added.`
+            : `✗ Die FTS14EM-Basis-ID ${detectedId} ist bereits vorhanden. Es wurde nichts hinzugefügt.`, 15000);
+          return;
+        }
+        // Detection only fills the form. The user must explicitly confirm by
+        // clicking Add, so noisy bus traffic can never create entries by itself.
+        setForm(f => ({ ...f, dev_id: detectedId, id_range: fts14emRangeForBaseId(detectedId) || f.id_range || "1" }));
+        setErrors({});
+        showLearnMessage(t("status.deviceIdDetected", { id:detectedId }), 20000);
       });
-    }
-
-    let result;
-    try {
-      result = await window.electronAPI.learnFts14emBaseId(
-        gateway.serial_path,
-        gateway.type,
-        30000
-      );
-    } finally {
-      if (typeof removeProgressListener === "function") removeProgressListener();
-      setLearningId(false);
-    }
-
-    if (!(result?.ok && result.id)) {
-      setLearnMsg("✗ " + runtimeText(result?.error || t("status.noDeviceId")));
-      setTimeout(() => setLearnMsg(""), 15000);
-      return;
-    }
-
-    const detectedId = normalizeId(result.id);
-    const duplicateIndex = devices.findIndex(existing =>
-      String(existing.device_family || profileFor(existing.eep).device_family || "").toUpperCase() === "FTS14EM" &&
-      normalizeId(existing.dev_id) === detectedId
-    );
-    if (duplicateIndex >= 0) {
-      setForm(f => ({ ...f, dev_id: detectedId }));
-      setLearnMsg(language === "en"
-        ? `✗ FTS14EM base ID ${detectedId} is already present. Nothing was added.`
-        : `✗ Die FTS14EM-Basis-ID ${detectedId} ist bereits vorhanden. Es wurde nichts hinzugefügt.`);
-      setTimeout(() => setLearnMsg(""), 15000);
-      return;
-    }
-
-    // Detection only fills the form. The user must explicitly confirm by
-    // clicking Add, so noisy bus traffic can never create entries by itself.
-    setForm(f => ({ ...f, dev_id: detectedId, id_range: fts14emRangeForBaseId(detectedId) || f.id_range || "1" }));
-    setErrors({});
-    setLearnMsg(language === "en"
-      ? `✓ Device ID detected: ${detectedId}`
-      : `✓ Geräte-ID erkannt: ${detectedId}`);
-    setTimeout(() => setLearnMsg(""), 20000);
   };
 
   const handleLearnF4usmPhysicalId = async () => {
     if (!isElectron) {
-      setLearnMsg(t("status.learnDesktopOnly"));
+      showLearnMessage(t("status.learnDesktopOnly"), 0, "battery");
       return;
     }
     if (!gateway.serial_path?.trim()) {
-      setLearnMsg(t("status.learnMissingPort"));
+      showLearnMessage(t("status.learnMissingPort"), 0, "battery");
       return;
     }
-    setLearningId(true);
-    setLearnMsg(language === "en"
+    const learnFilter = idLearningFilterForProfile(profileFor(form.eep).battery_eep || "A5-07-01");
+    return runIdLearning("battery", language === "en"
       ? "Set all jumpers and press E2 now. Waiting for the F4USM61B battery ID..."
-      : "Alle Jumper stecken und jetzt E2 betätigen. Warte auf die F4USM61B-Batterie-ID ...");
-    const result = await window.electronAPI.learnDeviceId(gateway.serial_path, gateway.type, 30000);
-    setLearningId(false);
-    if (result.ok && result.id) {
-      setForm(f => ({ ...f, physical_unique_id: result.id }));
-      setLearnMsg(language === "en" ? `Battery ID detected: ${result.id}` : `Batterie-ID erkannt: ${result.id}`);
-      setTimeout(() => setLearnMsg(""), 12000);
-    } else {
-      setLearnMsg("✗ " + runtimeText(result.error || t("status.noDeviceId")));
-      setTimeout(() => setLearnMsg(""), 12000);
-    }
+      : "Alle Jumper stecken und jetzt E2 betätigen. Warte auf die F4USM61B-Batterie-ID ...",
+      request => window.electronAPI.learnDeviceId(gateway.serial_path, gateway.type, 30000, request.id, learnFilter),
+      result => {
+        setForm(f => ({ ...f, physical_unique_id: result.id }));
+        showLearnMessage(language === "en" ? `Battery ID detected: ${result.id}` : `Batterie-ID erkannt: ${result.id}`, 12000);
+      });
   };
 
   const profile = profileFor(form.eep);
@@ -2010,19 +2162,26 @@ export default function App() {
     const family = String(p.device_family || "").toUpperCase();
     const isF4usm = family === "F4USM61B";
     const isFts14em = family === "FTS14EM";
+    const isFwg14ms = family === "FWG14MS";
     const operatingMode = isF4usm ? Number(p.operating_mode || 0) : (isFts14em ? String(p.operating_mode || "UT").toUpperCase() : 0);
     setForm(f => ({
       ...f,
       eep,
+      profile_key: eep,
+      device_type: p.device_type || "",
       device_class: p.default_dc ?? "",
       sender_eep: p.sender_eep ?? "",
       sender_id: p.needs_sender ? (f.sender_id || autoSenderIdForGateway(gateway, devices)) : "",
       // Snapshot all F4USM61B mode metadata into the device form. This avoids
       // stale values (for example operating_mode 6) surviving a profile change.
-      device_family: isF4usm ? "F4USM61B" : (isFts14em ? "FTS14EM" : ""),
+      device_family: isF4usm ? "F4USM61B" : (isFts14em ? "FTS14EM" : (isFwg14ms ? "FWG14MS" : "")),
       operating_mode: operatingMode,
       id_range: isFts14em ? (f.id_range || "1") : "1",
-      dev_id: isFts14em ? (f.dev_id || fts14emBaseIdForRange(f.id_range || "1")) : f.dev_id,
+      dev_id: isFts14em
+        ? (f.dev_id || fts14emBaseIdForRange(f.id_range || "1"))
+        : (isFwg14ms ? fwg14msBaseIdForRange(f.fwg14ms_id_range || "1") : f.dev_id),
+      fwg14ms_id_range: isFwg14ms ? String(f.fwg14ms_id_range || "1") : "1",
+      bus_address: isFwg14ms ? String(f.bus_address || "") : "",
       id_count: isF4usm ? Number(p.id_count || (operatingMode === 1 ? 1 : 2)) : undefined,
       channels: isF4usm ? Number(p.channels || (operatingMode === 1 ? 1 : 2)) : undefined,
       invert: false,
@@ -2046,6 +2205,9 @@ export default function App() {
         ? "Use an FTS14EM E1 base ID from 00-00-10-01 to 00-00-14-01."
         : "Eine FTS14EM-E1-Basis-ID von 00-00-10-01 bis 00-00-14-01 verwenden.";
     }
+    if (String(selectedProfile.device_family || "").toUpperCase() === "FWG14MS" && String(f.bus_address || "").trim() && !normalizeId(f.bus_address)) {
+      e.bus_address = "Format: FF-AA-BB-CC";
+    }
     const selectedMode = Number(selectedProfile.operating_mode || 0);
     if (String(selectedProfile.device_family || "").toUpperCase() === "F4USM61B" && [1, 2, 4, 5, 7].includes(selectedMode)) {
       if (!String(f.physical_unique_id || "").trim()) e.physical_unique_id = language === "en" ? "Learn or enter the battery ID." : "Batterie-ID einlernen oder eingeben.";
@@ -2067,6 +2229,7 @@ export default function App() {
     const selectedFamily = String(profile.device_family || "").toUpperCase();
     const isF4usmProfile = selectedFamily === "F4USM61B";
     const isFts14emProfile = selectedFamily === "FTS14EM";
+    const isFwg14msProfile = selectedFamily === "FWG14MS";
     const selectedOperatingMode = isF4usmProfile
       ? Number(profile.operating_mode || form.operating_mode || 0)
       : (isFts14emProfile ? String(profile.operating_mode || form.operating_mode || "UT").toUpperCase() : 0);
@@ -2076,12 +2239,15 @@ export default function App() {
       sender_id: profile.needs_sender ? (form.sender_id.trim() || autoSender) : "",
       sender_eep: profile.needs_sender ? (form.sender_eep || profile.sender_eep || "") : "",
       platform: profile.platform ?? "sensor",
-      device_type: form.device_type || profile.eltako || "",
+      device_type: profile.device_type || "",
       model: form.model || profile.eltako || "",
       eltako: form.eltako || profile.eltako || "",
-      device_family: isF4usmProfile ? "F4USM61B" : (isFts14emProfile ? "FTS14EM" : (form.device_family || "")),
+      dev_id: isFwg14msProfile ? fwg14msBaseIdForRange(form.fwg14ms_id_range || "1") : form.dev_id,
+      device_family: isF4usmProfile ? "F4USM61B" : (isFts14emProfile ? "FTS14EM" : (isFwg14msProfile ? "FWG14MS" : (form.device_family || ""))),
       operating_mode: selectedOperatingMode,
       id_range: isFts14emProfile ? String(form.id_range || fts14emRangeForBaseId(form.dev_id) || "1") : form.id_range,
+      fwg14ms_id_range: isFwg14msProfile ? String(form.fwg14ms_id_range || "1") : form.fwg14ms_id_range,
+      bus_address: isFwg14msProfile ? normalizeId(form.bus_address) : form.bus_address,
       id_count: isF4usmProfile ? Number(form.id_count ?? profile.id_count ?? (selectedOperatingMode === 1 ? 1 : 2)) : (isFts14emProfile ? 10 : form.id_count),
       channels: isF4usmProfile ? Number(form.channels ?? profile.channels ?? (selectedOperatingMode === 1 ? 1 : 2)) : form.channels,
       invert: isF4usmProfile ? false : Boolean(form.invert),
@@ -2206,7 +2372,7 @@ export default function App() {
         device_class:selectedProfile.default_dc || "",
         sender_id:selectedProfile.needs_sender ? autoSenderIdForGateway(gateway, nextDevices) : "",
         sender_eep:selectedProfile.needs_sender ? (selectedProfile.sender_eep || "") : "",
-        device_type:row.deviceText || selectedProfile.eltako || "",
+        device_type:selectedProfile.device_type || "",
         model:row.deviceText || selectedProfile.eltako || "",
         eltako:row.deviceText || selectedProfile.eltako || "",
         source_device_type:row.deviceText,
@@ -2446,7 +2612,7 @@ export default function App() {
     replaceDeviceDbEntries(entries => entries.map((entry, index) => index === deviceDbSelected ? { ...entry, [field]: value } : entry));
   };
   const addDeviceDbEntry = () => {
-    const entry = { key:`CUSTOM-${Date.now()}`, group:"Temperatur / Feuchte", label:"Neues Gerät", platform:"sensor", eep_out:"A5-04-02", eltako:"Neues Gerät" };
+    const entry = { key:`CUSTOM-${Date.now()}`, group:"Temperatur / Feuchte", label:"Neues Gerät", platform:"sensor", eep_out:"A5-04-02", device_type:"", eltako:"Neues Gerät" };
     replaceDeviceDbEntries(entries => [...entries, entry]);
     setDeviceDbSelected(deviceDbEntries.length);
   };
@@ -2476,8 +2642,11 @@ export default function App() {
           : `Datenbankschlüssel ist mehrfach vergeben: ${normalizedKey}`);
       }
       seenKeys.add(normalizedKey);
+      const technicalDeviceType = String(value.device_type || DEFAULT_EEP_DB[normalizedKey]?.device_type || "").trim();
+      if (!technicalDeviceType) throw new Error(t("database.deviceTypeRequired", { key:normalizedKey }));
       const normalized = {
         ...value,
+        device_type: technicalDeviceType,
         group: String(value.group || "").trim(),
         label: String(value.label || "").trim(),
         platform: String(value.platform || "sensor").trim(),
@@ -2490,7 +2659,9 @@ export default function App() {
         rgbw: Boolean(value.rgbw),
         bidirectional: Boolean(value.bidirectional),
         device_family: String(value.device_family || "").trim().toUpperCase(),
-        operating_mode: Number(value.operating_mode || 0),
+        operating_mode: String(value.device_family || "").toUpperCase() === "FTS14EM"
+          ? String(value.operating_mode || "UT").toUpperCase()
+          : Number(value.operating_mode || 0),
         id_count: Math.max(1, Number(value.id_count || 1)),
         channels: Math.max(1, Number(value.channels || 1)),
         invert: Boolean(value.invert),
@@ -2525,6 +2696,7 @@ export default function App() {
     replaceDeviceDbEntries(entries => entries.map((entry, index) => index === deviceDbSelected ? {
       ...entry,
       ...preset,
+      device_type:"F4USM61B",
       eltako:`F4USM61B Modus ${mode}`,
       group:"Funk-Modul",
       device_family:"F4USM61B",
@@ -2538,8 +2710,8 @@ export default function App() {
     // Read from the synchronously maintained ref so the last edited field is
     // included even when the user clicks Save immediately after changing it.
     const snapshot = deviceDbEntriesRef.current.map(entry => ({ ...entry }));
-    const database = buildDeviceDatabasePayload(snapshot);
     try {
+      const database = buildDeviceDatabasePayload(snapshot);
       const result = isElectron && window.electronAPI?.saveDeviceDatabase
         ? await window.electronAPI.saveDeviceDatabase(database)
         : { ok: true, database };
@@ -2726,6 +2898,7 @@ export default function App() {
           <div className="formGrid">
             <div className="field"><label>{language==="en"?"Database key":"Datenbankschlüssel"}</label><input value={entry.key||""} onChange={e=>updateDeviceDbField("key",e.target.value.toUpperCase())}/></div>
             <div className="field"><label>{language==="en"?"Device name":"Gerätename"}</label><input value={language==="en"?translateDeviceName(language,entry.eltako||""):(entry.eltako||"")} onChange={e=>updateDeviceDbField("eltako",e.target.value)}/></div>
+            <div className="field"><label>{t("database.deviceType")}</label><input value={entry.device_type||""} onChange={e=>updateDeviceDbField("device_type",e.target.value)}/></div>
             <div className="field"><label>{language==="en"?"Display label":"Anzeigetext"}</label><input value={language==="en"?translateDeviceLabel(language,entry.label||""):(entry.label||"")} onChange={e=>updateDeviceDbField("label",e.target.value)}/></div>
             <div className="field"><label>{language==="en"?"Category":"Kategorie"}</label><select value={entry.platform||"sensor"} onChange={e=>updateDeviceDbField("platform",e.target.value)}>{platformOptions.map(v=><option key={v} value={v}>{v}</option>)}</select></div>
             <div className="field"><label>{language==="en"?"Group":"Gruppe"}</label><select value={entry.group||""} onChange={e=>updateDeviceDbField("group",e.target.value)}>{[...new Set(Object.values(DEFAULT_EEP_DB).map(v=>v.group))].map(v=><option key={v} value={v}>{translateGroup(language,v)}</option>)}</select></div>
@@ -3126,26 +3299,59 @@ export default function App() {
                       </select>
                     </>
                   )}
+                  {String(profile.device_family || "").toUpperCase() === "FWG14MS" && (
+                    <>
+                      <label>{t("devices.fwg14msIdRange")}</label>
+                      <select
+                        value={form.fwg14ms_id_range || "1"}
+                        onChange={e => {
+                          const nextRange = e.target.value;
+                          setForm(f => ({
+                            ...f,
+                            fwg14ms_id_range: nextRange,
+                            dev_id: fwg14msBaseIdForRange(nextRange),
+                          }));
+                          setErrors({});
+                        }}
+                        style={{marginBottom:".5rem"}}
+                      >
+                        {FWG14MS_ID_RANGES.map(item => (
+                          <option key={item.value} value={item.value}>
+                            {t("devices.fwg14msPosition", { position:item.value, start:item.baseId, end:item.endId })}
+                          </option>
+                        ))}
+                      </select>
+                    </>
+                  )}
                   <label>{t("devices.deviceId")}</label>
                   <div style={{display:"flex",gap:".35rem"}}>
-                    <input className={errors.dev_id?"err":""} value={form.dev_id} onChange={e=>{setForm(f=>({...f,dev_id:e.target.value})); setErrors({});}} placeholder={String(profile.device_family || "").toUpperCase() === "FTS14EM" ? "00-00-10-01" : "FF-AA-BB-CC"} style={{flex:1,minWidth:170}}/>
-                    <button
+                    <input className={errors.dev_id?"err":""} value={form.dev_id} aria-describedby={learnMsg && learnMsgTarget === "device" ? "device-id-learning-status" : undefined} readOnly={String(profile.device_family || "").toUpperCase() === "FWG14MS"} onChange={e=>{setForm(f=>({...f,dev_id:e.target.value})); setErrors({});}} placeholder={String(profile.device_family || "").toUpperCase() === "FTS14EM" ? "00-00-10-01" : (String(profile.device_family || "").toUpperCase() === "FWG14MS" ? "00-00-18-00" : "FF-AA-BB-CC")} style={{flex:1,minWidth:170}}/>
+                    {String(profile.device_family || "").toUpperCase() !== "FWG14MS" && <button
                       className="btn ghost"
-                      onClick={String(profile.device_family || "").toUpperCase() === "FTS14EM" ? handleLearnFts14emBaseId : handleLearnDeviceId}
-                      disabled={learningId}
-                      title={String(profile.device_family || "").toUpperCase() === "FTS14EM"
+                      onClick={learningIdTarget === "device" ? handleCancelLearnDeviceId : (String(profile.device_family || "").toUpperCase() === "FTS14EM" ? handleLearnFts14emBaseId : handleLearnDeviceId)}
+                      disabled={cancelingLearnId || (learningId && learningIdTarget !== "device")}
+                      title={learningIdTarget === "device" ? t("devices.cancelDetectTitle") : String(profile.device_family || "").toUpperCase() === "FTS14EM"
                         ? (language === "en" ? "Press the same E1 button five times; detection only fills the ID field" : "Dieselbe E1-Taste fünfmal drücken; die Erkennung füllt nur das ID-Feld")
                         : t("devices.autoDetectTitle")}
                       style={{width:"auto",whiteSpace:"nowrap",padding:".55rem .7rem"}}
                     >
-                      {learningId
-                        ? "…"
+                      {learningIdTarget === "device"
+                        ? t("common.cancel")
                         : String(profile.device_family || "").toUpperCase() === "FTS14EM"
                           ? (language === "en" ? "Detect base ID (5× E1)" : "Basis-ID erkennen (5× E1)")
                           : t("devices.autoDetect")}
-                    </button>
+                    </button>}
                   </div>
                   {errors.dev_id&&<div className="em">{errors.dev_id}</div>}
+                  {learnMsg && learnMsgTarget === "device" && <div id="device-id-learning-status" role="status" style={{fontSize:".65rem",marginTop:".35rem",color:learnMsg.startsWith("✓")?"#22c55e":learnMsg.startsWith("✗")?"#f87171":"#2f6f8f",lineHeight:1.45}}>{learnMsg}</div>}
+                  {String(profile.device_family || "").toUpperCase() === "FWG14MS" && (
+                    <>
+                      <label style={{marginTop:8}}>{t("devices.fwg14msBusAddress")}</label>
+                      <input className={errors.bus_address?"err":""} value={form.bus_address || ""} onChange={e=>{setForm(f=>({...f,bus_address:e.target.value}));setErrors({});}} placeholder="00-00-00-3B"/>
+                      {errors.bus_address&&<div className="em">{errors.bus_address}</div>}
+                      <div style={{fontSize:".65rem",marginTop:".35rem",color:"#53616f",lineHeight:1.45}}>{t("devices.fwg14msHint")}</div>
+                    </>
+                  )}
                   {String(profile.device_family || "").toUpperCase() === "FTS14EM" && (
                     <div style={{fontSize:".65rem",marginTop:".35rem",color:"#53616f",lineHeight:1.45}}>
                       {language === "en"
@@ -3156,14 +3362,14 @@ export default function App() {
                   {String(profile.device_family || "").toUpperCase() === "F4USM61B" && [1,2,4,5,7].includes(Number(profile.operating_mode || 0)) && <>
                     <label style={{marginTop:8}}>{language === "en" ? "Battery ID" : "Batterie-ID"}</label>
                     <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                      <input className={errors.physical_unique_id?"err":""} value={form.physical_unique_id || ""} onChange={e=>{setForm(f=>({...f,physical_unique_id:e.target.value}));setErrors({});}} placeholder="05-A9-8E-FA" style={{flex:1,minWidth:170}}/>
-                      <button className="btn ghost" onClick={handleLearnF4usmPhysicalId} disabled={learningId} title={language === "en" ? "Set all jumpers, then press E2" : "Alle Jumper stecken, danach E2 betätigen"} style={{width:"auto",whiteSpace:"nowrap",padding:".55rem .7rem"}}>
-                        {learningId ? "…" : (language === "en" ? "Learn battery ID" : "Batterie-ID einlernen")}
+                      <input className={errors.physical_unique_id?"err":""} value={form.physical_unique_id || ""} aria-describedby={learnMsg && learnMsgTarget === "battery" ? "battery-id-learning-status" : undefined} onChange={e=>{setForm(f=>({...f,physical_unique_id:e.target.value}));setErrors({});}} placeholder="05-A9-8E-FA" style={{flex:1,minWidth:170}}/>
+                      <button className="btn ghost" onClick={learningIdTarget === "battery" ? handleCancelLearnDeviceId : handleLearnF4usmPhysicalId} disabled={cancelingLearnId || (learningId && learningIdTarget !== "battery")} title={learningIdTarget === "battery" ? t("devices.cancelDetectTitle") : (language === "en" ? "Set all jumpers, then press E2" : "Alle Jumper stecken, danach E2 betätigen")} style={{width:"auto",whiteSpace:"nowrap",padding:".55rem .7rem"}}>
+                        {learningIdTarget === "battery" ? t("common.cancel") : (language === "en" ? "Learn battery ID" : "Batterie-ID einlernen")}
                       </button>
                     </div>
                     {errors.physical_unique_id&&<div className="em">{errors.physical_unique_id}</div>}
+                    {learnMsg && learnMsgTarget === "battery" && <div id="battery-id-learning-status" role="status" style={{fontSize:".65rem",marginTop:".35rem",color:learnMsg.startsWith("✓")?"#22c55e":learnMsg.startsWith("✗")?"#f87171":"#2f6f8f",lineHeight:1.45}}>{learnMsg}</div>}
                   </>}
-                  {learnMsg&&<div style={{fontSize:".65rem",marginTop:".35rem",color:learnMsg.startsWith("✓")?"#22c55e":learnMsg.startsWith("✗")?"#f87171":"#2f6f8f",lineHeight:1.45}}>{learnMsg}</div>}
                 </div>
                 <div>
                   <label>{t("devices.roomOptional")}</label>
@@ -3501,6 +3707,7 @@ export default function App() {
                 <div className="formGrid">
                   <div><label>{language==="en"?"Database key":"Datenbankschlüssel"}</label><input value={entry.key||""} onChange={e=>updateDeviceDbField("key",e.target.value.toUpperCase())}/></div>
                   <div><label>{language==="en"?"Device name":"Gerätename"}</label><input value={language==="en"?translateDeviceName(language,entry.eltako||""):(entry.eltako||"")} onChange={e=>updateDeviceDbField("eltako",e.target.value)}/></div>
+                  <div><label>{t("database.deviceType")}</label><input value={entry.device_type||""} onChange={e=>updateDeviceDbField("device_type",e.target.value)}/></div>
                   <div><label>{language==="en"?"Display label":"Anzeigetext"}</label><input value={language==="en"?translateDeviceLabel(language,entry.label||""):(entry.label||"")} onChange={e=>updateDeviceDbField("label",e.target.value)}/></div>
                   <div><label>{language==="en"?"Category":"Kategorie"}</label><select value={entry.platform||"sensor"} onChange={e=>updateDeviceDbField("platform",e.target.value)}>{platformOptions.map(v=><option key={v} value={v}>{v}</option>)}</select></div>
                   <div><label>{language==="en"?"Group":"Gruppe"}</label><select value={entry.group||""} onChange={e=>updateDeviceDbField("group",e.target.value)}>{[...new Set(Object.values(DEFAULT_EEP_DB).map(v=>v.group))].map(v=><option key={v} value={v}>{translateGroup(language,v)}</option>)}</select></div>

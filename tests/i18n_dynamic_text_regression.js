@@ -48,6 +48,11 @@ assertEqual(api.translate('en', 'yaml.backToDevices'), '← Edit devices', 'YAML
 assertEqual(api.translateRuntimeText('en', 'Kein Bus-COM-Port eingetragen. Bitte FAM14/FGW14-USB COM-Port wählen oder manuell eintragen.'), 'No bus COM port has been entered. Select or manually enter the FAM14/FGW14-USB COM port.', 'Backend error translation');
 assertEqual(api.translateRuntimeText('en', 'Die Gateway-Erkennung lieferte keine Base-ID.'), 'Gateway detection did not return a base ID.', 'Gateway base-ID fallback translation');
 assertEqual(api.translate('en', 'senderWrite.processed', { processed: 21, total: 39 }), '21 of 39 sender IDs processed', 'English sender-write progress');
+assertEqual(api.translate('de', 'status.learnCanceled'), 'ID-Suche abgebrochen.', 'German ID cancellation confirmation');
+assertEqual(api.translate('en', 'status.learnCanceled'), 'ID detection canceled.', 'English ID cancellation confirmation');
+assert(api.translate('de', 'status.learningRadioSensor').includes('Busadressen 00-00-00-XX'), 'German radio-sensor filter explanation');
+assert(api.translate('en', 'status.learningRadioSensor').includes('Bus addresses 00-00-00-XX'), 'English radio-sensor filter explanation');
+assertEqual(api.translateRuntimeText('en', 'Eine ID-Erkennung läuft bereits.'), 'ID detection is already running.', 'Concurrent ID request error translation');
 assertEqual(api.translate('de', 'senderWrite.done', { updated: 0, exists: 42, unsupported: 0, errors: 0 }), '✓ Fertig. Geschrieben: 0, bereits vorhanden: 42, nicht unterstützt: 0, Fehler: 0.', 'German sender-write summary');
 assertEqual(api.translate('en', 'senderWrite.done', { updated: 0, exists: 42, unsupported: 0, errors: 0 }), '✓ Done. Written: 0, already present: 42, unsupported: 0, errors: 0.', 'English sender-write summary');
 assertEqual(api.translateRuntimeText('en', 'Sender-ID 00-00-B0-23 für EEP 07-3F-7F existiert bereits.'), 'Sender ID 00-00-B0-23 for EEP 07-3F-7F already exists.', 'Sender-write event translation');
@@ -129,8 +134,8 @@ const databaseSource = appSource
   .replace(/\r\n/g, '\n');
 const deviceRows = [...databaseSource.matchAll(/group:"([^"]+)"\s*,\s*label:"([^"]+)"/g)]
   .map((match) => ({ group: match[1], label: match[2] }));
-assertEqual(deviceRows.length, 79, 'Approved device profile count is 79');
-assertEqual(crypto.createHash('sha256').update(databaseSource).digest('hex'), '4bdfde7fbd6e8b954bdb89313fd664e3869f2d355f62b0b831e209b48667009c', 'Approved device database content unchanged');
+assertEqual(deviceRows.length, 80, 'Approved device profile count is 80');
+assertEqual(crypto.createHash('sha256').update(databaseSource).digest('hex'), 'f98cb9c29b3c420c7cddb7f1fd34a809723fae235daa918751a024e38b8de881', 'Approved device database content unchanged');
 assert(Object.keys(api.deviceLabelTranslations).length > 0, 'Exact English device-label table is available');
 
 const remainingGerman = /(Taster|Näherung|Fenster|Türkontakt|Bewegung|Helligkeit|Rauch|Hitze|Temperatur\b|Feuchte|Datenübermittlung|Punkt-Regler|Heizkörper|Funk-|Wechselstrom|Drehstrom|Wetterstation|Regen|Dimmaktor|Relais|Farbsteuerung|freies Profil|Jalousie|Rollladen|Betriebsart|Raumregler|Sollwert|Belegung)/;

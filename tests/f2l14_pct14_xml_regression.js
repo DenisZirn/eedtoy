@@ -113,7 +113,7 @@ assert(api.parsePct14Xml(exclusiveXml, '', {}, 'de').devices[0].f2l14_mode === '
 
 const busYaml = api.generateYaml({ type:'fam14', base_id:'FF-BF-5C-80' }, imported.devices, [], imported.baseId, 'de');
 assertIncludes(busYaml, 'fan:', 'F2L14 exports in the fan platform');
-assertIncludes(busYaml, 'device_family: F2L14', 'F2L14 family marker is exported');
+assertIncludes(busYaml, 'device_type: "F2L14"', 'F2L14 technical device type is exported');
 assertIncludes(busYaml, 'stage_1_id: "00-00-00-3C"', 'Bus YAML keeps stage 1 bus address');
 assertIncludes(busYaml, 'stage_2_id: "00-00-00-3D"', 'Bus YAML keeps stage 2 bus address');
 assertIncludes(busYaml, 'speed_count: 2', 'F2L14 exports exactly two fan speeds');
@@ -144,7 +144,7 @@ const migrated = api.migrateCustomDeviceDatabase({
   DUMMY: { label:'Benutzerprofil' },
 });
 assert(Boolean(migrated['F6-02-01-F2L14']), 'Schema 55 databases receive F2L14 once');
-assert(migrated.__eedtoy_database_schema === 56, 'F2L14 migration stores schema 56');
+assert(migrated.__eedtoy_database_schema === 58, 'Device-type migration stores schema 58');
 const deliberatelyRemoved = api.migrateCustomDeviceDatabase({
   __eedtoy_database_mode: 'authoritative',
   __eedtoy_database_schema: 56,

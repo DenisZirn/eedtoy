@@ -1,6 +1,44 @@
-# EEDTOY v1.0.99
+# EEDTOY v1.1.00
 
-EEDTOY v1.0.99 ergänzt den F2L14 als zweistufigen Lüfter, den lokalen Import einer per E-Mail versendeten MiniSafe2-Konfiguration, FAH und FRW-ws sowie die zuletzt bestätigten Korrekturen für die Series-14-Senderprogrammierung.
+EEDTOY v1.1.00 verbessert den Home-Assistant-YAML-Export, korrigiert die Empfangs-ID des FWG14MS und erweitert die automatische ID-Erkennung für Funk-Sensoren. Der Release übernimmt den zuletzt bestätigten Teststand einschließlich der getrennten Anzeige für Geräte- und Batterie-ID.
+
+## Technischer Gerätetyp im Home-Assistant-Export
+
+- Alle 80 bekannten Geräteprofile exportieren zentral genau einen technischen `device_type`, beispielsweise `FT55`, `F2T55` oder `F4USM61B`.
+- Der Wert stammt aus dem ausgewählten Geräteprofil. Er bleibt bei frei geändertem Gerätenamen und beim Sprachwechsel erhalten.
+- `name` bleibt der Anzeigename und `eep` das EnOcean-Profil.
+- Interne Zuordnungsfelder wie `device_family`, `profile_key` und `rocker_positions` werden nicht zusätzlich in die Home-Assistant-YAML geschrieben.
+- Benötigte profilspezifische Angaben wie `operating_mode`, Sender, Basis-IDs, Lüfterstufen und Raumregler-Betriebsarten bleiben erhalten.
+- Der technische Gerätetyp kann in der Gerätedatenbank separat vom Anzeigetext bearbeitet werden.
+
+## FWG14MS: Wetter-Empfangs-ID und Busadresse getrennt
+
+- Ein eigenes FWG14MS-Profil unterscheidet die tatsächliche Empfangs-ID der Wettertelegramme von der PCT14-Busadresse.
+- Die Drehschalterposition ist in einem Dropdown auswählbar:
+  - Position 1: Empfangs-ID `00-00-18-00`, Bereich `00-00-18-00` bis `00-00-18-0C`.
+  - Position 2: Empfangs-ID `00-00-18-10`, Bereich `00-00-18-10` bis `00-00-18-1C`.
+- Die PCT14-Adresse bleibt als `bus_address` erhalten und kann weiterhin im Anzeigenamen stehen.
+- EEP `A5-13-01` und Lerntelegramm `4C-08-0D-80` bleiben erhalten.
+- Die Empfangs-ID wird aus der gewählten Position bestimmt. Andere Series-14-Geräte behalten ihre bisherige ID-Bildung.
+
+## Zuverlässigere, abbrechbare ID-Erkennung
+
+- Alle 37 Funk-Sensorprofile erhalten einen passenden Empfangsfilter für ihre Telegrammfamilie: RPS, 1BS oder 4BS. Auch FNSN55EB/FNS65EB, FTKE, Fensterkontakte sowie Bewegungs-, Temperatur- und Luftsensoren sind berücksichtigt.
+- Kurze Busadressen wie `00-00-00-12`, andere Telegrammtypen und ausgehende ESP2-Telegramme beenden die Funk-Sensorsuche nicht mehr.
+- Gültige Funk-IDs benötigen kein bestimmtes Herstellerpräfix.
+- Die aktive Erkennungsschaltfläche wechselt zu **Abbrechen**. Nach dem Beenden des Empfängers kann die Suche erneut gestartet werden.
+- Verspätete Ergebnisse einer abgebrochenen Suche werden verworfen.
+- Geräte-ID und F4USM61B-Batterie-ID besitzen getrennte Suchaktionen. Fortschritt, Ergebnis, Fehler und Abbruch erscheinen direkt am jeweiligen Feld.
+- Die besondere Erkennung verdrahteter FTS14EM-Eingänge sowie die Bus-ID-Behandlung von F3Z14D und FWG14MS bleiben erhalten.
+
+Mehrere gleichzeitig sendende Funk-Sensoren derselben Telegrammfamilie lassen sich durch diesen Filter allein nicht eindeutig unterscheiden. Für die Erkennung bitte gezielt den gewünschten Sensor betätigen oder dessen Teach-in/LRN auslösen.
+
+## Gerätedatenbank und bestehende Projekte
+
+- Bestehende Gerätedatenbanken werden auf Schema 58 migriert und um fehlende technische Kennungen sowie das eigene FWG14MS-Profil ergänzt.
+- Eigene technische Kennungen und Datenbankänderungen bleiben erhalten.
+- Gespeicherte Geräte werden anhand ihrer technischen Profilzuordnung aufgelöst; frei vergebene Anzeigenamen bestimmen den exportierten Gerätetyp nicht.
+- Bestehende Projekte können weiterhin geöffnet werden.
 
 ## F2L14 – zweistufiger Lüfter
 
@@ -27,11 +65,10 @@ EEDTOY v1.0.99 ergänzt den F2L14 als zweistufigen Lüfter, den lokalen Import e
 - Nicht eindeutig zuordenbare Gerätetypen können vor dem Import manuell einem Profil zugewiesen werden.
 - Bereits vorhandene Geräte-IDs werden übersprungen.
 
-## Neue Geräteprofile
+## Weitere unterstützte Geräteprofile
 
 - **FAH** mit EEP `A5-06-01`, Geräteklasse `illuminance` und Lerntelegramm `18-08-0D-80`.
 - **FRW-ws** mit EEP `F6-02-01`, Geräteklasse `smoke` und dokumentierter Batterie-Warnung bei Datentelegramm `0x30`.
-- Bestehende lokale Gerätedatenbanken werden einmalig auf Schema 56 migriert; eigene Änderungen bleiben erhalten.
 
 ## Senderprogrammierung und Stabilität
 
@@ -45,7 +82,7 @@ EEDTOY v1.0.99 ergänzt den F2L14 als zweistufigen Lüfter, den lokalen Import e
 
 ### Windows
 
-`EEDTOY-Setup-1.0.99.exe` herunterladen und ausführen. Python 3.12 und die benötigten Module sind vollständig enthalten; die Installation funktioniert offline.
+`EEDTOY-Setup-1.1.00.exe` herunterladen und ausführen. Python 3.12 und die benötigten Module sind vollständig enthalten; die Installation funktioniert offline.
 
 Die Anwendung ist derzeit nicht digital signiert. Windows SmartScreen kann beim ersten Start eine Sicherheitswarnung anzeigen.
 

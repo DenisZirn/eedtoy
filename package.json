@@ -1,6 +1,7 @@
 {
   "name": "eedtoy",
-  "version": "1.0.99",
+  "version": "1.1.0",
+  "releaseVersion": "1.1.00",
   "description": "EEDTOY - ELTAKO EnOcean Device to YAML Generator (privat entwickelt)",
   "author": "D. Zirnbauer",
   "main": "electron/main.js",
@@ -16,7 +17,7 @@
     "build:installer": "set CSC_IDENTITY_AUTO_DISCOVERY=false&& vite build && electron-builder --win nsis --x64 --publish never",
     "build:all": "npm run python:embed && npm run build:installer",
     "python:bootstrap": "powershell -NoProfile -ExecutionPolicy Bypass -File python/bootstrap_runtime_windows.ps1",
-    "test": "node tests/i18n_dynamic_text_regression.js && node tests/minisafe_import_regression.js && node tests/empty_form_profile_fix49_regression.js && node tests/f4usm_no_id_offset_fix50_regression.js && node tests/electron_i18n_regression.js && node tests/yaml_generation_regression.js && node tests/fms14_pct14_xml_regression.js && node tests/f2l14_pct14_xml_regression.js && node tests/teach_in_database_regression.js && node tests/teach_in_complete_fix48_regression.js && node tests/electron_ipc_contract_regression.js && python tests/test_write_senders_patch.py && node tests/sender_base_id_197_regression.js"
+    "test": "node tests/i18n_dynamic_text_regression.js && node tests/minisafe_import_regression.js && node tests/empty_form_profile_fix49_regression.js && node tests/f4usm_no_id_offset_fix50_regression.js && node tests/electron_i18n_regression.js && node tests/yaml_generation_regression.js && node tests/device_type_export_regression.js && node tests/fms14_pct14_xml_regression.js && node tests/f2l14_pct14_xml_regression.js && node tests/fwg14ms_pct14_xml_regression.js && node tests/teach_in_database_regression.js && node tests/teach_in_complete_fix48_regression.js && node tests/electron_ipc_contract_regression.js && node tests/id_learning_cancel_regression.js && node tests/id_learning_radio_filter_regression.js && python tests/test_id_learning_radio_filter.py && node tests/fgw14usb_fts14em_learn_regression.js && python tests/fgw14usb_fts14em_python_parser_regression.py && python tests/test_write_senders_patch.py && node tests/sender_base_id_197_regression.js"
   },
   "build": {
     "appId": "io.github.deniszeltako.eedtoy",
@@ -53,7 +54,7 @@
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
       "installerHeaderIcon": "build/icon.ico",
-      "artifactName": "EEDTOY-Setup-${version}.${ext}",
+      "artifactName": "EEDTOY-Setup-1.1.00.${ext}",
       "include": "build/installer.nsh",
       "displayLanguageSelector": true
     },

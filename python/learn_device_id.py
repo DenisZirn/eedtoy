@@ -196,7 +196,60 @@ def extract_id_from_message(msg: Any) -> Optional[dict]:
     return None
 
 
-def listen_rs485(port: str, mode: str, timeout: float, repeat_count: int = 1, required_rorg: Optional[int] = None, required_data_byte3: Optional[int] = None) -> dict:
+RADIO_LEARN_FILTER_RORGS = {
+    "radio-rps": (0x05, 0xF6),
+    "radio-1bs": (0x06, 0xD5),
+    "radio-4bs": (0x07, 0xA5),
+    "radio-vld": (0xD2,),
+}
+
+
+def extract_radio_id_from_message(msg: Any, learn_filter: str) -> Optional[dict]:
+    """Read a physical sensor ID matching the selected telegram family.
+
+    Do not scan control-message payloads for accidental RORG bytes. Series-14
+    status messages can also be RPS/1BS/4BS, but their 00-00-00-XX bus IDs are
+    not a physical sensor ID. No manufacturer-specific prefix is required.
+    """
+    allowed_rorgs = RADIO_LEARN_FILTER_RORGS.get(learn_filter)
+    if not allowed_rorgs or getattr(msg, "outgoing", False):
+        return None
+    # Native VLD objects have no ESP2 body because their data length varies.
+    if learn_filter == "radio-vld":
+        try:
+            if getattr(msg, "org", None) != 0xD2 or hasattr(msg, "body"):
+                return None
+            address, data = bytes(msg.address), bytes(msg.data)
+            if len(address) != 4 or not data:
+                return None
+            sid = fmt_id_from_bytes(address)
+        except Exception:
+            return None
+        if not sid or sid.startswith("00-00-00-"):
+            return None
+        return {"id": sid, "source": "native-radio-vld", "rorg": "D2",
+                "data_byte3": data[0], "message_type": type(msg).__name__}
+    try:
+        body = bytes(msg.body)
+    except Exception:
+        return None
+    if (len(body) != 11 or body[0] not in (0x0B, 0x8B) or
+            body[1] not in allowed_rorgs or
+            (learn_filter in ("radio-rps", "radio-1bs") and any(body[3:6]))):
+        return None
+    sid = fmt_id_from_bytes(body[6:10])
+    if not sid or sid.startswith("00-00-00-"):
+        return None
+    return {
+        "id": sid,
+        "source": "esp2-" + learn_filter,
+        "rorg": f"{body[1]:02X}",
+        "data_byte3": body[2],
+        "message_type": type(msg).__name__,
+    }
+
+
+def listen_rs485(port: str, mode: str, timeout: float, repeat_count: int = 1, required_rorg: Optional[int] = None, required_data_byte3: Optional[int] = None, learn_filter: str = "") -> dict:
     from eltakobus.serial import RS485SerialInterfaceV2
 
     if mode == "fam-usb":
@@ -218,6 +271,8 @@ def listen_rs485(port: str, mode: str, timeout: float, repeat_count: int = 1, re
     last_counted_at = {}
 
     def callback(message: Any) -> None:
+        if event.is_set():
+            return
         seen["count"] += 1
         try:
             body = getattr(message, "body", None)
@@ -225,7 +280,8 @@ def listen_rs485(port: str, mode: str, timeout: float, repeat_count: int = 1, re
         except Exception:
             body_hex = ""
         log("RX", port, baud, type(message).__name__, body_hex or repr(message))
-        parsed = extract_id_from_message(message)
+        parsed = (extract_radio_id_from_message(message, learn_filter) if learn_filter in RADIO_LEARN_FILTER_RORGS
+                  else extract_id_from_message(message))
         if not (parsed and parsed.get("id")):
             return
 
@@ -314,6 +370,7 @@ def main() -> int:
     parser.add_argument("--repeat-count", type=int, default=1)
     parser.add_argument("--required-rorg", default="")
     parser.add_argument("--required-data-byte3", default="")
+    parser.add_argument("--filter", choices=("", *RADIO_LEARN_FILTER_RORGS), default="")
     args = parser.parse_args()
 
     mode = (args.mode or "auto").lower().strip()
@@ -332,6 +389,7 @@ def main() -> int:
             repeat_count=max(1, int(args.repeat_count or 1)),
             required_rorg=required_rorg,
             required_data_byte3=required_data_byte3,
+            learn_filter=args.filter,
         )
     except Exception as exc:
         log("fatal", repr(exc))

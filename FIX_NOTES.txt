@@ -1,3 +1,44 @@
+Lokaler Teststand – getrennte Statusmeldungen für Geräte- und Batterie-ID
+
+- Die normale ID-Suche zeigt ihre Meldungen direkt unter der Geräte-ID, vor dem separaten Batterie-Feld.
+- Die Batterie-ID-Suche zeigt ihre Meldungen ausschließlich unter der Batterie-ID.
+- Die Zuordnung bleibt bei Erfolg, Fehler und Abbruch erhalten, auch nachdem der Empfänger beendet wurde.
+- Der Oberflächentest prüft die tatsächlichen Schaltflächenbindungen und gerenderten ID-Felder des F4USM61B.
+
+Lokaler Teststand – profilabhängige ID-Erkennung für alle Funk-Sensoren
+
+- Der zentrale Filter deckt alle 37 Funk-Sensorprofile ab, einschließlich FNSN55EB (F6-01-01), FTKE, D5-Kontakten und A5-Sensoren.
+- Die gewählte Telegrammfamilie bestimmt den Empfangsfilter: F6/RPS, D5/1BS oder A5/4BS; eigene D2-Sensorprofile verwenden VLD.
+- Kurze Busadressen 00-00-00-XX, andere Telegrammfamilien und ausgehende ESP2-Telegramme werden bei der Funk-Sensorsuche übersprungen.
+- F4USM61B-Batterie-IDs werden separat als A5/4BS-Funksender erkannt.
+- FTS14EM, F3Z14D und FWG14MS bleiben ausgenommen, da ihre Bus-IDs benötigt werden; Aktor-Erkennung bleibt erhalten.
+- Normale Funktelegramme enthalten nicht immer das vollständige EEP. Gleichartige Funk-Sensoren lassen sich dadurch allein nicht sicher voneinander unterscheiden.
+
+Lokaler Teststand – abbrechbare ID-Erkennung
+Lokaler Teststand – Funk-Taster-ID am FAM14
+
+- Bei ausgewählten RPS-Funksenderprofilen wartet die ID-Erkennung auf ein passendes RPS-Telegramm (ESP2 ORG 05 bzw. ERP1 F6).
+- Die kurzen Busadressen 00-00-00-XX, andere Telegrammtypen und ausgehende ESP2-Telegramme beenden diese Suche nicht mehr.
+- Kein festes Herstellerpräfix: Physische Taster-IDs wie FE-EF-D6-D5 und 00-25-92-7A bleiben zulässig.
+- Der Filter gilt im Python-Empfänger und im JavaScript-Ersatzempfänger. FTS14EM-Eingänge und Aktoren bleiben auf ihrer bisherigen Erkennung.
+- Schaltfläche und Aufbau bleiben erhalten, einschließlich Abbruch der laufenden Suche.
+
+- Der aktive Erkennungsknopf zeigt „Abbrechen“ und stoppt den laufenden Empfänger.
+- Abbruch gilt für Geräte-ID, FTS14EM-Basis-ID und F4USM61B-Batterie-ID.
+- Ein Neustart ist nach dem Beenden des Python-Empfängers bzw. Schließen des seriellen Ports möglich.
+- Verspätete Ergebnisse oder Fortschrittsmeldungen einer abgebrochenen Suche werden verworfen.
+- Neue funktionale Tests prüfen schnelle Klicks, Portöffnung während des Abbruchs, Neustart und beide Empfangswege.
+
+Lokaler Teststand – zentrale technische Gerätetypen im HA-YAML-Export
+
+- Jedes bekannte Geräteprofil enthält eine feste, nicht übersetzte Kennung `device_type`.
+- Der HA-YAML-Export liest die Kennung zentral aus dem aktuell ausgewählten Profil, einschließlich automatisch erzeugter Untereinträge.
+- Anzeigenamen und veraltete technische Projektsnapshots bestimmen den exportierten Gerätetyp nicht mehr.
+- `device_family`, `profile_key` und `rocker_positions` werden nicht als HA-YAML-Felder exportiert.
+- Benötigte Betriebsarten, Sender, Basis-IDs, Lüfterstufen und Raumregleroptionen bleiben profilspezifisch erhalten.
+- Gespeicherte Gerätedatenbanken erhalten die Kennungen über Schema 58; eigene technische Kennungen bleiben erhalten.
+- In der Gerätedatenbank kann der technische Typ separat vom übersetzten Anzeigetext bearbeitet werden.
+
 EEDTOY 1.0.97 – FMS14 auf unveränderter FIX70-Windows-Basis
 
 - FKS-B als `climate`-Gerät ergänzt und wie FKS-H mit EEP A5-20-04 behandelt.

@@ -1,3 +1,14 @@
+## 1.1.00
+
+- Home-Assistant-YAML exportiert zentral genau einen stabilen technischen `device_type` pro bekanntem Geräteprofil, unabhängig vom Anzeigenamen oder der Sprache.
+- Interne Felder `device_family`, `profile_key` und `rocker_positions` bleiben aus der HA-YAML entfernt; benötigte profilspezifische Optionen bleiben erhalten.
+- FWG14MS verwendet die tatsächliche Wetter-Empfangs-ID anhand der Drehschalterposition; PCT14-Busadresse wird separat als `bus_address` gespeichert.
+- Drehschalterposition 1 verwendet `00-00-18-00`, Position 2 `00-00-18-10`; andere Series-14-IDs bleiben erhalten.
+- Automatische ID-Erkennung kann über dieselbe Schaltfläche abgebrochen und anschließend neu gestartet werden.
+- Alle 37 Funk-Sensorprofile erhalten passende RPS-/1BS-/4BS-Empfangsfilter, einschließlich FNSN55EB, FTKE und A5-Sensoren; kurze Busadressen werden dabei ignoriert.
+- Geräte-ID und F4USM61B-Batterie-ID werden getrennt erkannt und zeigen ihre Meldungen direkt am jeweiligen Feld.
+- Gerätedatenbankmigration auf Schema 58 ergänzt technische Kennungen und das eigene FWG14MS-Profil; eigene Änderungen bleiben erhalten.
+
 ## 1.0.99
 
 - F2L14 aus PCT14 als eine gemeinsame zweistufige Lüfterentität importiert.

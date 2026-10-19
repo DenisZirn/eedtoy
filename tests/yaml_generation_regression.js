@@ -39,8 +39,8 @@ vm.createContext(context);
 vm.runInContext(helperSource, context, { filename: 'src/App.helpers.jsx' });
 const api = context.__api;
 
-assert(api.APP_VERSION === '1.0.99', 'Application version is 1.0.99');
-assert(Object.keys(api.EEP_DB).length === 79, 'Approved device profile count is 79');
+assert(api.APP_VERSION === '1.1.00', 'Application version is 1.1.00');
+assert(Object.keys(api.EEP_DB).length === 80, 'Approved device profile count is 80');
 
 const gateway = {
   type: 'fam14',
@@ -99,7 +99,7 @@ const devices = [
 ];
 
 const deYaml = api.generateYaml(gateway, devices, [], '', 'de');
-assertIncludes(deYaml, '# Version: 1.0.99', 'German YAML version header');
+assertIncludes(deYaml, '# Version: 1.1.00', 'German YAML version header');
 assertIncludes(deYaml, '# Generiert:', 'German YAML timestamp label');
 assertIncludes(deYaml, 'device_type: fam14', 'Gateway type export');
 assertIncludes(deYaml, 'base_id: FF-AA-BB-00', 'Gateway base ID export');
@@ -142,7 +142,7 @@ assert(fah?.default_dc === 'illuminance', 'FAH uses the illuminance device class
 const fahYaml = api.generateYaml(gateway, [{name:'FAH Außenhelligkeit',eep:'A5-06-01-FAH',platform:'sensor',dev_id:'01-02-03-20',device_type:'FAH'}], [], '', 'de');
 assertIncludes(fahYaml, 'eep: "A5-06-01"', 'FAH YAML exports A5-06-01');
 assertIncludes(fahYaml, 'teach_in_telegram: "18-08-0D-80"', 'FAH YAML exports its teach-in telegram');
-assertIncludes(fahYaml, 'device_family: FAH', 'FAH YAML identifies the device family');
+assertIncludes(fahYaml, 'device_type: "FAH"', 'FAH YAML identifies the technical device type');
 assertIncludes(fahYaml, 'device_class: illuminance', 'FAH YAML exports illuminance');
 
 const frw = api.EEP_DB['F6-02-01-FRW-WS'];
@@ -151,7 +151,7 @@ assert(frw?.default_dc === 'smoke', 'FRW-ws uses the smoke device class');
 assert(frw?.battery_low_data === '0x30', 'FRW-ws stores data 0x30 as its low-battery telegram');
 const frwYaml = api.generateYaml(gateway, [{name:'FRW-ws Flur',eep:'F6-02-01-FRW-WS',platform:'binary_sensor',dev_id:'01-02-03-21',device_type:'FRW-ws'}], [], '', 'de');
 assertIncludes(frwYaml, 'eep: "F6-02-01"', 'FRW-ws YAML exports F6-02-01');
-assertIncludes(frwYaml, 'device_family: FRW-ws', 'FRW-ws YAML identifies the device family');
+assertIncludes(frwYaml, 'device_type: "FRW-ws"', 'FRW-ws YAML identifies the technical device type');
 assertIncludes(frwYaml, 'device_class: smoke', 'FRW-ws YAML exports the smoke entity');
 assertIncludes(frwYaml, 'battery_low_data: "0x30"', 'FRW-ws YAML exports the low-battery data value');
 
@@ -231,7 +231,7 @@ const ftsRtYaml = api.generateYaml({type:'fgw14usb',base_id:'FF-F2-6C-80'}, [{..
 assertIncludes(ftsRtYaml, 'id: "00-00-14-10"', 'FTS14EM range 401 creates E10 as 00-00-14-10');
 assertIncludes(ftsRtYaml, 'operating_mode: "RT"', 'FTS14EM RT mode is exported');
 const ftsFamUsbYaml = api.generateYaml({type:'fam-usb',base_id:'FF-A6-07-00'}, [ftsUt], [], '', 'de');
-assertNotIncludes(ftsFamUsbYaml, 'device_family: FTS14EM', 'FTS14EM is not exported below fam-usb');
+assertNotIncludes(ftsFamUsbYaml, 'device_type: "FTS14EM"', 'FTS14EM is not exported below fam-usb');
 
 console.log('All YAML generation regression tests passed.');
 
@@ -260,6 +260,7 @@ const fsr71PlainYaml = api.generateYaml(
   [{
     name: 'FSR71-4x230V',
     eep: 'M5-38-08',
+    profile_key: 'M5-38-08-FSR71NP-4X-230V',
     platform: 'light',
     dev_id: 'FF-95-BD-01',
     sender_id: 'FF-A6-07-19',
@@ -272,6 +273,6 @@ for (let channel = 1; channel <= 4; channel += 1) {
   assertIncludes(fsr71PlainYaml, `id: "FF-95-BD-${actuatorSuffix}"`, `Plain FSR71 channel ${channel} actuator ID`);
   assertIncludes(fsr71PlainYaml, `name: "FSR71NP-4x-230V Kanal ${channel}"`, `Legacy FSR71 alias normalized channel ${channel} name`);
   assertIncludes(fsr71PlainYaml, `id: "FF-A6-07-${senderSuffix}"`, `Plain FSR71 channel ${channel} sender ID`);
-  assertIncludes(fsr71PlainYaml, `device_family: FSR71NP-4x-230V`, `Legacy FSR71 alias normalized family ${channel}`);
+  assertIncludes(fsr71PlainYaml, `device_type: "FSR71NP-4x-230V"`, `Saved FSR71 profile supplies the technical type for channel ${channel}`);
   assertIncludes(fsr71PlainYaml, `channel: ${channel}`, `Legacy FSR71 alias channel ${channel} metadata`);
 }

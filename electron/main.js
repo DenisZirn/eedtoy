@@ -1167,10 +1167,69 @@ function getPythonLearnScriptPath() {
   return candidates.find(p => p && fs.existsSync(p)) || candidates[0];
 }
 
+const activeIdLearningRequests = new Map();
+
+function canceledIdLearningResult() {
+  return { ok: false, canceled: true };
+}
+
+function waitForIdLearningSetup(pending, signal) {
+  if (!signal) return pending;
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener('abort', onAbort);
+      resolve(null);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    Promise.resolve(pending).then(value => {
+      signal.removeEventListener('abort', onAbort);
+      resolve(signal.aborted ? null : value);
+    }, error => {
+      signal.removeEventListener('abort', onAbort);
+      if (signal.aborted) resolve(null);
+      else reject(error);
+    });
+    if (signal.aborted) onAbort();
+  });
+}
+
+async function runIdLearningRequest(event, requestId, listen) {
+  const owner = event.sender;
+  if (activeIdLearningRequests.has(owner.id)) {
+    return { ok: false, busy: true, error: 'Eine ID-Erkennung läuft bereits.' };
+  }
+  const controller = new AbortController();
+  const request = { requestId, controller, promise: null };
+  activeIdLearningRequests.set(owner.id, request);
+  const onDestroyed = () => controller.abort();
+  owner.once('destroyed', onDestroyed);
+  try {
+    request.promise = Promise.resolve().then(() => listen(controller.signal));
+    const result = await request.promise;
+    return controller.signal.aborted ? canceledIdLearningResult() : result;
+  } finally {
+    owner.removeListener('destroyed', onDestroyed);
+    if (activeIdLearningRequests.get(owner.id) === request) activeIdLearningRequests.delete(owner.id);
+  }
+}
+
+async function cancelIdLearningRequest(event, requestId) {
+  const request = activeIdLearningRequests.get(event.sender.id);
+  if (!request || request.requestId !== requestId) return { ok: true, canceled: false };
+  request.controller.abort();
+  // The original request completes only after the child process has exited or
+  // the serial port has closed. A new search may safely reopen the same port.
+  try { await request.promise; } catch (_) {}
+  return { ok: true, canceled: true };
+}
+
 async function runPythonLearnDeviceId(portPath = '', gatewayType = 'auto', timeoutMs = 20000, options = {}) {
   const { spawn } = require('child_process');
+  const signal = options.signal;
+  if (signal?.aborted) return canceledIdLearningResult();
   const script = getPythonLearnScriptPath();
-  const commandInfo = await getPythonCommands(script);
+  const commandInfo = await waitForIdLearningSetup(getPythonCommands(script), signal);
+  if (!commandInfo || signal?.aborted) return canceledIdLearningResult();
   return new Promise((resolve) => {
     const attempts = commandInfo.setup?.attempts ? [...commandInfo.setup.attempts] : [];
     const mode = String(gatewayType || 'auto').toLowerCase();
@@ -1178,6 +1237,7 @@ async function runPythonLearnDeviceId(portPath = '', gatewayType = 'auto', timeo
     const commands = commandInfo.commands;
 
     const runOne = (index) => {
+      if (signal?.aborted) return resolve(canceledIdLearningResult());
       if (index >= commands.length) {
         return resolve({
           ok: false,
@@ -1192,6 +1252,7 @@ async function runPythonLearnDeviceId(portPath = '', gatewayType = 'auto', timeo
       if (options.repeatCount) args.push('--repeat-count', String(options.repeatCount));
       if (options.requiredRorg) args.push('--required-rorg', String(options.requiredRorg));
       if (options.requiredDataByte3 != null) args.push('--required-data-byte3', String(options.requiredDataByte3));
+      if (/^radio-(rps|1bs|4bs|vld)$/.test(options.learnFilter)) args.push('--filter', options.learnFilter);
       console.log('[python-learn] START', c.cmd, args.join(' '));
 
       let stdout = '';
@@ -1211,6 +1272,15 @@ async function runPythonLearnDeviceId(portPath = '', gatewayType = 'auto', timeo
       const timer = setTimeout(() => {
         try { child.kill(); } catch {}
       }, (timeoutSec + 8) * 1000);
+      let childFinished = false;
+      const onAbort = () => { try { child.kill(); } catch (_) {} };
+      const finishChild = () => {
+        if (childFinished) return false;
+        childFinished = true;
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
+        return true;
+      };
 
       child.stdout.on('data', d => { stdout += d.toString('utf8'); });
       child.stderr.on('data', d => {
@@ -1221,18 +1291,20 @@ async function runPythonLearnDeviceId(portPath = '', gatewayType = 'auto', timeo
           if (line.startsWith('[python-learn-progress] ')) {
             try {
               const progress = JSON.parse(line.slice('[python-learn-progress] '.length));
-              if (typeof options.onProgress === 'function') options.onProgress(progress);
+              if (!signal?.aborted && typeof options.onProgress === 'function') options.onProgress(progress);
             } catch (_) {}
           }
         }
       });
       child.on('error', e => {
-        clearTimeout(timer);
+        if (!finishChild()) return;
+        if (signal?.aborted) return resolve(canceledIdLearningResult());
         attempts.push({ cmd: c.cmd, error: e.message || String(e) });
         runOne(index + 1);
       });
       child.on('close', code => {
-        clearTimeout(timer);
+        if (!finishChild()) return;
+        if (signal?.aborted) return resolve(canceledIdLearningResult());
         attempts.push({ cmd: c.cmd, code, stderr: stderr.slice(-4000) });
         const jsonLine = stdout.trim().split(/\r?\n/).filter(Boolean).pop();
         if (jsonLine) {
@@ -1250,6 +1322,8 @@ async function runPythonLearnDeviceId(portPath = '', gatewayType = 'auto', timeo
         }
         runOne(index + 1);
       });
+      signal?.addEventListener('abort', onAbort, { once: true });
+      if (signal?.aborted) onAbort();
     };
 
     runOne(0);
@@ -1434,7 +1508,27 @@ async function runPythonWriteSenders({ portPath = '', gatewayType = 'fam14', bau
 // ─────────────────────────────────────────────────────────────────
 // DEVICE-ID LEARN TELEGRAM LISTENER
 // ─────────────────────────────────────────────────────────────────
-function parseLearnIdEsp3(buf) {
+function radioLearnFilter(learnFilter) {
+  return {
+    'radio-rps': { rorgs:['05', 'F6'], dataLength:7, singleByte:true },
+    'radio-1bs': { rorgs:['06', 'D5'], dataLength:7, singleByte:true },
+    'radio-4bs': { rorgs:['07', 'A5'], dataLength:10 },
+    'radio-vld': { rorgs:['D2'], dataLength:null },
+  }[learnFilter] || null;
+}
+
+function learnIdMatchesFilter(parsed, learnFilter = '') {
+  if (!parsed?.id) return false;
+  const filter = radioLearnFilter(learnFilter);
+  if (!filter) return true;
+  const id = String(parsed.id).toUpperCase();
+  return /^(?:[0-9A-F]{2}-){3}[0-9A-F]{2}$/.test(id) &&
+    !id.startsWith('00-00-00-') && !parsed.outgoing &&
+    filter.rorgs.includes(String(parsed.rorg || '').toUpperCase());
+}
+
+function parseLearnIdEsp3(buf, learnFilter = '') {
+  const filter = radioLearnFilter(learnFilter);
   for (let i = 0; i < buf.length - 7; i++) {
     if (buf[i] !== 0x55) continue;
     if (buf.length < i + 6) continue;
@@ -1453,37 +1547,47 @@ function parseLearnIdEsp3(buf) {
       const rorg = buf[dataStart];
       if ([0xF6, 0xD5, 0xA5, 0xD2].includes(rorg)) {
         const sender = buf.slice(dataStart + dataLen - 5, dataStart + dataLen - 1);
-        if (!allZero(sender)) return { id: fmtId(sender), rorg: rorg.toString(16).toUpperCase().padStart(2, '0'), data_byte3: buf[dataStart + 1], protocol: 'esp3' };
+        const parsed = { id: fmtId(sender), rorg: rorg.toString(16).toUpperCase().padStart(2, '0'), data_byte3: buf[dataStart + 1], protocol: 'esp3' };
+        if (!allZero(sender) && (!filter || (filter.dataLength ? dataLen === filter.dataLength : dataLen >= 7)) && learnIdMatchesFilter(parsed, learnFilter)) return parsed;
       }
     }
   }
   return null;
 }
 
-function parseLearnIdEsp2(buf) {
+function parseLearnIdEsp2(buf, learnFilter = '') {
+  const filter = radioLearnFilter(learnFilter);
   for (let i = 0; i <= buf.length - 14; i++) {
     if (!isValidFixedEsp2Frame(buf, i)) continue;
     const body = buf.slice(i + 2, i + 13);
+    // ESP2 ORG 05/06/07 correspond to ERP1 F6/D5/A5. Filter exact receive
+    // layouts, rather than looking for RORG markers inside control payloads.
+    // Variable-length D2 telegrams cannot be represented by this ESP2 layout.
+    if (filter && (learnFilter === 'radio-vld' || ![0x0B, 0x8B].includes(body[0]) ||
+        !filter.rorgs.includes(body[1].toString(16).toUpperCase().padStart(2, '0')) ||
+        (filter.singleByte && (body[3] !== 0 || body[4] !== 0 || body[5] !== 0)))) continue;
 
     // Common ESP2 radio frame layout: H_SEQ/LEN, RORG, DATA3..DATA0, ID3..ID0, STATUS.
     const rorg = body[1];
-    if ([0xF6, 0xD5, 0xA5, 0xD2].includes(rorg)) {
+    if ([0x05, 0x06, 0x07, 0xF6, 0xD5, 0xA5, 0xD2].includes(rorg)) {
       const sender = body.slice(6, 10);
-      if (!allZero(sender)) return { id: fmtId(sender), rorg: rorg.toString(16).toUpperCase().padStart(2, '0'), data_byte3: body[2], protocol: 'esp2' };
+      const parsed = { id: fmtId(sender), rorg: rorg.toString(16).toUpperCase().padStart(2, '0'), data_byte3: body[2], protocol: 'esp2' };
+      if (!allZero(sender) && learnIdMatchesFilter(parsed, learnFilter)) return parsed;
     }
 
     // Some translated/extended frames put the RORG at body[0]. Keep this as a safe fallback.
     const rorg0 = body[0];
     if ([0xF6, 0xD5, 0xA5, 0xD2].includes(rorg0)) {
       const sender = body.slice(5, 9);
-      if (!allZero(sender)) return { id: fmtId(sender), rorg: rorg0.toString(16).toUpperCase().padStart(2, '0'), data_byte3: body[1], protocol: 'esp2-alt' };
+      const parsed = { id: fmtId(sender), rorg: rorg0.toString(16).toUpperCase().padStart(2, '0'), data_byte3: body[1], protocol: 'esp2-alt' };
+      if (!allZero(sender) && learnIdMatchesFilter(parsed, learnFilter)) return parsed;
     }
   }
   return null;
 }
 
-function parseLearnIdFromBuffer(buf) {
-  return parseLearnIdEsp3(buf) || parseLearnIdEsp2(buf);
+function parseLearnIdFromBuffer(buf, learnFilter = '') {
+  return parseLearnIdEsp3(buf, learnFilter) || parseLearnIdEsp2(buf, learnFilter);
 }
 
 function gatewaySerialParamsForLearning(gatewayType) {
@@ -1493,7 +1597,9 @@ function gatewaySerialParamsForLearning(gatewayType) {
   return { baudRate: 57600, protocol: 'esp3' };
 }
 
-function listenForLearnTelegram(portPath, gatewayType, timeoutMs = 15000) {
+function listenForLearnTelegram(portPath, gatewayType, timeoutMs = 15000, options = {}) {
+  const signal = options.signal;
+  if (signal?.aborted) return Promise.resolve(canceledIdLearningResult());
   return new Promise((resolve) => {
     if (!portPath || !String(portPath).trim()) {
       return resolve({ ok: false, error: 'Kein serieller Port eingetragen. Bitte im Gateway-Schritt COM-Port auswählen oder manuell eintragen.' });
@@ -1509,41 +1615,67 @@ function listenForLearnTelegram(portPath, gatewayType, timeoutMs = 15000) {
     }
 
     let buffer = Buffer.alloc(0);
-    let resolved = false;
+    let finishResult = null;
+    let opening = false;
+    let closing = false;
     const started = Date.now();
 
-    const finish = (result) => {
-      if (resolved) return;
-      resolved = true;
-      clearTimeout(timer);
-      const done = () => resolve({ ...result, baudRate: params.baudRate, gatewayType, elapsedMs: Date.now() - started });
+    const closeAndResolve = () => {
+      if (opening || closing) return;
+      closing = true;
+      const done = () => {
+        port.removeListener('data', onData);
+        resolve({ ...finishResult, baudRate: params.baudRate, gatewayType, elapsedMs: Date.now() - started });
+      };
       try {
-        if (port?.isOpen) port.close(() => done());
+        if (port.isOpen) port.close(done);
         else done();
       } catch (_) { done(); }
     };
-
+    const finish = (result) => {
+      if (finishResult) return;
+      finishResult = result;
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      closeAndResolve();
+    };
+    const onAbort = () => finish(canceledIdLearningResult());
     const timer = setTimeout(() => {
       finish({ ok: false, error: `Kein Lerntelegramm innerhalb von ${Math.round(timeoutMs / 1000)} Sekunden empfangen.` });
     }, Math.max(3000, Number(timeoutMs) || 15000));
 
-    port.on('data', chunk => {
+    const onData = chunk => {
+      if (finishResult || signal?.aborted) return;
       buffer = Buffer.concat([buffer, chunk]);
       if (buffer.length > 4096) buffer = buffer.slice(-2048);
       const rx = chunk.toString('hex').match(/.{1,2}/g)?.join(' ') || '';
       console.log('[learn-device-id] RX', portPath, params.baudRate, params.protocol, rx);
-      const parsed = parseLearnIdFromBuffer(buffer);
+      const parsed = parseLearnIdFromBuffer(buffer, options.learnFilter);
       if (parsed?.id) {
         console.log('[learn-device-id] FOUND', parsed.id, 'rorg', parsed.rorg, 'protocol', parsed.protocol);
         finish({ ok: true, id: parsed.id, rorg: parsed.rorg, protocol: parsed.protocol });
       }
-    });
-
+    };
+    port.on('data', onData);
     port.on('error', err => finish({ ok: false, error: 'Serieller Fehler: ' + (err.message || err) }));
-    port.open(err => {
-      if (err) return finish({ ok: false, error: `Port ${portPath} konnte nicht geöffnet werden: ${err.message || err}` });
-      console.log('[learn-device-id] LISTEN', portPath, params.baudRate, params.protocol, `${timeoutMs}ms`);
-    });
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) return onAbort();
+
+    // An abort during SerialPort.open must wait for its callback, then close
+    // the newly opened handle before allowing another search on the same port.
+    opening = true;
+    try {
+      port.open(err => {
+        opening = false;
+        if (finishResult) return closeAndResolve();
+        if (err) return finish({ ok: false, error: `Port ${portPath} konnte nicht geöffnet werden: ${err.message || err}` });
+        console.log('[learn-device-id] LISTEN', portPath, params.baudRate, params.protocol, `${timeoutMs}ms`);
+      });
+    } catch (error) {
+      opening = false;
+      if (finishResult) closeAndResolve();
+      else finish({ ok: false, error: 'SerialPort Fehler: ' + (error.message || error) });
+    }
   });
 }
 
@@ -1698,16 +1830,18 @@ function listenForFts14emBaseIdViaFgw(portPath, timeoutMs = 30000, onProgress = 
 // IPC HANDLERS
 // ─────────────────────────────────────────────────────────────────
 
-ipcMain.handle('learn-device-id', async (_, portPath, gatewayType, timeoutMs) => {
+ipcMain.handle('learn-device-id', async (event, portPath, gatewayType, timeoutMs, requestId, learnFilter) => runIdLearningRequest(event, requestId, async signal => {
   try {
     // Prefer the Python/eltakobus listener for Eltako gateways. FAM14/FGW14
     // need echo handling and ESP2 bus parsing; raw SerialPort reads in JS often
     // miss or misparse button/LRN telegrams.
-    const py = await runPythonLearnDeviceId(portPath, gatewayType, timeoutMs || 20000);
-    if (py.ok && py.id) return py;
+    const py = await runPythonLearnDeviceId(portPath, gatewayType, timeoutMs || 20000, { signal, learnFilter });
+    if (signal.aborted || py.canceled) return canceledIdLearningResult();
+    if (py.ok && learnIdMatchesFilter(py, learnFilter)) return py;
 
     console.log('[learn-device-id] Python listener failed, falling back to JS raw listener:', py.error);
-    const js = await listenForLearnTelegram(portPath, gatewayType, timeoutMs || 20000);
+    const js = await listenForLearnTelegram(portPath, gatewayType, timeoutMs || 20000, { signal, learnFilter });
+    if (signal.aborted || js.canceled) return canceledIdLearningResult();
     if (!js.ok && py.error) {
       js.error = `${js.error || 'Keine ID erkannt.'} Python: ${py.error}`;
       js.pythonStderr = py.pythonStderr;
@@ -1718,13 +1852,15 @@ ipcMain.handle('learn-device-id', async (_, portPath, gatewayType, timeoutMs) =>
     console.error('[learn-device-id]', e);
     return { ok: false, error: 'ID-Auto-Detect fehlgeschlagen: ' + (e.message || e) };
   }
-});
+}));
 
 
-ipcMain.handle('learn-fts14em-base-id', async (event, portPath, gatewayType, timeoutMs) => {
+ipcMain.handle('learn-fts14em-base-id', async (event, portPath, gatewayType, timeoutMs, requestId) => runIdLearningRequest(event, requestId, async signal => {
   try {
     const type = String(gatewayType || '').toLowerCase();
-    const onProgress = progress => event.sender.send('fts14em-learn-progress', progress);
+    const onProgress = progress => {
+      if (!signal.aborted) event.sender.send('fts14em-learn-progress', { ...progress, requestId });
+    };
 
     // FAM14 and FGW14-USB are both wired ESP2 gateways and must use the same
     // RS485SerialInterfaceV2 receive path.  The Python listener keeps the two
@@ -1736,13 +1872,16 @@ ipcMain.handle('learn-fts14em-base-id', async (event, portPath, gatewayType, tim
       requiredRorg: '05',
       requiredDataByte3: 0x70,
       onProgress,
+      signal,
     });
     return result;
   } catch (e) {
     console.error('[learn-fts14em-base-id]', e);
     return { ok: false, error: 'FTS14EM-Basis-ID-Erkennung fehlgeschlagen: ' + (e.message || e) };
   }
-});
+}));
+
+ipcMain.handle('cancel-learn-device-id', cancelIdLearningRequest);
 
 ipcMain.handle('read-base-id', async (_, portPath, baudRate, protocol) => {
   const proto = protocol || 'esp2';

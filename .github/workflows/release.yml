@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version without v prefix, for example 1.0.99"
+        description: "Public release version without v prefix, for example 1.1.00"
         required: true
-        default: "1.0.99"
+        default: "1.1.00"
         type: string
       replace_existing:
         description: "Replace an existing release asset for this version"
@@ -51,9 +51,14 @@ jobs:
           app = Path("src/App.jsx").read_text(encoding="utf-8")
           tests = Path("tests/yaml_generation_regression.js").read_text(encoding="utf-8")
 
-          assert package["version"] == version
-          assert lock["version"] == version
-          assert lock["packages"][""]["version"] == version
+          # Public labels may contain a zero-padded patch number. npm and
+          # electron-builder require canonical SemVer without leading zeroes.
+          package_version = ".".join(str(int(part)) for part in version.split("."))
+          assert package["version"] == package_version
+          assert package.get("releaseVersion", package_version) == version
+          assert lock["version"] == package_version
+          assert lock["packages"][""]["version"] == package_version
+          assert package["build"]["nsis"]["artifactName"] == f"EEDTOY-Setup-{version}.${{ext}}"
           assert f'const APP_VERSION = "{version}";' in app
           assert f"Application version is {version}" in tests
           assert f"# Version: {version}" in tests
