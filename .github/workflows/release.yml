@@ -58,7 +58,8 @@ jobs:
           assert package.get("releaseVersion", package_version) == version
           assert lock["version"] == package_version
           assert lock["packages"][""]["version"] == package_version
-          assert package["build"]["nsis"]["artifactName"] == f"EEDTOY-Setup-{version}.${{ext}}"
+          installer_name = f"EEDTOY-Setup-{version}." + chr(36) + "{ext}"
+          assert package["build"]["nsis"]["artifactName"] == installer_name
           assert f'const APP_VERSION = "{version}";' in app
           assert f"Application version is {version}" in tests
           assert f"# Version: {version}" in tests
