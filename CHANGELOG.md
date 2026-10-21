@@ -10,7 +10,9 @@
 - Automatische ID-Erkennung kann über dieselbe Schaltfläche abgebrochen und anschließend neu gestartet werden.
 - Alle 37 Funk-Sensorprofile erhalten passende RPS-/1BS-/4BS-Empfangsfilter, einschließlich FNSN55EB, FTKE und A5-Sensoren; kurze Busadressen werden dabei ignoriert.
 - Geräte-ID und F4USM61B-Batterie-ID werden getrennt erkannt und zeigen ihre Meldungen direkt am jeweiligen Feld.
-- Gerätedatenbankmigration auf Schema 58 ergänzt technische Kennungen und das eigene FWG14MS-Profil; eigene Änderungen bleiben erhalten.
+- Gerätedatenbankmigration auf Schema 59 ergänzt technische Kennungen und das eigene FWG14MS-Profil; eigene Änderungen bleiben erhalten.
+- Frühere gemeinsame Standardbezeichnungen von FWS61 und FWG14MS werden in gespeicherten Datenbanken getrennt, ohne eigene Bezeichnungen oder gelöschte Profile zurückzusetzen.
+- Fehlende oder gesperrte serielle Ports erhalten vollständig deutsche oder englische Meldungen mit dem jeweiligen Portnamen.
 
 ## 1.0.99
 

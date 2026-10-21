@@ -136,6 +136,6 @@ assert(Boolean(intentionallyDeleted['A5-20-04-FKS-B']), 'Existing schema-53 data
 assert(Boolean(intentionallyDeleted['A5-06-01-FAH']), 'Existing schema-53 databases receive the FAH profile once');
 assert(Boolean(intentionallyDeleted['F6-02-01-FRW-WS']), 'Existing schema-53 databases receive the FRW-ws profile once');
 assert(Boolean(intentionallyDeleted['F6-02-01-F2L14']), 'Existing schema-53 databases receive the F2L14 profile once');
-assert(intentionallyDeleted.__eedtoy_database_schema === 58, 'Device-type migration advances the device database to schema 58');
+assert(intentionallyDeleted.__eedtoy_database_schema === 59, 'Migration advances the device database to schema 59');
 
 console.log('All FMS14 PCT14/XML regression tests passed.');

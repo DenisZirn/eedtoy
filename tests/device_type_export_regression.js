@@ -159,7 +159,7 @@ delete api.EEP_DB[customKey];
 const legacyProfiles = Object.fromEntries(Object.entries(api.DEFAULT_EEP_DB).map(([key, { device_type, ...profile }]) => [key, profile]));
 legacyProfiles['F6-02-01-2CH'].label = 'User-edited profile display label';
 const migrated = api.migrateCustomDeviceDatabase({ ...legacyProfiles, __eedtoy_database_mode:'authoritative', __eedtoy_database_schema:57 });
-assert.equal(migrated.__eedtoy_database_schema, 58);
+assert.equal(migrated.__eedtoy_database_schema, 59);
 for (const [key, profile] of Object.entries(api.DEFAULT_EEP_DB)) {
   assert.equal(migrated[key].device_type, profile.device_type, `${key} is upgraded with its explicit technical type`);
 }

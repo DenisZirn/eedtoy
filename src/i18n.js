@@ -181,6 +181,8 @@ const messages = {
     'status.learningRadioSensor': 'Warte 20 Sekunden auf den Funk-Sensor … jetzt betätigen oder Teach-in/LRN auslösen. Busadressen 00-00-00-XX und andere Telegrammtypen werden ignoriert.',
     'status.learnCanceling': 'ID-Suche wird abgebrochen …',
     'status.learnCanceled': 'ID-Suche abgebrochen.',
+    'status.portNotFound': 'Port {{port}} wurde nicht gefunden. Bitte das Gateway anschließen und den richtigen Port in den Gateway-Einstellungen auswählen.',
+    'status.portAccessDenied': 'Port {{port}} konnte nicht geöffnet werden. Möglicherweise wird er von einem anderen Programm verwendet oder der Zugriff ist gesperrt.',
     'status.learnCancelFailed': '✗ ID-Suche konnte nicht abgebrochen werden: {{error}}',
     'status.deviceIdDetected': '✓ Geräte-ID erkannt: {{id}}',
     'status.noDeviceId': 'Keine Geräte-ID erkannt.',
@@ -404,6 +406,8 @@ const messages = {
     'status.learningRadioSensor': 'Listening for the radio sensor for 20 seconds … activate it or trigger teach-in/LRN now. Bus addresses 00-00-00-XX and other telegram types are ignored.',
     'status.learnCanceling': 'Canceling ID detection …',
     'status.learnCanceled': 'ID detection canceled.',
+    'status.portNotFound': 'Port {{port}} was not found. Connect the gateway and select the correct port in the gateway settings.',
+    'status.portAccessDenied': 'Port {{port}} could not be opened. It may be in use by another application or access may be denied.',
     'status.learnCancelFailed': '✗ Could not cancel ID detection: {{error}}',
     'status.deviceIdDetected': '✓ Device ID detected: {{id}}',
     'status.noDeviceId': 'No device ID was detected.',
@@ -752,7 +756,25 @@ export function translatePlatform(language, platform) {
 }
 
 export function translateRuntimeText(language, value) {
-  if (normalizeLanguage(language) !== 'en' || !value) return value;
+  if (!value) return value;
+  const source = String(value);
+  // Serial backends can return mixed Node/Python error messages. Present a
+  // single localized explanation while retaining the actual port identifier.
+  const portName = '(COM\\d+|/dev/[A-Za-z0-9._/-]+)';
+  const openFailure = source.match(new RegExp(
+    'Port\\s+' + portName + '\\s+(?:konnte nicht geöffnet werden|could not be opened)'
+    + '|Opening\\s+' + portName + '\\s*:'
+    + '|could not open port\\s+[\\x27"]?' + portName, 'i'));
+  if (openFailure) {
+    const port = openFailure.slice(1).find(Boolean);
+    const missing = /File not found|ENOENT|No such file or directory|cannot find the (?:file|path)|WinError\s*2\b/i.test(source);
+    const denied = /Access (?:is )?denied|Permission denied|EACCES|EBUSY|resource busy|WinError\s*5\b/i.test(source);
+    if (missing || denied) {
+      const prefix = source.match(/^[✗⚠✓]\s*/)?.[0] || '';
+      return prefix + translate(language, missing ? 'status.portNotFound' : 'status.portAccessDenied', { port });
+    }
+  }
+  if (normalizeLanguage(language) !== 'en') return value;
   let translated = String(value);
   for (const [source, target] of runtimeReplacements) translated = translated.replaceAll(source, target);
   return translated;

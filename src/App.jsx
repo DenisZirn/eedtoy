@@ -163,7 +163,7 @@ const DEVICE_DB_STORAGE_KEY = "eedtoy.customDeviceDatabase.v1";
 const DEVICE_DB_DELETED_KEYS = "__deleted_keys";
 const DEVICE_DB_MODE_KEY = "__eedtoy_database_mode";
 const DEVICE_DB_SCHEMA_KEY = "__eedtoy_database_schema";
-const DEVICE_DB_SCHEMA_VERSION = 58;
+const DEVICE_DB_SCHEMA_VERSION = 59;
 const DEVICE_DB_MODE_AUTHORITATIVE = "authoritative";
 const PROFILE_KEY_ALIASES = {
   "07-37-F7-FRGBW14": "07-3F-7F-FRGBW14",
@@ -218,127 +218,145 @@ function migrateCustomDeviceDatabase(input) {
   // the built-in database in FIX43. Add them once to existing authoritative
   // databases, then record the schema so a later deliberate deletion stays deleted.
   const schemaVersion = Number(database[DEVICE_DB_SCHEMA_KEY] || 0);
+  // Schema 59: only repair the former shared built-in weather name. Keep
+  // custom labels, profile settings and deleted entries as the user saved them.
+  if (schemaVersion < 59) {
+    const weather = database["A5-13-01"];
+    if (weather && typeof weather === "object" && !Array.isArray(weather)) {
+      const updated = { ...weather };
+      if (updated.label === "FWS61, FWG14MS – Wetterstation Wind + Regen + Temperatur (A5-13-01)") {
+        updated.label = DEFAULT_EEP_DB["A5-13-01"].label;
+      }
+      if (updated.eltako === "FWS61, FWG14MS") {
+        updated.eltako = DEFAULT_EEP_DB["A5-13-01"].eltako;
+      }
+      database["A5-13-01"] = updated;
+    }
+  }
   if (database[DEVICE_DB_MODE_KEY] === DEVICE_DB_MODE_AUTHORITATIVE) {
     if (schemaVersion < DEVICE_DB_SCHEMA_VERSION) {
-      for (const key of ["A5-04-02-FTFSB", "A5-04-03-FTFSB"]) {
-        if (!database[key]) database[key] = { ...DEFAULT_EEP_DB[key] };
-      }
-      // FIX45: Older databases could store the FUTH55ED/FUTH65D model-specific
-      // database key as the YAML EEP. Consolidate those aliases to the verified
-      // profile and enforce the actual EnOcean EEP A5-10-12.
-      for (const oldKey of ["A5-10-12-FUTH55ED-HYGROSTAT", "A5-10-12-FUTH65D-HYGROSTAT"]) {
-        if (database[oldKey]) {
+      // Databases already at schema 58 have completed these earlier upgrades.
+      if (schemaVersion < 58) {
+        for (const key of ["A5-04-02-FTFSB", "A5-04-03-FTFSB"]) {
+          if (!database[key]) database[key] = { ...DEFAULT_EEP_DB[key] };
+        }
+        // FIX45: Older databases could store the FUTH55ED/FUTH65D model-specific
+        // database key as the YAML EEP. Consolidate those aliases to the verified
+        // profile and enforce the actual EnOcean EEP A5-10-12.
+        for (const oldKey of ["A5-10-12-FUTH55ED-HYGROSTAT", "A5-10-12-FUTH65D-HYGROSTAT"]) {
+          if (database[oldKey]) {
+            database["A5-10-12-FUTH55-HYGROSTAT"] = {
+              ...DEFAULT_EEP_DB["A5-10-12-FUTH55-HYGROSTAT"],
+              ...database[oldKey],
+              eep_out: "A5-10-12",
+              futh55ed_mode: "hygrostat",
+            };
+            delete database[oldKey];
+          }
+        }
+        if (database["A5-10-12-FUTH55-HYGROSTAT"]) {
           database["A5-10-12-FUTH55-HYGROSTAT"] = {
-            ...DEFAULT_EEP_DB["A5-10-12-FUTH55-HYGROSTAT"],
-            ...database[oldKey],
+            ...database["A5-10-12-FUTH55-HYGROSTAT"],
             eep_out: "A5-10-12",
             futh55ed_mode: "hygrostat",
           };
-          delete database[oldKey];
         }
-      }
-      if (database["A5-10-12-FUTH55-HYGROSTAT"]) {
-        database["A5-10-12-FUTH55-HYGROSTAT"] = {
-          ...database["A5-10-12-FUTH55-HYGROSTAT"],
-          eep_out: "A5-10-12",
-          futh55ed_mode: "hygrostat",
-        };
-      }
 
-      // FIX46/FIX48: Teach-in telegrams are editable profile data. Populate
-      // newly verified defaults once when upgrading an older authoritative
-      // database. After schema 48 has been stored, later user edits (including
-      // clearing a value) remain untouched.
-      const fix48TeachInKeys = new Set([
-        "D5-00-01", "F6-10-00-FFG7B", "A5-14-09-FFG7B",
-        "A5-07-01", "A5-08-01-FBH-FBHT", "A5-30-03-FHMB",
-        "A5-04-02-FLGTF", "A5-09-0C-FLGTF", "A5-09-04-FCO2TF65",
-        "A5-12-01", "A5-12-01-F3Z14D", "A5-13-01",
-      ]);
-      for (const [key, defaultProfile] of Object.entries(DEFAULT_EEP_DB)) {
-        const defaultTeachIn = String(defaultProfile?.teach_in_telegram || "").trim();
-        if (!defaultTeachIn) continue;
-        if (!database[key] && fix48TeachInKeys.has(key)) {
-          database[key] = { ...defaultProfile };
-          continue;
+        // FIX46/FIX48: Teach-in telegrams are editable profile data. Populate
+        // newly verified defaults once when upgrading an older authoritative
+        // database. After schema 48 has been stored, later user edits (including
+        // clearing a value) remain untouched.
+        const fix48TeachInKeys = new Set([
+          "D5-00-01", "F6-10-00-FFG7B", "A5-14-09-FFG7B",
+          "A5-07-01", "A5-08-01-FBH-FBHT", "A5-30-03-FHMB",
+          "A5-04-02-FLGTF", "A5-09-0C-FLGTF", "A5-09-04-FCO2TF65",
+          "A5-12-01", "A5-12-01-F3Z14D", "A5-13-01",
+        ]);
+        for (const [key, defaultProfile] of Object.entries(DEFAULT_EEP_DB)) {
+          const defaultTeachIn = String(defaultProfile?.teach_in_telegram || "").trim();
+          if (!defaultTeachIn) continue;
+          if (!database[key] && fix48TeachInKeys.has(key)) {
+            database[key] = { ...defaultProfile };
+            continue;
+          }
+          if (!database[key]) continue;
+          const currentTeachIn = String(database[key]?.teach_in_telegram || "").trim();
+          if (!Object.prototype.hasOwnProperty.call(database[key], "teach_in_telegram") ||
+              (schemaVersion < 48 && fix48TeachInKeys.has(key) && !currentTeachIn)) {
+            database[key] = { ...database[key], teach_in_telegram: defaultTeachIn };
+          }
         }
-        if (!database[key]) continue;
-        const currentTeachIn = String(database[key]?.teach_in_telegram || "").trim();
-        if (!Object.prototype.hasOwnProperty.call(database[key], "teach_in_telegram") ||
-            (schemaVersion < 48 && fix48TeachInKeys.has(key) && !currentTeachIn)) {
-          database[key] = { ...database[key], teach_in_telegram: defaultTeachIn };
+        // FIX63: FAE14LPR is a two-channel climate actuator and uses the same
+        // A5-10-06 controller programming path as FAE14SSR. Migrate the former
+        // F6-02-01 sensor-only profile once so existing authoritative databases
+        // receive the corrected profile without requiring a database reset.
+        if (schemaVersion < 51) {
+          const oldFae = database["F6-02-01-FAE14LPR"];
+          database["A5-10-06-FAE14LPR"] = {
+            ...DEFAULT_EEP_DB["A5-10-06-FAE14LPR"],
+            ...(oldFae || database["A5-10-06-FAE14LPR"] || {}),
+            platform: "climate",
+            eep_out: "A5-10-06",
+            needs_sender: true,
+            sender_eep: "A5-10-06",
+            device_family: "FAE14LPR",
+            bidirectional: true,
+          };
+          delete database["F6-02-01-FAE14LPR"];
         }
-      }
-      // FIX63: FAE14LPR is a two-channel climate actuator and uses the same
-      // A5-10-06 controller programming path as FAE14SSR. Migrate the former
-      // F6-02-01 sensor-only profile once so existing authoritative databases
-      // receive the corrected profile without requiring a database reset.
-      if (schemaVersion < 51) {
-        const oldFae = database["F6-02-01-FAE14LPR"];
-        database["A5-10-06-FAE14LPR"] = {
-          ...DEFAULT_EEP_DB["A5-10-06-FAE14LPR"],
-          ...(oldFae || database["A5-10-06-FAE14LPR"] || {}),
-          platform: "climate",
-          eep_out: "A5-10-06",
-          needs_sender: true,
-          sender_eep: "A5-10-06",
-          device_family: "FAE14LPR",
-          bidirectional: true,
-        };
-        delete database["F6-02-01-FAE14LPR"];
-      }
 
-      // v1.0.97: Add FMS14 once to authoritative databases saved by v1.0.96.
-      // After schema 52 is stored, later user edits or deletion remain intact.
-      if (schemaVersion < 52 && !database["M5-38-08-FMS14"]) {
-        database["M5-38-08-FMS14"] = { ...DEFAULT_EEP_DB["M5-38-08-FMS14"] };
-      }
-      if (schemaVersion < 53 && database["M5-38-08-FMS14"]) {
-        const fms14Defaults = DEFAULT_EEP_DB["M5-38-08-FMS14"];
-        database["M5-38-08-FMS14"] = {
-          ...database["M5-38-08-FMS14"],
-          label: fms14Defaults.label,
-          teach_in_telegram: fms14Defaults.teach_in_telegram,
-          sender_eep: fms14Defaults.sender_eep,
-        };
-      }
-
-      // v1.0.97: Add the FKS-B as an A5-20-04 climate actuator. The GFA5
-      // handles this device with the same radio profile as the FKS-H.
-      if (schemaVersion < 54 && !database["A5-20-04-FKS-B"]) {
-        database["A5-20-04-FKS-B"] = { ...DEFAULT_EEP_DB["A5-20-04-FKS-B"] };
-      }
-
-      // v1.0.99: Add FAH illuminance and FRW-ws smoke/battery
-      // profiles once. Later edits or intentional deletions remain untouched.
-      if (schemaVersion < 55) {
-        for (const key of ["A5-06-01-FAH", "F6-02-01-FRW-WS"]) {
-          if (!database[key]) database[key] = { ...DEFAULT_EEP_DB[key] };
+        // v1.0.97: Add FMS14 once to authoritative databases saved by v1.0.96.
+        // After schema 52 is stored, later user edits or deletion remain intact.
+        if (schemaVersion < 52 && !database["M5-38-08-FMS14"]) {
+          database["M5-38-08-FMS14"] = { ...DEFAULT_EEP_DB["M5-38-08-FMS14"] };
         }
-      }
+        if (schemaVersion < 53 && database["M5-38-08-FMS14"]) {
+          const fms14Defaults = DEFAULT_EEP_DB["M5-38-08-FMS14"];
+          database["M5-38-08-FMS14"] = {
+            ...database["M5-38-08-FMS14"],
+            label: fms14Defaults.label,
+            teach_in_telegram: fms14Defaults.teach_in_telegram,
+            sender_eep: fms14Defaults.sender_eep,
+          };
+        }
 
-      // F2L14 is represented by one HA fan entity while retaining both
-      // consecutive Series-14 feedback addresses for its two relay stages.
-      if (schemaVersion < 56 && !database["F6-02-01-F2L14"]) {
-        database["F6-02-01-F2L14"] = { ...DEFAULT_EEP_DB["F6-02-01-F2L14"] };
-      }
+        // v1.0.97: Add the FKS-B as an A5-20-04 climate actuator. The GFA5
+        // handles this device with the same radio profile as the FKS-H.
+        if (schemaVersion < 54 && !database["A5-20-04-FKS-B"]) {
+          database["A5-20-04-FKS-B"] = { ...DEFAULT_EEP_DB["A5-20-04-FKS-B"] };
+        }
 
-      // FWG14MS transmits weather data from one of two device-position ID
-      // ranges. Its PCT14 bus address is metadata and must not be exported as
-      // the EnOcean receive ID. Keep FWS61 on the generic A5-13-01 profile.
-      if (schemaVersion < 57 && !database["A5-13-01-FWG14MS"]) {
-        database["A5-13-01-FWG14MS"] = { ...DEFAULT_EEP_DB["A5-13-01-FWG14MS"] };
-      }
+        // v1.0.99: Add FAH illuminance and FRW-ws smoke/battery
+        // profiles once. Later edits or intentional deletions remain untouched.
+        if (schemaVersion < 55) {
+          for (const key of ["A5-06-01-FAH", "F6-02-01-FRW-WS"]) {
+            if (!database[key]) database[key] = { ...DEFAULT_EEP_DB[key] };
+          }
+        }
 
-      // FIX50: The documented first-ID offset was a manual typo. F4USM61B
-      // channel 1 always starts at the original learned ID; remove the obsolete
-      // field from every persisted F4USM61B profile.
-      for (const [key, profile] of Object.entries(database)) {
-        if (String(profile?.device_family || "").toUpperCase() !== "F4USM61B") continue;
-        if (Object.prototype.hasOwnProperty.call(profile, "id_offset_start")) {
-          const cleaned = { ...profile };
-          delete cleaned.id_offset_start;
-          database[key] = cleaned;
+        // F2L14 is represented by one HA fan entity while retaining both
+        // consecutive Series-14 feedback addresses for its two relay stages.
+        if (schemaVersion < 56 && !database["F6-02-01-F2L14"]) {
+          database["F6-02-01-F2L14"] = { ...DEFAULT_EEP_DB["F6-02-01-F2L14"] };
+        }
+
+        // FWG14MS transmits weather data from one of two device-position ID
+        // ranges. Its PCT14 bus address is metadata and must not be exported as
+        // the EnOcean receive ID. Keep FWS61 on the generic A5-13-01 profile.
+        if (schemaVersion < 57 && !database["A5-13-01-FWG14MS"]) {
+          database["A5-13-01-FWG14MS"] = { ...DEFAULT_EEP_DB["A5-13-01-FWG14MS"] };
+        }
+
+        // FIX50: The documented first-ID offset was a manual typo. F4USM61B
+        // channel 1 always starts at the original learned ID; remove the obsolete
+        // field from every persisted F4USM61B profile.
+        for (const [key, profile] of Object.entries(database)) {
+          if (String(profile?.device_family || "").toUpperCase() !== "F4USM61B") continue;
+          if (Object.prototype.hasOwnProperty.call(profile, "id_offset_start")) {
+            const cleaned = { ...profile };
+            delete cleaned.id_offset_start;
+            database[key] = cleaned;
+          }
         }
       }
       database[DEVICE_DB_SCHEMA_KEY] = DEVICE_DB_SCHEMA_VERSION;

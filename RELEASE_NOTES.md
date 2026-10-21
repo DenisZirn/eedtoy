@@ -35,7 +35,8 @@ Mehrere gleichzeitig sendende Funk-Sensoren derselben Telegrammfamilie lassen si
 
 ## Gerätedatenbank und bestehende Projekte
 
-- Bestehende Gerätedatenbanken werden auf Schema 58 migriert und um fehlende technische Kennungen sowie das eigene FWG14MS-Profil ergänzt.
+- Bestehende Gerätedatenbanken werden auf Schema 59 migriert und um fehlende technische Kennungen sowie das eigene FWG14MS-Profil ergänzt.
+- Die frühere gemeinsame Standardbezeichnung „FWS61, FWG14MS“ wird auch in gespeicherten Datenbanken korrigiert. FWS61 und FWG14MS erscheinen als getrennte Profile; eigene Bezeichnungen und bewusst gelöschte Profile bleiben erhalten.
 - Eigene technische Kennungen und Datenbankänderungen bleiben erhalten.
 - Gespeicherte Geräte werden anhand ihrer technischen Profilzuordnung aufgelöst; frei vergebene Anzeigenamen bestimmen den exportierten Gerätetyp nicht.
 - Bestehende Projekte können weiterhin geöffnet werden.
@@ -89,6 +90,7 @@ Mehrere gleichzeitig sendende Funk-Sensoren derselben Telegrammfamilie lassen si
 - FAE14LPR verwendet weiterhin seinen ursprünglichen Schreibweg und erhält pro Kanal genau eine priorisierte Controller-ID.
 - Bei einer unklaren Schreibbestätigung wird die gespeicherte Zeile zurückgelesen, bevor erneut geschrieben wird.
 - Fortschritts-, Ergebnis- und Abbruchmeldungen sind vollständig auf Deutsch und Englisch verfügbar.
+- Meldungen zu nicht gefundenen oder gesperrten seriellen Ports erscheinen vollständig in der gewählten Sprache und nennen den betroffenen Port. Gemischte Node-/Python-Fehlertexte werden verständlich zusammengefasst.
 - Die automatische Sender-ID-Vergabe berücksichtigt weiterhin FAM-USB-Base-IDs mit Endung `80` und überspringt bereits belegte vollständige Senderadressen.
 
 ## Installation

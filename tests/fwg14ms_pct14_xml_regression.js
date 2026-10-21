@@ -163,7 +163,7 @@ const migratedDatabase = api.migrateCustomDeviceDatabase({
   DUMMY: { label:'User profile' },
 });
 assert(Boolean(migratedDatabase['A5-13-01-FWG14MS']), 'Schema-56 databases receive the dedicated FWG14MS profile once');
-assert(migratedDatabase.__eedtoy_database_schema === 58, 'Device-type migration advances the database to schema 58');
+assert(migratedDatabase.__eedtoy_database_schema === 59, 'Migration advances the database to schema 59');
 
 const intentionallyDeleted = api.migrateCustomDeviceDatabase({
   __eedtoy_database_mode: 'authoritative',
@@ -171,5 +171,42 @@ const intentionallyDeleted = api.migrateCustomDeviceDatabase({
   DUMMY: { label:'User profile' },
 });
 assert(!intentionallyDeleted['A5-13-01-FWG14MS'], 'A later intentional FWG14MS profile deletion remains deleted');
+
+const legacyWeather = {
+  group: 'Wetterstation',
+  label: 'FWS61, FWG14MS – Wetterstation Wind + Regen + Temperatur (A5-13-01)',
+  platform: 'sensor', eep_out: 'A5-13-01', device_type: 'FWS61',
+  eltako: 'FWS61, FWG14MS', teach_in_telegram: 'AA-BB-CC-DD',
+};
+const savedDatabase = {
+  __eedtoy_database_mode: 'authoritative', __eedtoy_database_schema: 58,
+  'A5-13-01': legacyWeather,
+  'A5-13-01-FWG14MS': { ...api.profileFor('A5-13-01-FWG14MS') },
+  CUSTOM: { label: 'User profile' },
+};
+const savedSnapshot = JSON.stringify(savedDatabase);
+const upgradedWeather = api.migrateCustomDeviceDatabase(savedDatabase);
+assert(upgradedWeather['A5-13-01'].label === api.profileFor('A5-13-01').label, 'Existing shared weather label becomes FWS61 only');
+assert(upgradedWeather['A5-13-01'].eltako === 'FWS61', 'Existing shared model label becomes FWS61 only');
+assert(upgradedWeather['A5-13-01'].device_type === 'FWS61', 'FWS61 retains its technical type');
+assert(upgradedWeather['A5-13-01'].teach_in_telegram === 'AA-BB-CC-DD', 'Weather label migration preserves custom teach-in settings');
+assert(JSON.stringify(savedDatabase) === savedSnapshot, 'Migration does not mutate its input');
+assert(JSON.stringify(api.migrateCustomDeviceDatabase(upgradedWeather)) === JSON.stringify(upgradedWeather), 'Weather migration is idempotent');
+assert(JSON.stringify(upgradedWeather['A5-13-01-FWG14MS']) === JSON.stringify(savedDatabase['A5-13-01-FWG14MS']), 'Dedicated FWG14MS profile remains unchanged');
+assert(!upgradedWeather['A5-04-02-FTFSB'] && !upgradedWeather['A5-12-01'], 'Upgrading schema 58 does not restore deleted profiles through older migrations');
+const customizedWeather = api.migrateCustomDeviceDatabase({
+  ...savedDatabase,
+  'A5-13-01': { ...legacyWeather, label: 'My weather profile', eltako: 'My model' },
+});
+assert(customizedWeather['A5-13-01'].label === 'My weather profile' && customizedWeather['A5-13-01'].eltako === 'My model', 'User-edited weather labels remain unchanged');
+const deletedWeather = api.migrateCustomDeviceDatabase({
+  __eedtoy_database_mode: 'authoritative', __eedtoy_database_schema: 58,
+  CUSTOM: { label: 'User profile' },
+});
+assert(!deletedWeather['A5-13-01'] && !deletedWeather['A5-13-01-FWG14MS'], 'Intentionally deleted weather profiles stay deleted');
+const laterUserLabel = api.migrateCustomDeviceDatabase({ ...savedDatabase, __eedtoy_database_schema: 59 });
+assert(laterUserLabel['A5-13-01'].label === legacyWeather.label, 'A later explicit label edit is not overwritten after schema 59');
+const sparseWeather = api.migrateCustomDeviceDatabase({ 'A5-13-01': legacyWeather });
+assert(sparseWeather['A5-13-01'].eltako === 'FWS61' && !sparseWeather['A5-13-01'].label.includes('FWG14MS'), 'Legacy sparse databases receive the same weather label correction');
 
 console.log('All FWG14MS PCT14/YAML regression tests passed.');
