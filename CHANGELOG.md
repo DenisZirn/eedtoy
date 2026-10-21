@@ -1,5 +1,8 @@
 ## 1.1.00
 
+- Projektspeichern übernimmt gültige aktuelle Geräteänderungen in die geöffnete Datei und erzeugt die gespeicherte YAML neu; Speichern und erneutes Öffnen werden mit echter Datei-I/O geprüft.
+- Ältere gespeicherte Bearbeitungsformulare werden beim Öffnen wiederhergestellt; ausdrücklich ausgewählte FWS61-Profile bleiben erhalten.
+
 - MiniSafe2-Import kann mit der Option „Sender-IDs der Aktoren übernehmen“ vollständige Sender-IDs aus Geräteeinträgen oder aus `getStates` über die passende `sid` übernehmen und dauerhaft in Projekt und YAML erhalten.
 - Bei ausgeschalteter Übernahme verwendet der Import die normale fortlaufende Vergabe freier Gateway-Sender-IDs; unvollständige oder widersprüchliche Senderzuordnungen werden vor dem Import gemeldet.
 - Geräteauswahl zeigt bei Relais das tatsächliche Steuer-EEP statt des internen M5-Decodernamens; YAML-Decoder und Sensorprofile bleiben erhalten.

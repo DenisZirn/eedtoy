@@ -531,8 +531,10 @@ function resolveProfileKeyForDevice(device) {
 
 function normalizeLoadedDeviceProfile(device) {
   let normalized = { ...emptyForm, ...(device || {}) };
-  const descriptor = `${normalized.device_type || ""} ${normalized.model || ""} ${normalized.eltako || ""}`.toUpperCase();
-  if (descriptor.includes("FWG14MS") && String(normalized.eep || "").toUpperCase() === "A5-13-01") {
+  const technicalType = String(normalized.device_type || "").trim().toUpperCase();
+  const legacyFwg14ms = technicalType ? technicalType === "FWG14MS"
+    : [normalized.model, normalized.eltako].some(value => String(value || "").trim().toUpperCase() === "FWG14MS");
+  if (legacyFwg14ms && String(normalized.eep || "").toUpperCase() === "A5-13-01") {
     normalized = {
       ...normalized,
       eep: "A5-13-01-FWG14MS",
@@ -1734,33 +1736,57 @@ export default function App() {
   const isDeviceDatabaseWindow = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("window") === "device-database";
   void deviceDbRevision;
 
-  const buildProjectDocument = () => ({
-    project_format: "eedtoy-project",
-    schema_version: 1,
-    app_version: APP_VERSION,
-    saved_at: new Date().toISOString(),
-    state: {
-      step,
-      gateway,
-      devices,
-      extraGateways,
-      form,
-      editIdx,
-      yaml,
-      generatedGatewayBlocks,
-      importFam14Gateway,
-      importFgw14Gateway,
-      pct14DetectedFam14,
-      pct14DetectedFgw14,
-      pct14GatewayBaseId,
-      writeBusPort,
-      writeTargetGatewayKey,
-    },
-  });
+  const buildProjectDocument = (projectDevices = devices) => {
+    const gatewayBlocks = orderedGatewayBlocks(gateway, buildActiveExtraGateways()).map(item => ({ ...item }));
+    const [primaryGateway, ...otherGateways] = gatewayBlocks;
+    const projectYaml = generateYaml(primaryGateway || gateway, projectDevices, otherGateways, pct14GatewayBaseId, language);
+    return {
+      project_format: "eedtoy-project",
+      schema_version: 1,
+      app_version: APP_VERSION,
+      saved_at: new Date().toISOString(),
+      state: {
+        step,
+        gateway,
+        devices: projectDevices,
+        extraGateways,
+        form: editIdx !== null ? { ...form, ...projectDevices[editIdx] } : form,
+        editIdx,
+        yaml: projectYaml,
+        generatedGatewayBlocks: gatewayBlocks,
+        importFam14Gateway,
+        importFgw14Gateway,
+        pct14DetectedFam14,
+        pct14DetectedFgw14,
+        pct14GatewayBaseId,
+        writeBusPort,
+        writeTargetGatewayKey,
+      },
+    };
+  };
 
   const showProjectMessage = (message, timeout = 10000) => {
     setProjectMsg(message);
     if (timeout > 0) setTimeout(() => setProjectMsg(""), timeout);
+  };
+
+  const prepareProjectSave = () => {
+    // Saving a project also saves a valid edit of an existing device. A new
+    // device still requires Add; ID detection must not create entries itself.
+    const projectDevices = editIdx !== null ? prepareDeviceSave() : devices;
+    if (!projectDevices) {
+      setStep(2);
+      showProjectMessage(t("project.invalidDeviceEdit"));
+      return null;
+    }
+    return buildProjectDocument(projectDevices);
+  };
+
+  const acceptSavedProject = (project) => {
+    // Do not replace edits made while a native Save As dialog was open.
+    setDevices(current => current === devices ? project.state.devices : current);
+    setYaml(current => current === yaml ? project.state.yaml : current);
+    setGeneratedGatewayBlocks(current => current === generatedGatewayBlocks ? project.state.generatedGatewayBlocks : current);
   };
 
   const handleSaveProject = async () => {
@@ -1769,13 +1795,16 @@ export default function App() {
       return;
     }
     if (!projectFilePath) return handleSaveProjectAs();
-    const result = await window.electronAPI.saveProject({ project: buildProjectDocument(), path: projectFilePath });
+    const project = prepareProjectSave();
+    if (!project) return;
+    const result = await window.electronAPI.saveProject({ project, path: projectFilePath });
     if (result?.needsSaveAs) return handleSaveProjectAs();
     if (!result?.ok) {
       showProjectMessage(t("project.saveFailed", { error: runtimeText(result?.error || t("project.unknownError")) }));
       return;
     }
     setProjectFileName(result.fileName || projectFileName);
+    acceptSavedProject(project);
     showProjectMessage(t("project.saved", { file: result.fileName || result.path }));
   };
 
@@ -1784,11 +1813,13 @@ export default function App() {
       showProjectMessage(t("project.desktopSaveOnly"));
       return;
     }
+    const project = prepareProjectSave();
+    if (!project) return;
     const suggestedName = projectFileName
       ? projectFileName.replace(/\.(eedtoy|json)$/i, "")
       : `EEDTOY-${language === "en" ? "Project" : "Projekt"}-${new Date().toISOString().slice(0, 10)}`;
     const result = await window.electronAPI.saveProjectAs({
-      project: buildProjectDocument(),
+      project,
       suggestedName,
       currentFileName: projectFileName,
     });
@@ -1799,6 +1830,7 @@ export default function App() {
     }
     setProjectFileName(result.fileName || `EEDTOY-${language === "en" ? "Project" : "Projekt"}.eedtoy`);
     setProjectFilePath(result.path || "");
+    acceptSavedProject(project);
     showProjectMessage(t("project.saved", { file: result.fileName || result.path }));
   };
 
@@ -1836,9 +1868,7 @@ export default function App() {
     if (loadedImportFgw14Gateway && loadedPct14DetectedFgw14 && loadedPct14GatewayBaseId) {
       activeLoadedGateways.push({ type:"fgw14usb", base_id:loadedPct14GatewayBaseId, source:"pct14-fgw14" });
     }
-    const loadedGatewayBlocks = Array.isArray(state.generatedGatewayBlocks) && state.generatedGatewayBlocks.length
-      ? state.generatedGatewayBlocks
-      : orderedGatewayBlocks(loadedGateway, activeLoadedGateways);
+    const loadedGatewayBlocks = orderedGatewayBlocks(loadedGateway, activeLoadedGateways);
     const loadedYaml = loadedDevices.length > 0
       ? generateYaml(loadedGateway, loadedDevices, loadedGatewayBlocks.slice(1), loadedPct14GatewayBaseId, language)
       : "";
@@ -1850,7 +1880,7 @@ export default function App() {
     // For an empty/add form always start with a valid current database key; never
     // resurrect a stale raw EEP such as A5-04-02 as an unknown profile.
     setForm(loadedEditIdx !== null
-      ? normalizeLoadedDeviceProfile(loadedDevices[loadedEditIdx])
+      ? normalizeLoadedDeviceProfile({ ...loadedDevices[loadedEditIdx], ...(state.form && typeof state.form === "object" && !Array.isArray(state.form) ? state.form : {}) })
       : createEmptyForm());
     setEditIdx(loadedEditIdx);
     setYaml(loadedYaml);
@@ -2289,7 +2319,7 @@ export default function App() {
     return e;
   };
 
-  const handleAdd = () => {
+  const prepareDeviceSave = () => {
     const autoSender = profile.needs_sender ? autoSenderIdForGateway(gateway, devices) : "";
     const selectedFamily = String(profile.device_family || "").toUpperCase();
     const isF4usmProfile = selectedFamily === "F4USM61B";
@@ -2305,8 +2335,8 @@ export default function App() {
       sender_eep: profile.needs_sender ? (form.sender_eep || profile.sender_eep || "") : "",
       platform: profile.platform ?? "sensor",
       device_type: profile.device_type || "",
-      model: form.model || profile.eltako || "",
-      eltako: form.eltako || profile.eltako || "",
+      model: profile.eltako || form.model || "",
+      eltako: profile.eltako || form.eltako || "",
       dev_id: isFwg14msProfile ? fwg14msBaseIdForRange(form.fwg14ms_id_range || "1") : form.dev_id,
       device_family: isF4usmProfile ? "F4USM61B" : (isFts14emProfile ? "FTS14EM" : (isFwg14msProfile ? "FWG14MS" : (form.device_family || ""))),
       operating_mode: selectedOperatingMode,
@@ -2335,6 +2365,12 @@ export default function App() {
     const nextDevices = editIdx !== null
       ? devices.map((x,i) => i===editIdx ? entry : x)
       : [...devices, entry];
+    return nextDevices;
+  };
+
+  const handleAdd = () => {
+    const nextDevices = prepareDeviceSave();
+    if (!nextDevices) return;
     setDevices(nextDevices);
 
     if (editIdx !== null) setEditIdx(null);
@@ -3133,7 +3169,7 @@ export default function App() {
           <div className="topMeta projectActions">
             {projectFileName&&<span className="statusPill" title={t("common.projectFileTitle")}>{projectFileName}</span>}
             <button className="btn ghost" onClick={handleOpenProject} disabled={!isElectron} title={t("common.openProjectTitle")}>{t("common.openProject")}</button>
-            <button className="btn pri" onClick={handleSaveProjectAs} disabled={!isElectron} title={t("common.saveProjectAsTitle")}>{t("common.saveProjectAs")}</button>
+            <button className="btn pri" onClick={handleSaveProject} disabled={!isElectron} title={t("common.saveProjectAsTitle")}>{t("common.saveProject")}</button>
             <span className="statusPill">{t(devices.length === 1 ? "common.deviceCount" : "common.deviceCountPlural", { count: devices.length })}</span>
           </div>
         </header>

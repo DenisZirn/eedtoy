@@ -35,6 +35,12 @@ Mehrere gleichzeitig sendende Funk-Sensoren derselben Telegrammfamilie lassen si
 
 ## Gerätedatenbank und bestehende Projekte
 
+- „Projekt speichern“ aktualisiert die aktuell geöffnete Projektdatei. „Speichern unter“ bleibt separat im Dateimenü verfügbar.
+- Gültige Änderungen am gerade bearbeiteten Gerät werden beim Projektspeichern übernommen; die gespeicherte YAML wird aus dem aktuellen Projektstand neu erzeugt.
+- Beim erneuten Öffnen bleiben Geräteprofile, IDs, Räume, Namen und FWG14MS-Positionen erhalten. Bearbeitungsstände aus älteren Projektdateien werden wiederhergestellt.
+- Ein ausdrücklich ausgewählter FWS61 wird durch eine alte gemeinsame Modellbezeichnung nicht mehr zum FWG14MS umgedeutet.
+- Unvollständige oder widersprüchliche Geräteänderungen blockieren das Speichern und werden am Formular angezeigt. Neue Geräte benötigen weiterhin die ausdrückliche Bestätigung über „Hinzufügen“.
+
 - Bestehende Gerätedatenbanken werden auf Schema 59 migriert und um fehlende technische Kennungen sowie das eigene FWG14MS-Profil ergänzt.
 - Die frühere gemeinsame Standardbezeichnung „FWS61, FWG14MS“ wird auch in gespeicherten Datenbanken korrigiert. FWS61 und FWG14MS erscheinen als getrennte Profile; eigene Bezeichnungen und bewusst gelöschte Profile bleiben erhalten.
 - Eigene technische Kennungen und Datenbankänderungen bleiben erhalten.
