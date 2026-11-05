@@ -1,0 +1,46 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const source = fs.readFileSync('src/App.jsx','utf8');
+const context = {console,Date,Blob:class{},DOMParser:class{},URL:{}};
+vm.createContext(context);
+vm.runInContext(source.slice(source.indexOf('const APP_VERSION'), source.indexOf('export default function App()')) + '\nthis.api={assignPct14BusDevices,generateYaml,buildSenderProgrammingEntries,duplicateDeviceKey,senderIdForGateway,profileFor};',context);
+const a=context.api;
+const gateway={type:'fam-usb',base_id:'FF-A6-04-80'};
+const bus1={id:'house',base_id:'FF-AA-00-00'},bus2={id:'flat',base_id:'FF-BB-00-00'};
+const p=a.profileFor('M5-38-08');
+const actor={eep:'M5-38-08',platform:'light',dev_id:'00-00-00-01',name:'Licht',room:'PCT14 Adresse 1',sender_id:'00-00-B0-01'};
+assert(p.needs_sender);
+let devices=a.assignPct14BusDevices([], [actor], bus1, gateway);
+devices=a.assignPct14BusDevices(devices,[{...actor,name:'Licht Wohnung',room:'Küche'}],bus2,gateway);
+assert.equal(devices.length,2);
+assert.equal(devices[0].sender_id,'FF-A6-04-81');
+assert.equal(devices[1].sender_id,'FF-A6-04-82');
+assert.notEqual(a.duplicateDeviceKey(devices[0]),a.duplicateDeviceKey(devices[1]));
+assert.equal(a.assignPct14BusDevices(devices,[actor],bus1,gateway).length,2);
+assert.equal(a.assignPct14BusDevices(devices,[{...actor,dev_id:'00-00-00-02'}],bus2,gateway)[2].sender_id,'FF-A6-04-83');
+const extras=[{type:'fam14',base_id:bus1.base_id},{type:'fam14',base_id:bus2.base_id}];
+const yaml=a.generateYaml(gateway,devices,extras);
+const gatewaySections=yaml.split(/  - id: \d+\n/).slice(1);
+const radio=gatewaySections.find(block=>block.includes('device_type: fam-usb')); 
+for(const id of ['FF-AA-00-01','FF-BB-00-01','FF-A6-04-81','FF-A6-04-82']) assert(radio.includes(id),id);
+const blocks=gatewaySections.filter(block=>block.includes('device_type: fam14')); 
+assert(blocks[0].includes('name: "Licht"')&&!blocks[0].includes('Licht Wohnung'));
+assert(blocks[1].includes('Licht Wohnung')&&!blocks[1].includes('name: "Licht"'));
+for(const [bus,sender] of [[bus1,'FF-A6-04-81'],[bus2,'FF-A6-04-82']]) {
+ const entries=a.buildSenderProgrammingEntries(devices,[gateway],bus.base_id,bus.id);
+ assert.equal(entries.length,1);
+ assert.equal(entries[0].device_id,bus.base_id.replace(/00$/,'01'));
+ assert.equal(entries[0].sender_id,sender);
+ assert.equal(entries[0].expected_bus_base_id,bus.base_id);
+}
+assert.equal(a.buildSenderProgrammingEntries(devices,[gateway],bus1.base_id,'missing').length,0);
+const reopened=JSON.parse(JSON.stringify(devices));
+assert.equal(a.generateYaml(gateway,reopened,extras).replace(/^# Generiert:.*$/m,''),yaml.replace(/^# Generiert:.*$/m,''));
+assert.throws(()=>a.assignPct14BusDevices([], [actor],bus1,{type:'fam-usb'}));
+const full=Array.from({length:127},(_,i)=>({dev_id:'01-00-00-'+i.toString(16).padStart(2,'0'),sender_id:'FF-A6-04-'+(0x81+i).toString(16).toUpperCase()}));
+assert.throws(()=>a.assignPct14BusDevices(full,[actor],bus1,gateway));
+assert.equal(full.length,127);
+// Legacy single-bus addressing remains identical.
+assert.equal(a.senderIdForGateway(actor,gateway,bus1.base_id),'FF-A6-04-81');
+console.log('Multi-bus address allocation, duplicate addresses, idempotence, YAML routing, write isolation and exhaustion passed.');

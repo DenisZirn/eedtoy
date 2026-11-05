@@ -1059,9 +1059,10 @@ function getPythonScriptCwd(scriptPath) {
   try { return path.dirname(scriptPath); } catch { return process.cwd(); }
 }
 
-async function runPythonDetector(preferredPath = '', mode = 'auto') {
+async function runPythonDetector(preferredPath = '', mode = 'auto', writeConnection = null) {
   const { spawn } = require('child_process');
-  const script = getPythonDetectorScriptPath();
+  const detectorScript = getPythonDetectorScriptPath();
+  const script = writeConnection ? path.join(path.dirname(detectorScript), 'detect_write_gateway.py') : detectorScript;
   const commandInfo = await getPythonCommands(script);
   return new Promise((resolve) => {
     const attempts = commandInfo.setup?.attempts ? [...commandInfo.setup.attempts] : [];
@@ -1080,6 +1081,7 @@ async function runPythonDetector(preferredPath = '', mode = 'auto') {
 
       const c = commands[index];
       const args = [...c.args, '--preferred', preferredPath || '', '--mode', mode || 'auto'];
+      if (writeConnection) args.push('--expected-base-id', writeConnection.expectedBaseId);
       console.log('[python-detect] START', c.cmd, args.join(' '));
 
       let stdout = '';
@@ -1100,7 +1102,7 @@ async function runPythonDetector(preferredPath = '', mode = 'auto') {
 
       const timer = setTimeout(() => {
         try { child.kill(); } catch {}
-      }, 18000);
+      }, writeConnection ? 120000 : 18000);
 
       child.stdout.on('data', d => { stdout += d.toString('utf8'); });
       child.stderr.on('data', d => {
@@ -1933,6 +1935,21 @@ ipcMain.handle('detect-gateway', async (_, preferredPath) => {
 });
 
 
+
+ipcMain.handle('connect-write-gateway', async (_, payload) => {
+  const portPath = String(payload?.portPath || '').trim();
+  const expectedBaseId = String(payload?.expectedBaseId || '').trim().toUpperCase();
+  if (!/^[0-9A-F]{2}(-[0-9A-F]{2}){3}$/.test(expectedBaseId) || expectedBaseId === '00-00-00-00') {
+    return { ok:false, error:'Ungültige FAM14-Basis-ID für das ausgewählte Bussystem.' };
+  }
+  try {
+    const result = await runPythonDetector(portPath, 'fam14', { expectedBaseId });
+    if (result.ok) rememberBusConnection(result.portPath, 'fam14', 57600);
+    return result;
+  } catch (error) {
+    return { ok:false, error:String(error.message || error) };
+  }
+});
 
 ipcMain.handle('disconnect-gateway', async (_, payload) => {
   try {

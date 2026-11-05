@@ -78,6 +78,7 @@ def load_sender_map(path: str) -> Dict[str, List[Dict[str, Any]]]:
             "device_eep": str(item.get("device_eep") or item.get("device_eep_out") or "").strip().upper(),
             "device_type": str(item.get("device_type") or "").strip(),
             "platform": str(item.get("platform") or "").strip(),
+            "expected_bus_base_id": norm_id(item.get("expected_bus_base_id") or ""),
             "source_gateway_type": str(item.get("source_gateway_type") or "").strip(),
             "source_gateway_base_id": norm_id(item.get("source_gateway_base_id") or ""),
             "f2l14_mode": str(item.get("f2l14_mode") or "exclusive").strip().lower(),
@@ -692,6 +693,12 @@ async def write_senders(port: str, sender_map_path: str, baud_rate: int = 57600,
         fam14_base_id_int = await fam14.get_base_id_in_int()
         fam14_base_id = b2s(await fam14.get_base_id_in_bytes())
         log("fam14 base", fam14_base_id)
+
+        expected_bases = {entry["expected_bus_base_id"] for entries in sender_map.values()
+                          for entry in entries if entry.get("expected_bus_base_id")}
+        if expected_bases and expected_bases != {norm_id(fam14_base_id)}:
+            return {"ok": False, "events": [], "error":
+                    f"Falsches Bussystem angeschlossen: FAM14 {fam14_base_id}; erwartet: {', '.join(sorted(expected_bases))}. Es wurde nichts geschrieben."}
 
         target_addresses = target_bus_addresses(fam14_base_id_int, sender_map)
         log("target bus addresses", ",".join(str(a) for a in target_addresses))

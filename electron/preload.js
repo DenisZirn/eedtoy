@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   writeSenderIdsToDevices: (payload) => ipcRenderer.invoke('write-sender-ids-to-devices', payload),
   cancelWriteSenderIds: () => ipcRenderer.invoke('cancel-write-sender-ids'),
   onWriteSenderProgress: (callback) => { const listener = (_event, progress) => callback(progress); ipcRenderer.on('write-sender-progress', listener); return () => ipcRenderer.removeListener('write-sender-progress', listener); },
+  connectWriteGateway: (payload) => ipcRenderer.invoke('connect-write-gateway', payload),
   disconnectGateway: (payload) => ipcRenderer.invoke('disconnect-gateway', payload),
   saveProjectAs: (payload) => ipcRenderer.invoke('save-project-as', payload),
   openProject: () => ipcRenderer.invoke('open-project'),

@@ -19,6 +19,20 @@ EEDTOY ist ein Desktop-Konfigurator für EnOcean-Geräte, ELTAKO-Gateways, PCT14
 - Home-Assistant-YAML-Export mit stabilem technischem `device_type` aus dem gewählten Profil
 - EEDTOY-Projekte speichern und später wieder öffnen
 
+## Mehrere FAM14-Bussysteme mit einem FAM-USB
+
+1. FAM-USB als Hauptgateway einrichten.
+2. Im PCT14-Import **Mehrere getrennte FAM14-Bussysteme vorhanden** aktivieren.
+3. Für jeden Bus **Neues Bussystem aus PCT14-Datei hinzufügen** wählen und seine Datei importieren. Anschließend kann der Bus benannt werden. Für Ergänzungen den vorhandenen Bus auswählen.
+4. YAML erzeugen. Geräte bleiben ihrem jeweiligen Bus zugeordnet und erhalten eindeutige FAM-USB-Sender-IDs.
+5. Zum Programmieren das FAM14 des gewünschten Busses anschließen und im Schreibschritt das zugehörige Bussystem auswählen.
+6. Das Bus-COM-Feld leer lassen und **Gateway verbinden** klicken. EEDTOY sucht das FAM14 mit der ausgewählten Basis-ID und trägt den Port ein. Alternativ einen Port manuell eintragen; dann wird nur dieser geprüft.
+7. Sender-IDs schreiben. Zum Buswechsel **Gateway trennen**, das andere FAM14 anschließen und dessen Bussystem auswählen. Falls der alte COM-Port nicht mehr passt, das Feld leeren, damit die automatische Suche erneut verwendet wird.
+
+Die FAM14-Basis-ID des Programmieranschlusses und die FAM-USB-Basis-ID für die späteren HA-Sender sind getrennt. Der Schreibprozess prüft vor dem Schreiben erneut die FAM14-Basis-ID. Ohne Mehrbus-Haken bleibt der Einbus-Ablauf erhalten.
+
+Die erzeugte YAML in Home Assistant über **EEDTOY YAML importieren** in **ELTAKO Sensors & Actuators** einlesen. Die Integration muss für diese Buszuordnung nicht geändert werden.
+
 ## MiniSafe2-Import: Sender-IDs
 
 Im Importfenster kann **Sender-IDs der Aktoren übernehmen** gewählt werden.

@@ -34,6 +34,7 @@ function renderer(initial = {}) {
     devices: [], extraGateways: [], form: {}, editIdx: null, yaml: 'OLD YAML', generatedGatewayBlocks: [],
     importFam14Gateway: true, importFgw14Gateway: true, pct14DetectedFam14: false,
     pct14DetectedFgw14: false, pct14GatewayBaseId: '', writeBusPort: '', writeTargetGatewayKey: '',
+    multiBusEnabled:false, busSystems:[], importBusId:"", writeBusId:"", writeConnectRequestRef:{current:0},
     language: 'de', projectFilePath: '', projectFileName: '', projectActionsRef: { current: {} },
     isElectron: true, t: key => key, runtimeText: value => value, setTimeout: () => 0,
     window: { electronAPI: {
@@ -45,7 +46,7 @@ function renderer(initial = {}) {
   };
   for (const name of ['Step', 'Gateway', 'Devices', 'ExtraGateways', 'Form', 'EditIdx', 'Yaml', 'GeneratedGatewayBlocks',
     'ImportFam14Gateway', 'ImportFgw14Gateway', 'Pct14DetectedFam14', 'Pct14DetectedFgw14', 'Pct14GatewayBaseId',
-    'WriteBusPort', 'WriteTargetGatewayKey', 'Errors', 'Copied', 'ImportMsg', 'MiniSafeImportMsg', 'DetectMsg',
+    'WriteGatewayConnection', 'ConnectingWriteGateway', 'MultiBusEnabled', 'BusSystems', 'ImportBusId', 'WriteBusId', 'WriteBusPort', 'WriteTargetGatewayKey', 'Errors', 'Copied', 'ImportMsg', 'MiniSafeImportMsg', 'DetectMsg',
     'LearnMsg', 'WriteSenderMsg', 'WriteSenderSummary', 'WriteSenderLog', 'ProjectFileName', 'ProjectFilePath', 'ProjectMsg']) {
     const key = name[0].toLowerCase() + name.slice(1);
     context['set' + name] = value => { context[key] = typeof value === 'function' ? value(context[key]) : value; };
@@ -142,5 +143,22 @@ const plain = value => JSON.parse(JSON.stringify(value));
   assert.equal(fwsApp.devices[0].name, 'Draft from previous version');
   assert.equal(fwsApp.devices[0].room, 'Recovered room');
   console.log('PASS: canceled Save As preserves state, and older saved edit forms can be recovered and saved correctly.');
+  const multiFile = path.join(temp, 'multi.eedtoy');
+  const buses = [{id:'house',name:'Haus',base_id:'FF-AA-00-00',hasFam14:true}, {id:'flat',name:'Wohnung',base_id:'FF-BB-00-00',hasFam14:true}];
+  const multi = renderer({ multiBusEnabled:true, busSystems:buses, importBusId:'flat',writeBusId:'house',
+    devices:buses.map((bus,i)=>({eep:'M5-38-08',name:bus.name,dev_id:'00-00-00-01',platform:'light',bus_system_id:bus.id,bus_base_id:bus.base_id,sender_id:i?'FF-A6-04-82':'FF-A6-04-81'})),
+    projectFilePath:multiFile });
+  await multi.actions.handleSaveProject();
+  const savedMulti = JSON.parse(fs.readFileSync(multiFile,'utf8'));
+  assert.equal(savedMulti.state.busSystems.length,2);
+  dialogs.openPath=multiFile;
+  await multi.actions.handleOpenProject();
+  assert.equal(multi.multiBusEnabled,true);
+  assert.equal(multi.busSystems[1].name,'Wohnung');
+  assert.equal(multi.importBusId,'flat');
+  assert.equal(multi.writeBusId,'house');
+  assert.equal(multi.devices.length,2);
+  assert(multi.yaml.includes('FF-AA-00-01')&&multi.yaml.includes('FF-BB-00-01')&&multi.yaml.includes('FF-A6-04-82'));
+  console.log('PASS: real project save/open preserves both bus assignments, names, sender IDs and current selections.');
   console.log('All project save/open roundtrip regressions passed.');
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(() => fs.rmSync(temp, { recursive: true, force: true }));

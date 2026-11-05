@@ -1,112 +1,44 @@
-# EEDTOY v1.1.00
+# EEDTOY v1.1.01
 
-EEDTOY v1.1.00 verbessert den Home-Assistant-YAML-Export, korrigiert die Empfangs-ID des FWG14MS und erweitert die automatische ID-Erkennung für Funk-Sensoren. Der MiniSafe2-Import kann bestehende Aktor-Sender-IDs übernehmen oder neue freie IDs für das gewählte Gateway vergeben. Die Geräteauswahl zeigt bei Relais das tatsächliche Steuer-EEP mit einer eindeutigen Kennzeichnung.
+EEDTOY v1.1.01 unterstützt mehrere getrennte FAM14-Bussysteme hinter einem gemeinsamen FAM-USB. Der bestätigte TEST3-Stand wird damit offiziell verfügbar. Das FAM14 zum Programmieren kann direkt im YAML-/Schreibschritt erkannt und geprüft werden; ein Wechsel zum ersten Bildschirm ist dafür nicht mehr erforderlich.
 
-## Technischer Gerätetyp im Home-Assistant-Export
+## Mehrere getrennte FAM14-Bussysteme
 
-- Alle 80 bekannten Geräteprofile exportieren zentral genau einen technischen `device_type`, beispielsweise `FT55`, `F2T55` oder `F4USM61B`.
-- Der Wert stammt aus dem ausgewählten Geräteprofil. Er bleibt bei frei geändertem Gerätenamen und beim Sprachwechsel erhalten.
-- `name` bleibt der Anzeigename und `eep` das EnOcean-Profil.
-- Interne Zuordnungsfelder wie `device_family`, `profile_key` und `rocker_positions` werden nicht zusätzlich in die Home-Assistant-YAML geschrieben.
-- Benötigte profilspezifische Angaben wie `operating_mode`, Sender, Basis-IDs, Lüfterstufen und Raumregler-Betriebsarten bleiben erhalten.
-- Der technische Gerätetyp kann in der Gerätedatenbank separat vom Anzeigetext bearbeitet werden.
+- Die optionale Checkbox **Mehrere getrennte FAM14-Bussysteme vorhanden** im PCT14-Import blendet die zusätzlichen Optionen ein. Ohne Haken bleibt der bisherige Einbus-Ablauf erhalten.
+- Jede PCT14-Datei wird einem benannten Bussystem mit eigener FAM14-Basis-ID zugeordnet. Die Basis-ID wird aus der Datei übernommen.
+- Geräte mit derselben lokalen Busadresse bleiben zwischen den Systemen getrennt. Im FAM-USB-YAML werden ihre Empfangs-IDs aus dem jeweiligen FAM14-Basisbereich gebildet.
+- Steuerbare Kanäle erhalten freie FAM-USB-Sender-IDs über alle Busse hinweg. Belegte Adressen werden übersprungen; insgesamt stehen 127 Senderadressen zur Verfügung.
+- Beim erneuten Import desselben Busses werden vorhandene Geräte nicht doppelt angelegt. Eine Datei mit abweichender Basis-ID wird für einen bereits ausgewählten Bus abgelehnt.
+- Busnamen, Gerätezuordnungen, Sender-IDs und Auswahl werden im Projekt gespeichert und wiederhergestellt.
+- Bereits importierte Einbus-Geräte werden beim Aktivieren dem ersten Bus zugeordnet; ihre bisher wirksamen FAM-USB-Sender-IDs bleiben erhalten.
 
-## FWG14MS: Wetter-Empfangs-ID und Busadresse getrennt
+## FAM14 direkt beim Schreiben verbinden
 
-- Ein eigenes FWG14MS-Profil unterscheidet die tatsächliche Empfangs-ID der Wettertelegramme von der PCT14-Busadresse.
-- Die Drehschalterposition ist in einem Dropdown auswählbar:
-  - Position 1: Empfangs-ID `00-00-18-00`, Bereich `00-00-18-00` bis `00-00-18-0C`.
-  - Position 2: Empfangs-ID `00-00-18-10`, Bereich `00-00-18-10` bis `00-00-18-1C`.
-- Die PCT14-Adresse bleibt als `bus_address` erhalten und kann weiterhin im Anzeigenamen stehen.
-- EEP `A5-13-01` und Lerntelegramm `4C-08-0D-80` bleiben erhalten.
-- Die Empfangs-ID wird aus der gewählten Position bestimmt. Andere Series-14-Geräte behalten ihre bisherige ID-Bildung.
+- Der vorhandene Button heißt zunächst **Gateway verbinden** und nach erfolgreicher Prüfung **Gateway trennen**.
+- Bei leerem Bus-COM-Port sucht EEDTOY das angeschlossene FAM14 mit der Basis-ID des ausgewählten Bussystems und trägt den gefundenen Port ein.
+- Bei einem manuell eingetragenen Port wird ausschließlich dieser Anschluss geprüft.
+- Andere gefundene FAM14-Bussysteme und das FAM-USB werden nicht versehentlich als ausgewählter Schreibbus übernommen.
+- Die FAM-USB-Einstellungen und ihre Funktion als Quelle der Home-Assistant-Sender-IDs bleiben erhalten.
+- Port- oder Buswechsel sowie das erneute Öffnen eines Projekts erfordern eine neue Verbindungsprüfung. Veraltete Suchergebnisse werden verworfen.
+- Beim Schreiben werden nur die Einträge des ausgewählten Busses übertragen. Der Python-Schreibprozess prüft die tatsächliche FAM14-Basis-ID vor dem ersten Schreiben erneut.
+- Das Trennen gibt den Bus frei und setzt den Verbindungsbutton zurück.
 
-## Zuverlässigere, abbrechbare ID-Erkennung
+## YAML-Importhinweis
 
-- Alle 37 Funk-Sensorprofile erhalten einen passenden Empfangsfilter für ihre Telegrammfamilie: RPS, 1BS oder 4BS. Auch FNSN55EB/FNS65EB, FTKE, Fensterkontakte sowie Bewegungs-, Temperatur- und Luftsensoren sind berücksichtigt.
-- Kurze Busadressen wie `00-00-00-12`, andere Telegrammtypen und ausgehende ESP2-Telegramme beenden die Funk-Sensorsuche nicht mehr.
-- Gültige Funk-IDs benötigen kein bestimmtes Herstellerpräfix.
-- Die aktive Erkennungsschaltfläche wechselt zu **Abbrechen**. Nach dem Beenden des Empfängers kann die Suche erneut gestartet werden.
-- Verspätete Ergebnisse einer abgebrochenen Suche werden verworfen.
-- Geräte-ID und F4USM61B-Batterie-ID besitzen getrennte Suchaktionen. Fortschritt, Ergebnis, Fehler und Abbruch erscheinen direkt am jeweiligen Feld.
-- Die besondere Erkennung verdrahteter FTS14EM-Eingänge sowie die Bus-ID-Behandlung von F3Z14D und FWG14MS bleiben erhalten.
+Der Hinweis unter der YAML-Ausgabe verweist jetzt auf **EEDTOY YAML importieren** in der Home-Assistant-Integration **ELTAKO Sensors & Actuators**. Der bisherige pauschale Hinweis auf `/config/configuration.yaml` wurde auf Deutsch und Englisch ersetzt.
 
-Mehrere gleichzeitig sendende Funk-Sensoren derselben Telegrammfamilie lassen sich durch diesen Filter allein nicht eindeutig unterscheiden. Für die Erkennung bitte gezielt den gewünschten Sensor betätigen oder dessen Teach-in/LRN auslösen.
+## Bestehende Installation
 
-## Gerätedatenbank und bestehende Projekte
+Die offizielle Version verwendet den normalen EEDTOY-Installations- und Einstellungsordner. Vorhandene Projekte und Gerätedatenbanken bleiben verwendbar. Die bisherigen Geräteprofile, profilspezifischen YAML-Felder und die Gateway-Erkennung im ersten Schritt bleiben erhalten. An der Home-Assistant-Integration ist für die Mehrbus-Zuordnung keine Änderung erforderlich.
 
-- „Projekt speichern“ aktualisiert die aktuell geöffnete Projektdatei. „Speichern unter“ bleibt separat im Dateimenü verfügbar.
-- Gültige Änderungen am gerade bearbeiteten Gerät werden beim Projektspeichern übernommen; die gespeicherte YAML wird aus dem aktuellen Projektstand neu erzeugt.
-- Beim erneuten Öffnen bleiben Geräteprofile, IDs, Räume, Namen und FWG14MS-Positionen erhalten. Bearbeitungsstände aus älteren Projektdateien werden wiederhergestellt.
-- Ein ausdrücklich ausgewählter FWS61 wird durch eine alte gemeinsame Modellbezeichnung nicht mehr zum FWG14MS umgedeutet.
-- Unvollständige oder widersprüchliche Geräteänderungen blockieren das Speichern und werden am Formular angezeigt. Neue Geräte benötigen weiterhin die ausdrückliche Bestätigung über „Hinzufügen“.
-
-- Bestehende Gerätedatenbanken werden auf Schema 59 migriert und um fehlende technische Kennungen sowie das eigene FWG14MS-Profil ergänzt.
-- Die frühere gemeinsame Standardbezeichnung „FWS61, FWG14MS“ wird auch in gespeicherten Datenbanken korrigiert. FWS61 und FWG14MS erscheinen als getrennte Profile; eigene Bezeichnungen und bewusst gelöschte Profile bleiben erhalten.
-- Eigene technische Kennungen und Datenbankänderungen bleiben erhalten.
-- Gespeicherte Geräte werden anhand ihrer technischen Profilzuordnung aufgelöst; frei vergebene Anzeigenamen bestimmen den exportierten Gerätetyp nicht.
-- Bestehende Projekte können weiterhin geöffnet werden.
-
-## F2L14 – zweistufiger Lüfter
-
-- PCT14 erkennt den F2L14 und importiert beide Relaisadressen als eine gemeinsame Home-Assistant-Lüfterentität.
-- Die Stufenbetriebsart kann als `exklusiv` oder `addierend` ausgewählt werden.
-- Vorhandene PCT14-Einträge übernehmen ihre gespeicherte Betriebsart automatisch.
-- EEDTOY schreibt die Home-Assistant-Sender-ID als F6-02-01-Doppelwippe mit Taste 7, Funktion 56 und beiden Kanälen in den Aktor.
-- Ein Wechsel zwischen `exklusiv` und `addierend` aktualisiert denselben Sendereintrag direkt, statt eine zweite Speicherzeile anzulegen.
-- Bereits durch frühere Teststände entstandene doppelte Moduseinträge derselben HA-Sender-ID werden automatisch bereinigt.
-- Eingelernte physische Taster mit anderen Sender-IDs bleiben unverändert erhalten.
-- Die erzeugte YAML enthält `stage_1_id`, `stage_2_id`, zwei Lüfterstufen und den ausgewählten `f2l14_mode`.
-
-## MiniSafe2-Konfigurationsimport
-
-- Vollständigen `Config:`-Text aus der MiniSafe2-E-Mail direkt aus der Zwischenablage einfügen.
-- Alternativ eine TXT- oder JSON-Datei auswählen.
-- Die Gerätevorschau erscheint automatisch nach der Zwischenablage- oder Dateiauswahl; ein zusätzlicher Button „Konfiguration prüfen“ ist nicht erforderlich.
-- Der MiniSafe2-Import besitzt einen eigenen Bereich und ist vollständig vom PCT14-Import getrennt.
-- Geräte ohne zugewiesenes EEP-Profil bleiben in der Vorschau gelb hervorgehoben, bis ein Profil ausgewählt wurde.
-- Die MiniSafe2-Importmeldung erscheint in der eigenen MiniSafe2-Kachel und nicht im PCT14-Bereich.
-- Importiert werden physische ELTAKO-EnOcean-Geräte mit ihrer `address`, dem Namen, dem MiniSafe2-Gerätetyp und dem zugeordneten Raum.
-- Die Option **Sender-IDs der Aktoren übernehmen** ist beim Start ausgeschaltet.
-- Ohne Haken werden neue freie Sender-IDs wie beim manuellen Anlegen fortlaufend aus dem Adressbereich des gewählten Gateways vergeben. Bei einer FAM-USB-Basis `FF-A6-04-80` sind dies beispielsweise `FF-A6-04-81`, `FF-A6-04-82` usw. Belegte IDs werden übersprungen; Sensoren erhalten keine Sender-ID.
-- Mit Haken werden vollständige `senderID`-Werte aus den Geräteeinträgen oder dem Abschnitt `getStates` übernommen. Die Zuordnung erfolgt über `sid` und wird gegen die Geräteadresse geprüft.
-- Die Vorschau zeigt bei aktivierter Übernahme die gefundenen Aktor-Sender-IDs. Fehlende, ungültige oder widersprüchliche Zuordnungen werden vor dem Import gemeldet; es wird keine unvollständige Geräteliste übernommen.
-- Übernommene Sender-IDs bleiben beim Speichern und Laden eines Projekts sowie im YAML-Export erhalten. Das verwendete Gateway muss diese IDs tatsächlich senden können; seine Basis-ID wird durch den Import nicht verändert.
-- Zusätzliche Zustandszeilen aus `getStates` erzeugen keine weiteren Geräte. Gateway-, Cloud-, Zugangsdaten-, Aktions- und Szenendaten werden nicht übernommen.
-- Bekannte MiniSafe2-Gerätetypen werden automatisch einem EEDTOY-/EEP-Profil zugeordnet.
-- Nicht eindeutig zuordenbare Gerätetypen können vor dem Import manuell einem Profil zugewiesen werden.
-- Bereits vorhandene Geräte-IDs werden übersprungen.
-
-## Klarere EEP-Anzeige in der Geräteauswahl
-
-- Relaisprofile zeigen in der Geräteauswahl und der MiniSafe2-Profilzuordnung ihr tatsächliches Steuer-EEP, beispielsweise **FSR61-230V – Relais/Lichtaktor (A5-38-08, Steuerung)**.
-- Bei Profilen mit Tastersteuerung wie FMZ14 wird entsprechend `F6-02-01, Steuerung` angezeigt.
-- Sensorprofile wie FTKE behalten ihre bisherige EEP-Angabe `F6-10-00`.
-- Der interne Rückmelde-Decoder `M5-38-08` und die bestehende YAML-Zuordnung bleiben für die Kompatibilität mit der HA-ELTAKO-Integration erhalten.
-- Die Anzeige ist auf Deutsch und Englisch verfügbar; die Geräteauswahl behält ihr bisheriges Layout.
-
-## Weitere unterstützte Geräteprofile
-
-- **FAH** mit EEP `A5-06-01`, Geräteklasse `illuminance` und Lerntelegramm `18-08-0D-80`.
-- **FRW-ws** mit EEP `F6-02-01`, Geräteklasse `smoke` und dokumentierter Batterie-Warnung bei Datentelegramm `0x30`.
-
-## Senderprogrammierung und Stabilität
-
-- FHK14 behält die bestätigte Programmierung in Function Group 3 mit Function 65.
-- FAE14LPR verwendet weiterhin seinen ursprünglichen Schreibweg und erhält pro Kanal genau eine priorisierte Controller-ID.
-- Bei einer unklaren Schreibbestätigung wird die gespeicherte Zeile zurückgelesen, bevor erneut geschrieben wird.
-- Fortschritts-, Ergebnis- und Abbruchmeldungen sind vollständig auf Deutsch und Englisch verfügbar.
-- Meldungen zu nicht gefundenen oder gesperrten seriellen Ports erscheinen vollständig in der gewählten Sprache und nennen den betroffenen Port. Gemischte Node-/Python-Fehlertexte werden verständlich zusammengefasst.
-- Die automatische Sender-ID-Vergabe berücksichtigt weiterhin FAM-USB-Base-IDs mit Endung `80` und überspringt bereits belegte vollständige Senderadressen.
+Die Mehrbus-Funktion dieser Version ist für ein gemeinsames FAM-USB als Hauptgateway und mehrere FAM14 mit unterschiedlichen Basis-IDs vorgesehen. Die Busse werden zum Programmieren nacheinander angeschlossen.
 
 ## Installation
 
 ### Windows
 
-`EEDTOY-Setup-1.1.00.exe` herunterladen und ausführen. Python 3.12 und die benötigten Module sind vollständig enthalten; die Installation funktioniert offline.
-
-Die Anwendung ist derzeit nicht digital signiert. Windows SmartScreen kann beim ersten Start eine Sicherheitswarnung anzeigen.
+`EEDTOY-Setup-1.1.01.exe` herunterladen und installieren. Python und die benötigten Laufzeitmodule sind enthalten; die Installation funktioniert offline.
 
 ### macOS
 
-Die DMGs für Intel und Apple Silicon können separat zu diesem Release hinzugefügt werden. Unter macOS zuerst das tatsächlich angeschlossene physische Gateway auswählen und danach `Gateway erkennen` verwenden.
+Die DMGs für Intel und Apple Silicon werden separat ergänzt. Die bisherige macOS-Gateway-Erkennung bleibt beim jeweiligen Plattformbuild erhalten: zuerst das physisch angeschlossene Gateway auswählen, danach **Gateway erkennen** verwenden.

@@ -1,3 +1,11 @@
+## 1.1.01
+
+- Optionaler Mehrbus-Modus im PCT14-Import für mehrere getrennte FAM14-Systeme hinter einem FAM-USB.
+- Dauerhafte Buszuordnung, getrennte Empfangs-IDs bei gleichen lokalen Busadressen und gemeinsame Vergabe freier FAM-USB-Sender-IDs.
+- Direktes Verbinden und Trennen des FAM14 im Schreibschritt; automatische Portsuche nach der gewählten FAM14-Basis-ID bei leerem COM-Feld.
+- Manuell gewählte Ports werden strikt geprüft; nur der ausgewählte Bus wird beschrieben, mit erneutem Basis-ID-Abgleich vor dem Schreiben.
+- YAML-Importhinweis verweist auf die Importfunktion der Integration „ELTAKO Sensors & Actuators“ statt auf configuration.yaml.
+
 ## 1.1.00
 
 - Projektspeichern übernimmt gültige aktuelle Geräteänderungen in die geöffnete Datei und erzeugt die gespeicherte YAML neu; Speichern und erneutes Öffnen werden mit echter Datei-I/O geprüft.

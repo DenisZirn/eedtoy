@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getStoredLanguage, storeLanguage, translate, translateDeviceLabel, translateDeviceProfileLabel, translateDeviceName, translateGroup, translatePlatform, translateRuntimeText } from "./i18n.js";
 
-const APP_VERSION = "1.1.00";
+const APP_VERSION = "1.1.01";
 
 
 function serializeDeviceDatabaseYaml(database) {
@@ -707,7 +707,7 @@ function isRoomControllerOperatingMode(device) {
 }
 
 function duplicateDeviceKey(device) {
-  const id = normalizeId(device?.dev_id);
+  const id = [device?.bus_system_id || "", normalizeId(device?.dev_id)].filter(Boolean).join("|");
   const eep = exportEepForDevice(device);
   if (!id || !eep) return "";
   // A5-07-01 (TF mode) and A5-08-01 (FBH mode) are mutually exclusive
@@ -997,6 +997,7 @@ function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", la
     const ORDER = ["light","switch","cover","fan","sensor","binary_sensor","climate"];
     for (const plat of ORDER) {
       const platformDevices = (byPlat[plat] || []).filter(d => {
+        if (d.bus_system_id && ["fam14", "fgw14usb"].includes(gw.type) && normalizeId(d.bus_base_id) !== normalizeId(gw.base_id)) return false;
         const p = profileFor(d.eep);
         const family = String(p.device_family || d.device_family || "").toUpperCase();
         return !(family === "FTS14EM" && String(gw.type || "").toLowerCase() === "fam-usb");
@@ -1134,10 +1135,11 @@ function addressFromBusId(id) {
 }
 
 function isPct14ImportedDevice(device) {
-  return /PCT14\s+(Adresse|address)\b/i.test(String(device?.room || ""));
+  return Boolean(device?.bus_system_id) || /PCT14\s+(Adresse|address)\b/i.test(String(device?.room || ""));
 }
 
 function deviceIdForGateway(device, gw, pct14BaseId) {
+  pct14BaseId = device.bus_base_id || pct14BaseId;
   const family = String(profileFor(device?.eep).device_family || device?.device_family || "").toUpperCase();
   if (family === "FWG14MS") {
     return fwg14msBaseIdForRange(device.fwg14ms_id_range || "1");
@@ -1151,6 +1153,7 @@ function deviceIdForGateway(device, gw, pct14BaseId) {
 }
 
 function senderIdForGateway(device, gw, pct14BaseId) {
+  if (device?.bus_system_id && gw?.type === "fam-usb") return device.sender_id;
   // An explicitly imported sender is a complete address, never a gateway offset.
   if (device?.sender_id_source === "minisafe2") return normalizeId(device.sender_id);
   if (isFksSvDevice(device)) return fksSenderIdForGateway(device, gw);
@@ -1163,18 +1166,20 @@ function senderIdForGateway(device, gw, pct14BaseId) {
 }
 
 function busDeviceIdForProgramming(device, pct14BaseId) {
+  pct14BaseId = device.bus_base_id || pct14BaseId;
   const offset = addressFromBusId(device.dev_id);
   if (offset == null || !isPct14ImportedDevice(device) || !pct14BaseId) return "";
   return addToBaseId(pct14BaseId, offset);
 }
 
-function buildSenderProgrammingEntries(devices, targetGateways, pct14BaseId) {
+function buildSenderProgrammingEntries(devices, targetGateways, pct14BaseId, busSystemId = "") {
   const gateways = Array.isArray(targetGateways) ? targetGateways.filter(Boolean) : [targetGateways].filter(Boolean);
-  if (!gateways.length || !pct14BaseId) return [];
+  if (!gateways.length || (!pct14BaseId && !busSystemId)) return [];
 
   const entries = [];
   const seen = new Set();
   for (const d of devices || []) {
+    if (busSystemId && d.bus_system_id !== busSystemId) continue;
     const p = profileFor(d.eep);
     if (!p.needs_sender || !isPct14ImportedDevice(d)) continue;
     const device_id = busDeviceIdForProgramming(d, pct14BaseId);
@@ -1200,6 +1205,7 @@ function buildSenderProgrammingEntries(devices, targetGateways, pct14BaseId) {
 
       entries.push({
         device_id,
+        expected_bus_base_id: d.bus_system_id ? d.bus_base_id : "",
         sender_id,
         sender_eep,
         device_eep: d.eep || p.eep_out || p.eep || "",
@@ -1213,6 +1219,21 @@ function buildSenderProgrammingEntries(devices, targetGateways, pct14BaseId) {
     }
   }
   return entries;
+}
+
+function assignPct14BusDevices(existing, imported, bus, gateway) {
+  if (!bus?.id || !normalizeId(bus.base_id)) throw new Error("multibus.invalidBase");
+  const next = [...existing];
+  for (const device of imported) {
+    const entry = { ...device, bus_system_id: bus.id, bus_base_id: normalizeId(bus.base_id) };
+    if (next.some(item => duplicateDeviceKey(item) === duplicateDeviceKey(entry))) continue;
+    if (profileFor(entry.eep).needs_sender) {
+      entry.sender_id = autoSenderIdForGateway(gateway, next);
+      if (!entry.sender_id) throw new Error("multibus.senderUnavailable");
+    }
+    next.push(entry);
+  }
+  return next;
 }
 
 function senderOffsetFromId(id) {
@@ -1235,7 +1256,7 @@ function nextFreeSenderOffset(deviceList, gw) {
     // PCT14 stores bus sender IDs, but FAM-USB exports the corresponding
     // radio address. Reserve that effective address as well.
     if (isPct14ImportedDevice(device) && profileFor(device?.eep).needs_sender) {
-      reserve(senderIdFromOffsetForGateway(gw, addressFromBusId(device.dev_id)));
+      reserve(device.bus_system_id ? device.sender_id : senderIdFromOffsetForGateway(gw, addressFromBusId(device.dev_id)));
     }
   }
   for (let offset = 1; offset <= 0x7F; offset++) {
@@ -1710,9 +1731,16 @@ export default function App() {
   const [pct14DetectedFam14, setPct14DetectedFam14] = useState(false);
   const [pct14DetectedFgw14, setPct14DetectedFgw14] = useState(false);
   const [pct14GatewayBaseId, setPct14GatewayBaseId] = useState("");
+  const [multiBusEnabled, setMultiBusEnabled] = useState(false);
+  const [busSystems, setBusSystems] = useState([]);
+  const [importBusId, setImportBusId] = useState("");
+  const [writeBusId, setWriteBusId] = useState("");
   const [writeBusPort, setWriteBusPort] = useState("");
   const [writeTargetGatewayKey, setWriteTargetGatewayKey] = useState("");
   const [writingSenders, setWritingSenders] = useState(false);
+  const [connectingWriteGateway, setConnectingWriteGateway] = useState(false);
+  const [writeGatewayConnection, setWriteGatewayConnection] = useState(null);
+  const writeConnectRequestRef = useRef(0);
   const [writeSenderMsg, setWriteSenderMsg] = useState("");
   const [writeSenderSummary, setWriteSenderSummary] = useState(null);
   const [writeSenderLog, setWriteSenderLog] = useState([]);
@@ -1759,6 +1787,7 @@ export default function App() {
         pct14DetectedFam14,
         pct14DetectedFgw14,
         pct14GatewayBaseId,
+        multiBusEnabled, busSystems, importBusId, writeBusId,
         writeBusPort,
         writeTargetGatewayKey,
       },
@@ -1862,10 +1891,16 @@ export default function App() {
       : null;
 
     const activeLoadedGateways = loadedGateways.filter(gw => gw?.source !== "pct14-rootdevice" && gw?.source !== "pct14-fgw14");
-    if (loadedImportFam14Gateway && loadedPct14DetectedFam14 && loadedPct14GatewayBaseId) {
+    if (state.multiBusEnabled) {
+      for (const bus of state.busSystems || []) {
+        if (loadedImportFam14Gateway && bus.hasFam14) activeLoadedGateways.push({ type:"fam14", base_id:bus.base_id, source:"pct14-rootdevice" });
+        if (loadedImportFgw14Gateway && bus.hasFgw14) activeLoadedGateways.push({ type:"fgw14usb", base_id:bus.base_id, source:"pct14-fgw14" });
+      }
+    }
+    if (!state.multiBusEnabled && loadedImportFam14Gateway && loadedPct14DetectedFam14 && loadedPct14GatewayBaseId) {
       activeLoadedGateways.push({ type:"fam14", base_id:loadedPct14GatewayBaseId, source:"pct14-rootdevice" });
     }
-    if (loadedImportFgw14Gateway && loadedPct14DetectedFgw14 && loadedPct14GatewayBaseId) {
+    if (!state.multiBusEnabled && loadedImportFgw14Gateway && loadedPct14DetectedFgw14 && loadedPct14GatewayBaseId) {
       activeLoadedGateways.push({ type:"fgw14usb", base_id:loadedPct14GatewayBaseId, source:"pct14-fgw14" });
     }
     const loadedGatewayBlocks = orderedGatewayBlocks(loadedGateway, activeLoadedGateways);
@@ -1873,6 +1908,13 @@ export default function App() {
       ? generateYaml(loadedGateway, loadedDevices, loadedGatewayBlocks.slice(1), loadedPct14GatewayBaseId, language)
       : "";
 
+    setMultiBusEnabled(Boolean(state.multiBusEnabled));
+    setBusSystems(Array.isArray(state.busSystems) ? state.busSystems : []);
+    setImportBusId(typeof state.importBusId === "string" ? state.importBusId : "");
+    setWriteBusId(typeof state.writeBusId === "string" ? state.writeBusId : "");
+    setWriteGatewayConnection(null);
+    writeConnectRequestRef.current += 1;
+    setConnectingWriteGateway(false);
     setGateway(loadedGateway);
     setDevices(loadedDevices);
     setExtraGateways(loadedGateways);
@@ -2065,6 +2107,9 @@ export default function App() {
     setDisconnectingGateway(false);
 
     if (result.ok) {
+      setWriteGatewayConnection(null);
+      writeConnectRequestRef.current += 1;
+      setConnectingWriteGateway(false);
       setDetectMsg(t("status.disconnectSuccess"));
     } else {
       setDetectMsg(t("status.disconnectFailed", { error: runtimeText(result.error || t("project.unknownError")) }));
@@ -2503,6 +2548,25 @@ export default function App() {
     setTimeout(() => setMiniSafeImportMsg(""), 12000);
   };
 
+  const handleMultiBusToggle = (checked) => {
+    if (!checked && devices.some(d => d.bus_system_id)) {
+      setImportMsg(t("multibus.keepAssignments")); return;
+    }
+    if (checked && gateway.type !== "fam-usb") {
+      setImportMsg(t("multibus.famUsbRequired")); return;
+    }
+    if (checked && devices.some(isPct14ImportedDevice)) {
+      const base = normalizeId(pct14GatewayBaseId);
+      if (!base) { setImportMsg(t("multibus.invalidBase")); return; }
+      const bus = { id:"bus-1", name:t("multibus.firstBus"), base_id:base, hasFam14:pct14DetectedFam14, hasFgw14:pct14DetectedFgw14 };
+      // Preserve effective radio sender IDs of existing projects on opt-in.
+      setDevices(devices.map(d => isPct14ImportedDevice(d) ? { ...d, bus_system_id:bus.id, bus_base_id:base,
+        sender_id:profileFor(d.eep).needs_sender ? senderIdForGateway(d, gateway, base) : d.sender_id } : d));
+      setBusSystems([bus]); setImportBusId(bus.id); setWriteBusId(bus.id);
+    }
+    setMultiBusEnabled(checked); setYaml(""); setGeneratedGatewayBlocks([]);
+  };
+
   const handlePct14Import = async (event) => {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -2514,6 +2578,24 @@ export default function App() {
         includeFam14Gateway: importFam14Gateway,
         includeFgw14Gateway: importFgw14Gateway,
       }, language);
+      if (multiBusEnabled) {
+        const base = normalizeId(result.baseId);
+        if (!base) throw new Error(t("multibus.invalidBase"));
+        const selected = busSystems.find(bus => bus.id === importBusId);
+        if (selected?.base_id && normalizeId(selected.base_id) !== base) throw new Error(t("multibus.baseMismatch"));
+        const sameBase = busSystems.find(bus => normalizeId(bus.base_id) === base);
+        if (sameBase && sameBase.id !== selected?.id) throw new Error(t("multibus.duplicateBase"));
+        const bus = { ...(selected || { id:`bus-${Date.now()}`, name:t("multibus.busNumber", { count:busSystems.length + 1 }) }),
+          base_id:base, hasFam14:Boolean(result.hasFam14Gateway), hasFgw14:Boolean(result.hasFgw14Gateway) };
+        const next = assignPct14BusDevices(devices, result.devices, bus, gateway);
+        setDevices(next);
+        setBusSystems(existing => [...existing.filter(item => item.id !== bus.id), bus]);
+        setImportBusId(bus.id);
+        if (!writeBusId) setWriteBusId(bus.id);
+        setYaml(""); setGeneratedGatewayBlocks([]);
+        setImportMsg(t("multibus.imported", { count:next.length - devices.length, name:bus.name, base }));
+        return;
+      }
       setPct14DetectedFam14(Boolean(result.hasFam14Gateway));
       setPct14DetectedFgw14(Boolean(result.hasFgw14Gateway));
       setPct14GatewayBaseId(result.baseId || "");
@@ -2541,7 +2623,7 @@ export default function App() {
       setImportMsg(t("import.success", { count: result.devices.length, noun: importNoun, file: file.name, baseId: result.baseId ? t("import.baseIdInfo", { baseId: result.baseId }) : "", sender: senderText, unsupported: unsupportedText }));
       setTimeout(() => setImportMsg(""), 20000);
     } catch (err) {
-      setImportMsg(t("import.failed", { error: runtimeText(err.message || err) }));
+      setImportMsg(t("import.failed", { error: String(err.message || "").startsWith("multibus.") ? t(err.message) : runtimeText(err.message || err) }));
     }
   };
 
@@ -2561,6 +2643,13 @@ export default function App() {
 
   const buildActiveExtraGateways = () => {
     const active = extraGateways.filter(gw => gw.source !== "pct14-rootdevice" && gw.source !== "pct14-fgw14");
+    if (multiBusEnabled) {
+      for (const bus of busSystems) {
+        if (importFam14Gateway && bus.hasFam14) active.push({ type:"fam14", base_id:bus.base_id, source:"pct14-rootdevice" });
+        if (importFgw14Gateway && bus.hasFgw14) active.push({ type:"fgw14usb", base_id:bus.base_id, source:"pct14-fgw14" });
+      }
+      return active;
+    }
     if (importFam14Gateway && pct14DetectedFam14 && pct14GatewayBaseId) {
       active.push({ type:"fam14", base_id:pct14GatewayBaseId, source:"pct14-rootdevice" });
     }
@@ -2603,16 +2692,37 @@ export default function App() {
   const activeGatewayBlocks = yaml && generatedGatewayBlocks.length
     ? generatedGatewayBlocks
     : currentGatewayBlocks;
-  const senderProgrammingEntries = buildSenderProgrammingEntries(devices, activeGatewayBlocks, pct14GatewayBaseId);
+  const selectedWriteBus = busSystems.find(bus => bus.id === writeBusId);
+  const programmingGatewayBlocks = multiBusEnabled
+    ? activeGatewayBlocks.filter(gw => gw.type === "fam-usb" || normalizeId(gw.base_id) === normalizeId(selectedWriteBus?.base_id))
+    : activeGatewayBlocks;
+  const senderProgrammingEntries = multiBusEnabled && !selectedWriteBus ? []
+    : buildSenderProgrammingEntries(devices, programmingGatewayBlocks, selectedWriteBus?.base_id || pct14GatewayBaseId, multiBusEnabled ? writeBusId : "");
   const senderGatewaySummary = activeGatewayBlocks
     .map(gw => `${gw.type}${gw.base_id ? ` (${gw.base_id})` : ""}`)
     .join(" · ");
-  const hasRs485Gateway = activeGatewayBlocks.some(gw => ["fam14", "fgw14usb"].includes(gw.type));
+  const hasRs485Gateway = multiBusEnabled ? Boolean(selectedWriteBus)
+    : pct14DetectedFam14 || pct14DetectedFgw14 || activeGatewayBlocks.some(gw => ["fam14", "fgw14usb"].includes(gw.type));
   const defaultBusWritePort = ["fam14", "fgw14usb"].includes(gateway.type) ? gateway.serial_path : "";
   const busWritePort = (writeBusPort || defaultBusWritePort || "").trim();
-  const busWriteGatewayConnected = hasRs485Gateway && Boolean(busWritePort);
+  const expectedWriteBaseId = normalizeId(multiBusEnabled ? selectedWriteBus?.base_id : pct14GatewayBaseId);
+  const writeConnectionKey = `${busWritePort}|${expectedWriteBaseId}|${multiBusEnabled ? writeBusId : "single"}`;
+  const busWriteGatewayAvailable = hasRs485Gateway && Boolean(busWritePort);
+  const busWriteGatewayConnected = busWriteGatewayAvailable && writeGatewayConnection?.key === writeConnectionKey;
+  const writeGatewayBusy = connectingWriteGateway || disconnectingGateway;
+
+  useEffect(() => {
+    // An automatic discovery updates the port and readiness together. Preserve
+    // that verified result, while still invalidating manual port/bus changes.
+    if (writeGatewayConnection?.key === writeConnectionKey) return () => { writeConnectRequestRef.current += 1; };
+    // Connection checks are session state, never restored from project files.
+    setWriteGatewayConnection(null);
+    setConnectingWriteGateway(false);
+    writeConnectRequestRef.current += 1;
+    return () => { writeConnectRequestRef.current += 1; };
+  }, [writeConnectionKey]);
   const busWriteHint = t("senderWrite.hint");
-  const canWriteSenderIds = !writingSenders && busWriteGatewayConnected && senderProgrammingEntries.length > 0;
+  const canWriteSenderIds = !writingSenders && !writeGatewayBusy && busWriteGatewayConnected && senderProgrammingEntries.length > 0;
 
   useEffect(() => {
     if (!isElectron || !window.electronAPI?.onWriteSenderProgress) return undefined;
@@ -2627,34 +2737,72 @@ export default function App() {
     await window.electronAPI.cancelWriteSenderIds();
   };
 
+  const handleConnectWriteGateway = async () => {
+    if (!isElectron || writeGatewayBusy || writingSenders || !window.electronAPI?.connectWriteGateway) return;
+    if (!hasRs485Gateway) { setWriteSenderMsg(t("senderWrite.wrongGateway")); return; }
+    if (!expectedWriteBaseId) { setWriteSenderMsg(t("senderWrite.noBaseId")); return; }
+    const request = ++writeConnectRequestRef.current;
+    const port = busWritePort;
+    setWriteGatewayConnection(null);
+    setConnectingWriteGateway(true);
+    setWriteSenderSummary(null);
+    setWriteSenderMsg(t("status.connectingGateway"));
+    try {
+      // Empty port: discover the selected bus. A manually entered port is strict.
+      const result = await window.electronAPI.connectWriteGateway({ portPath:port, expectedBaseId:expectedWriteBaseId });
+      if (request !== writeConnectRequestRef.current) return;
+      if (!result?.ok) throw new Error(result?.error || t("project.unknownError"));
+      const detectedPort = String(result.portPath || port).trim();
+      if (!detectedPort) throw new Error(t("senderWrite.noPort"));
+      if (port && detectedPort.toUpperCase() !== port.toUpperCase()) {
+        throw new Error(t("senderWrite.otherPort", { port, found:result.portPath }));
+      }
+      const actualBase = normalizeId(result.baseId);
+      if (!actualBase || actualBase !== expectedWriteBaseId) {
+        throw new Error(t("senderWrite.busMismatch", { expected:expectedWriteBaseId, actual:actualBase || "-" }));
+      }
+      const detectedKey = `${detectedPort}|${expectedWriteBaseId}|${multiBusEnabled ? writeBusId : "single"}`;
+      setWriteBusPort(detectedPort);
+      if (Array.isArray(result.ports)) setPorts(result.ports);
+      setWriteGatewayConnection({ key:detectedKey, port:detectedPort, base_id:actualBase });
+      setWriteSenderMsg(t("senderWrite.connected", { port:detectedPort, baseId:actualBase }));
+    } catch (error) {
+      if (request !== writeConnectRequestRef.current) return;
+      setWriteGatewayConnection(null);
+      setWriteSenderMsg(t("senderWrite.connectFailed", { error:runtimeText(error.message || error) }));
+    } finally {
+      if (request === writeConnectRequestRef.current) setConnectingWriteGateway(false);
+    }
+  };
+
   const handleDisconnectWriteGateway = async () => {
-    if (!isElectron || disconnectingGateway || !window.electronAPI?.disconnectGateway) return;
+    if (!isElectron || writeGatewayBusy || !window.electronAPI?.disconnectGateway) return;
     const port = busWritePort;
     if (!port || !hasRs485Gateway) return;
-
     setDisconnectingGateway(true);
     setWriteSenderSummary(null);
-    if (writingSenders && window.electronAPI?.cancelWriteSenderIds) {
-      setWriteSenderProgress(previous => ({ ...previous, phase:"canceling" }));
-      await window.electronAPI.cancelWriteSenderIds();
-      await new Promise(resolve => setTimeout(resolve, 1200));
-    }
-
-    const result = await window.electronAPI.disconnectGateway({
-      portPath: port,
-      gatewayType: "fam14",
-      baudRate: 57600,
-    });
-    setDisconnectingGateway(false);
-    if (result.ok) {
+    try {
+      if (writingSenders && window.electronAPI?.cancelWriteSenderIds) {
+        setWriteSenderProgress(previous => ({ ...previous, phase:"canceling" }));
+        await window.electronAPI.cancelWriteSenderIds();
+        await new Promise(resolve => setTimeout(resolve, 1200));
+      }
+      const result = await window.electronAPI.disconnectGateway({ portPath:port, gatewayType:"fam14", baudRate:57600 });
+      if (!result?.ok) throw new Error(result?.error || t("project.unknownError"));
+      setWriteGatewayConnection(null);
+      writeConnectRequestRef.current += 1;
       setWriteSenderMsg(t("status.disconnectSuccess"));
-    } else {
-      setWriteSenderMsg(t("status.disconnectFailed", { error: runtimeText(result.error || t("project.unknownError")) }));
+    } catch (error) {
+      setWriteSenderMsg(t("status.disconnectFailed", { error:runtimeText(error.message || error) }));
+    } finally {
+      setDisconnectingGateway(false);
     }
   };
 
   const handleWriteSenderIds = async () => {
+    if (writeGatewayBusy || writingSenders) return;
     setWriteSenderSummary(null);
+    if (!busWriteGatewayConnected) { setWriteSenderMsg(t("senderWrite.connectFirst")); return; }
     if (!isElectron) {
       setWriteSenderMsg(t("senderWrite.desktopOnly"));
       return;
@@ -2672,7 +2820,7 @@ export default function App() {
       setWriteSenderMsg(t("senderWrite.noPort"));
       return;
     }
-    if (!pct14GatewayBaseId) {
+    if (!(multiBusEnabled ? selectedWriteBus?.base_id : pct14GatewayBaseId)) {
       setWriteSenderMsg(t("senderWrite.noBaseId"));
       return;
     }
@@ -2680,7 +2828,7 @@ export default function App() {
       setWriteSenderMsg(t("senderWrite.noEntries"));
       return;
     }
-    const ok = window.confirm(t("senderWrite.confirm", { port, gateway: senderGatewaySummary || "-", count: senderProgrammingEntries.length }));
+    const ok = window.confirm(t("senderWrite.confirm", { port, gateway: (multiBusEnabled ? `${selectedWriteBus.name} (${selectedWriteBus.base_id}) · ` : "") + senderGatewaySummary || "-", count: senderProgrammingEntries.length }));
     if (!ok) return;
 
     setWritingSenders(true);
@@ -3318,7 +3466,29 @@ export default function App() {
               <div style={{fontSize:".68rem",color:"#64748b",lineHeight:1.7,marginBottom:".8rem"}}>
                 {t("devices.importDescription")}
               </div>
-              {(pct14DetectedFam14 || pct14DetectedFgw14) && (
+              <label style={{display:"flex",alignItems:"center",gap:".55rem",fontSize:".72rem",marginBottom:".8rem"}}>
+                <input type="checkbox" checked={multiBusEnabled} onChange={e=>handleMultiBusToggle(e.target.checked)} style={{width:"auto",margin:0}}/>
+                {t("multibus.enabled")}
+              </label>
+              {multiBusEnabled && <div style={{border:"1px solid #c6d9e4",background:"#f2f8fb",borderRadius:8,padding:".8rem",marginBottom:".85rem"}}>
+                <label>{t("multibus.importBus")}</label>
+                <select value={importBusId} onChange={e=>setImportBusId(e.target.value)}>
+                  <option value="">{t("multibus.addBus")}</option>
+                  {busSystems.map(bus=><option key={bus.id} value={bus.id}>{bus.name} · {bus.base_id}</option>)}
+                </select>
+                {busSystems.find(bus=>bus.id===importBusId) && <>
+                  <label style={{marginTop:".6rem"}}>{t("multibus.name")}</label>
+                  <input value={busSystems.find(bus=>bus.id===importBusId).name} onChange={e=>setBusSystems(items=>items.map(bus=>bus.id===importBusId ? {...bus,name:e.target.value} : bus))}/>
+                </>}
+                <div style={{fontSize:".68rem",marginTop:".6rem",lineHeight:1.6}}>{t("multibus.importHint")}</div>
+                <label style={{display:"flex",gap:".55rem",alignItems:"center",marginTop:".6rem",fontSize:".72rem"}}>
+                  <input type="checkbox" checked={importFam14Gateway} onChange={e=>setImportFam14Gateway(e.target.checked)} style={{width:"auto",margin:0}}/>{t("devices.useFam14Gateway")}
+                </label>
+                <label style={{display:"flex",gap:".55rem",alignItems:"center",fontSize:".72rem"}}>
+                  <input type="checkbox" checked={importFgw14Gateway} onChange={e=>setImportFgw14Gateway(e.target.checked)} style={{width:"auto",margin:0}}/>{t("devices.useFgw14Gateway")}
+                </label>
+              </div>}
+              {!multiBusEnabled && (pct14DetectedFam14 || pct14DetectedFgw14) && (
                 <div style={{border:"1px solid #c6d9e4",background:"#f2f8fb",borderRadius:8,padding:".7rem .8rem",marginBottom:".85rem"}}>
                   <div style={{fontSize:".68rem",color:"#53616f",fontWeight:800,marginBottom:".55rem"}}>{t("devices.detectedFromPct14")}</div>
                   {pct14DetectedFam14 && (
@@ -3583,7 +3753,7 @@ export default function App() {
                       <span style={{fontSize:".6rem",padding:".12rem .4rem",borderRadius:3,background:col+"20",color:col,fontWeight:600,flexShrink:0,whiteSpace:"nowrap"}}>{PI[d.platform]} {translatePlatform(language, d.platform)}</span>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{color:"#111827",fontWeight:600,fontSize:".82rem",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.name}</div>
-                        <div style={{color:"#6b7280",fontSize:".68rem"}}>{d.dev_id} · {d.source_device_type || d.eep.replace(/-sw$/,"")}{d.room?" · "+d.room:""}</div>
+                        <div style={{color:"#6b7280",fontSize:".68rem"}}>{multiBusEnabled && d.bus_system_id ? `${busSystems.find(bus=>bus.id===d.bus_system_id)?.name || d.bus_system_id} · ` : ""}{d.dev_id} · {d.source_device_type || d.eep.replace(/-sw$/,"")}{d.room?" · "+d.room:""}</div>
                       </div>
                       <div style={{display:"flex",gap:".35rem",flexShrink:0}}>
                         <button className="btn edit" onClick={()=>handleEdit(i)}>{t("devices.editButton")}</button>
@@ -3620,11 +3790,19 @@ export default function App() {
                 </div>
                 <span className="statusPill">{t("common.senderCount", { count: senderProgrammingEntries.length })}</span>
               </div>
-              <div title={!busWriteGatewayConnected ? busWriteHint : ""} style={{opacity:busWriteGatewayConnected?1:.48,cursor:busWriteGatewayConnected?"default":"not-allowed"}}>
+              {multiBusEnabled && <div style={{marginBottom:".8rem"}}>
+                <label>{t("multibus.writeBus")}</label>
+                <select value={writeBusId} disabled={writingSenders || writeGatewayBusy} onChange={e=>{setWriteBusId(e.target.value);setWriteSenderMsg("");setWriteSenderSummary(null);setWriteSenderLog([]);}}>
+                  <option value="">{t("multibus.selectBus")}</option>
+                  {busSystems.map(bus=><option key={bus.id} value={bus.id}>{bus.name} · {bus.base_id}</option>)}
+                </select>
+                <div style={{fontSize:".68rem",marginTop:".45rem",lineHeight:1.6}}>{t("multibus.writeHint")}</div>
+              </div>}
+              <div title={!busWriteGatewayAvailable ? busWriteHint : ""} style={{opacity:hasRs485Gateway?1:.48}}>
                 <div style={{display:"grid",gridTemplateColumns:"minmax(210px,1fr) minmax(260px,1.2fr) auto",gap:".65rem",alignItems:"start"}}>
                   <div>
                     <label>{t("yaml.busComPort")}</label>
-                    <input disabled={!hasRs485Gateway} value={writeBusPort || defaultBusWritePort} onChange={e=>setWriteBusPort(e.target.value)} placeholder={t("gateway.serialPortPlaceholder")} list="serial-port-list" style={{height:42,minHeight:42}}/>
+                    <input disabled={!hasRs485Gateway || writingSenders || writeGatewayBusy} value={writeBusPort || defaultBusWritePort} onChange={e=>setWriteBusPort(e.target.value)} placeholder={t("gateway.serialPortPlaceholder")} list="serial-port-list" style={{height:42,minHeight:42}}/>
                   </div>
                   <div>
                     <label>{t("yaml.senderIdsFromGateway")}</label>
@@ -3641,8 +3819,8 @@ export default function App() {
                       <button className="btn ghost" onClick={handleCancelWriteSenderIds} disabled={!writingSenders} style={{whiteSpace:"nowrap",height:36,minHeight:36}}>
                         {t("common.cancel")}
                       </button>
-                      <button className="btn ghost" onClick={handleDisconnectWriteGateway} disabled={disconnectingGateway || !busWriteGatewayConnected} style={{whiteSpace:"nowrap",height:36,minHeight:36}}>
-                        {disconnectingGateway ? t("gateway.disconnecting") : t("gateway.disconnect")}
+                      <button className="btn ghost" onClick={busWriteGatewayConnected ? handleDisconnectWriteGateway : handleConnectWriteGateway} disabled={writeGatewayBusy || !hasRs485Gateway || !expectedWriteBaseId || !isElectron} style={{whiteSpace:"nowrap",height:36,minHeight:36}}>
+                        {connectingWriteGateway ? t("gateway.connecting") : disconnectingGateway ? t("gateway.disconnecting") : t(busWriteGatewayConnected ? "gateway.disconnect" : "gateway.connect")}
                       </button>
                     </div>
                   </div>
@@ -3668,7 +3846,7 @@ export default function App() {
                   </div>;
                 })()}
               </div>
-              {!busWriteGatewayConnected&&<div style={{fontSize:".68rem",marginTop:".65rem",padding:".5rem .7rem",borderRadius:5,background:"#fff7ed",color:"#9a3412",border:"1px solid #fed7aa"}}>{t("yaml.writeDisabled")}</div>}
+              {!busWriteGatewayAvailable&&<div style={{fontSize:".68rem",marginTop:".65rem",padding:".5rem .7rem",borderRadius:5,background:"#fff7ed",color:"#9a3412",border:"1px solid #fed7aa"}}>{t(hasRs485Gateway ? "senderWrite.autoPortHint" : "yaml.writeDisabled")}</div>}
               {(writeSenderSummary||writeSenderMsg)&&(()=>{
                 const message = writeSenderSummary
                   ? t("senderWrite.done", writeSenderSummary)
@@ -3693,7 +3871,7 @@ export default function App() {
 
               {/* Hint */}
               <div style={{padding:".7rem 1.1rem",borderBottom:"1px solid #d9e0e7",background:"#eef5f8",fontSize:".7rem",color:"#53616f",lineHeight:1.7}}>
-                {t("yaml.contentHintBefore")} <code style={{color:"#245873"}}>/config/configuration.yaml</code> {t("yaml.contentHintAfter")}
+                {t("yaml.importHint")}
               </div>
 
               <pre style={{margin:0,padding:"1.1rem",fontSize:".73rem",lineHeight:1.85,color:"#53616f",overflowX:"auto",maxHeight:540,overflowY:"auto"}}>
