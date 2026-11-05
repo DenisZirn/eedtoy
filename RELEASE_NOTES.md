@@ -4,6 +4,7 @@ EEDTOY v1.1.01 unterstützt mehrere getrennte FAM14-Bussysteme hinter einem geme
 
 ## Aktualisierung des bestehenden Releases
 
+- Umlaute in Meldungen der FAM14-Verbindungsprüfung werden auch mit der isolierten Windows-Python-Laufzeit korrekt angezeigt.
 - Bestätigte Korrekturen aus dem Offline-Teststand TEST 5 sind übernommen; Version und Release-Tag bleiben v1.1.01.
 - „Gateway verbinden“ nutzt zusätzlich die robuste Windows-Portsuche. Auch ohne manuelle COM-Portangabe wird das passende FAM14 anhand der ausgewählten Basis-ID gesucht.
 - Automatisch ermittelte oder gespeicherte Ports sind Suchvorschläge. Beim Wechsel des Bussystems kann ein anderer Port gefunden werden; ausdrücklich manuell eingegebene Ports bleiben verbindlich.

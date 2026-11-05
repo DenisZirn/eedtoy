@@ -1,5 +1,7 @@
 ## 1.1.01
 
+- Zeichenkodierung der FAM14-Verbindungsmeldungen unter Windows korrigiert (z. B. „für“ statt eines Ersatzzeichens).
+
 - Bestehendes Release mit den hardwarebestätigten TEST-5-Korrekturen aktualisiert, ohne neue Versionsnummer.
 - Robuste Windows-Portsuche auch im Schreibschritt; gespeicherte Ports nur als Suchvorschlag, manuelle Ports bleiben verbindlich.
 - FAM14-Verbindung mit 57600-/9600-Baud-Prüfung und durchgängiger Nutzung der erkannten Baudrate.

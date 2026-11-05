@@ -65,3 +65,22 @@ result = subprocess.run([sys.executable, '-I', str(ROOT/'python/detect_write_gat
 assert json.loads(result.stdout)['ok'] is False
 assert 'ModuleNotFoundError' not in result.stderr
 print('Isolated embedded-Python launch can load the sibling detector module.')
+
+# Windows embedded Python ignores encoding environment variables under -I.
+# Exercise a non-UTF-8 stdout code page and split transport bytes individually.
+code = """
+import importlib.util, sys
+sys.stdout.reconfigure(encoding='cp1252')
+spec = importlib.util.spec_from_file_location('write_detector', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+module.jprint({'ok': False, 'error': 'Kein passendes FAM14 für Basis-ID FF-E4-AB-00 gefunden. Erkannte Bussysteme: COM3 (FF-BF-5C-80).', 'details': 'Ungültig: äöü ÄÖÜ ß –'})
+"""
+result = subprocess.run([sys.executable, '-I', '-c', code, str(ROOT/'python/detect_write_gateway.py')], capture_output=True, check=True)
+assert result.stdout.isascii(), result.stdout
+transport = ''.join(bytes([byte]).decode('utf-8') for byte in result.stdout)
+message = json.loads(transport)
+assert 'für Basis-ID FF-E4-AB-00' in message['error']
+assert message['details'] == 'Ungültig: äöü ÄÖÜ ß –'
+assert '\ufffd' not in message['error']
+print('Write-gateway JSON preserves German characters under isolated cp1252 stdout and split transport chunks.')

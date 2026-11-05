@@ -2,6 +2,7 @@
 """Discover the selected FAM14 for programming without changing HA gateway detection."""
 import argparse
 import asyncio
+import json
 import re
 import importlib.util
 from pathlib import Path
@@ -11,7 +12,12 @@ from pathlib import Path
 _spec = importlib.util.spec_from_file_location('_eedtoy_detector', Path(__file__).with_name('detect_gateway.py'))
 _shared = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_shared)
-jprint = _shared.jprint
+def jprint(obj):
+    # Embedded Python runs with -I and ignores PYTHONIOENCODING. Keep the JSON
+    # transport ASCII-only so Windows code pages cannot corrupt German text.
+    print(json.dumps(obj, ensure_ascii=True), flush=True)
+
+
 list_ports = _shared.list_ports
 try_rs485_port = _shared.try_rs485_port
 

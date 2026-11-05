@@ -1,4 +1,5 @@
 name: Update EEDTOY v1.1.01
+# Rebuild the existing installer with code-page-independent gateway messages.
 
 on:
   push:
