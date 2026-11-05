@@ -34,7 +34,7 @@ function renderer(initial = {}) {
     devices: [], extraGateways: [], form: {}, editIdx: null, yaml: 'OLD YAML', generatedGatewayBlocks: [],
     importFam14Gateway: true, importFgw14Gateway: true, pct14DetectedFam14: false,
     pct14DetectedFgw14: false, pct14GatewayBaseId: '', writeBusPort: '', writeTargetGatewayKey: '',
-    multiBusEnabled:false, busSystems:[], importBusId:"", writeBusId:"", writeConnectRequestRef:{current:0},
+    writeBusPortManual:false, multiBusEnabled:false, busSystems:[], importBusId:"", writeBusId:"", writeConnectRequestRef:{current:0},
     language: 'de', projectFilePath: '', projectFileName: '', projectActionsRef: { current: {} },
     isElectron: true, t: key => key, runtimeText: value => value, setTimeout: () => 0,
     window: { electronAPI: {
@@ -46,7 +46,7 @@ function renderer(initial = {}) {
   };
   for (const name of ['Step', 'Gateway', 'Devices', 'ExtraGateways', 'Form', 'EditIdx', 'Yaml', 'GeneratedGatewayBlocks',
     'ImportFam14Gateway', 'ImportFgw14Gateway', 'Pct14DetectedFam14', 'Pct14DetectedFgw14', 'Pct14GatewayBaseId',
-    'WriteGatewayConnection', 'ConnectingWriteGateway', 'MultiBusEnabled', 'BusSystems', 'ImportBusId', 'WriteBusId', 'WriteBusPort', 'WriteTargetGatewayKey', 'Errors', 'Copied', 'ImportMsg', 'MiniSafeImportMsg', 'DetectMsg',
+    'WriteBusPortManual', 'WriteGatewayConnection', 'ConnectingWriteGateway', 'MultiBusEnabled', 'BusSystems', 'ImportBusId', 'WriteBusId', 'WriteBusPort', 'WriteTargetGatewayKey', 'Errors', 'Copied', 'ImportMsg', 'MiniSafeImportMsg', 'DetectMsg',
     'LearnMsg', 'WriteSenderMsg', 'WriteSenderSummary', 'WriteSenderLog', 'ProjectFileName', 'ProjectFilePath', 'ProjectMsg']) {
     const key = name[0].toLowerCase() + name.slice(1);
     context['set' + name] = value => { context[key] = typeof value === 'function' ? value(context[key]) : value; };

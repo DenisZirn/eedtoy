@@ -1,6 +1,17 @@
 # EEDTOY v1.1.01
 
-EEDTOY v1.1.01 unterstützt mehrere getrennte FAM14-Bussysteme hinter einem gemeinsamen FAM-USB. Der bestätigte TEST3-Stand wird damit offiziell verfügbar. Das FAM14 zum Programmieren kann direkt im YAML-/Schreibschritt erkannt und geprüft werden; ein Wechsel zum ersten Bildschirm ist dafür nicht mehr erforderlich.
+EEDTOY v1.1.01 unterstützt mehrere getrennte FAM14-Bussysteme hinter einem gemeinsamen FAM-USB. Das FAM14 zum Programmieren kann direkt im YAML-/Schreibschritt erkannt und geprüft werden; ein Wechsel zum ersten Bildschirm ist dafür nicht mehr erforderlich.
+
+## Aktualisierung des bestehenden Releases
+
+- Bestätigte Korrekturen aus dem Offline-Teststand TEST 5 sind übernommen; Version und Release-Tag bleiben v1.1.01.
+- „Gateway verbinden“ nutzt zusätzlich die robuste Windows-Portsuche. Auch ohne manuelle COM-Portangabe wird das passende FAM14 anhand der ausgewählten Basis-ID gesucht.
+- Automatisch ermittelte oder gespeicherte Ports sind Suchvorschläge. Beim Wechsel des Bussystems kann ein anderer Port gefunden werden; ausdrücklich manuell eingegebene Ports bleiben verbindlich.
+- Die Verbindung prüft 57600 und 9600 Baud und verwendet die tatsächlich erkannte Baudrate beim Schreiben und Trennen.
+- Fehlende FD2G14-Speicherantworten werden begrenzt wiederholt und auf Zeilennummer sowie Datenlänge geprüft. Eine fehlende Antwort gilt niemals als leerer Speicherplatz.
+- Bei verlorener FD2G14-Schreibbestätigung wird der reale Speicher zurückgelesen. Bereits erledigte Einträge lösen keinen zusätzlichen vollständigen Scan aus.
+- Die FD2G14-Erkennung wiederholt die erwartete physische Basisadresse; ein anderes Gerät wird nicht als Ersatz beschrieben.
+- Der Windows-Installer und die Quellen wurden aktualisiert. Vorhandene macOS-DMGs wurden nicht ersetzt.
 
 ## Mehrere getrennte FAM14-Bussysteme
 

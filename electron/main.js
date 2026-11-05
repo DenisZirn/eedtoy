@@ -1081,7 +1081,11 @@ async function runPythonDetector(preferredPath = '', mode = 'auto', writeConnect
 
       const c = commands[index];
       const args = [...c.args, '--preferred', preferredPath || '', '--mode', mode || 'auto'];
-      if (writeConnection) args.push('--expected-base-id', writeConnection.expectedBaseId);
+      if (writeConnection) {
+        args.push('--expected-base-id', writeConnection.expectedBaseId);
+        if (writeConnection.strictPort) args.push('--strict-port');
+        for (const candidate of writeConnection.candidatePorts || []) args.push('--candidate-port', candidate.path);
+      }
       console.log('[python-detect] START', c.cmd, args.join(' '));
 
       let stdout = '';
@@ -1943,8 +1947,9 @@ ipcMain.handle('connect-write-gateway', async (_, payload) => {
     return { ok:false, error:'Ungültige FAM14-Basis-ID für das ausgewählte Bussystem.' };
   }
   try {
-    const result = await runPythonDetector(portPath, 'fam14', { expectedBaseId });
-    if (result.ok) rememberBusConnection(result.portPath, 'fam14', 57600);
+    const { ports: candidatePorts } = await listSerialPortsRobust(portPath);
+    const result = await runPythonDetector(portPath, 'fam14', { expectedBaseId, strictPort:payload?.strictPort === true, candidatePorts });
+    if (result.ok) rememberBusConnection(result.portPath, 'fam14', result.baudRate || 57600);
     return result;
   } catch (error) {
     return { ok:false, error:String(error.message || error) };

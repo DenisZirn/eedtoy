@@ -1736,6 +1736,7 @@ export default function App() {
   const [importBusId, setImportBusId] = useState("");
   const [writeBusId, setWriteBusId] = useState("");
   const [writeBusPort, setWriteBusPort] = useState("");
+  const [writeBusPortManual, setWriteBusPortManual] = useState(false);
   const [writeTargetGatewayKey, setWriteTargetGatewayKey] = useState("");
   const [writingSenders, setWritingSenders] = useState(false);
   const [connectingWriteGateway, setConnectingWriteGateway] = useState(false);
@@ -1789,6 +1790,7 @@ export default function App() {
         pct14GatewayBaseId,
         multiBusEnabled, busSystems, importBusId, writeBusId,
         writeBusPort,
+        writeBusPortManual,
         writeTargetGatewayKey,
       },
     };
@@ -1913,6 +1915,7 @@ export default function App() {
     setImportBusId(typeof state.importBusId === "string" ? state.importBusId : "");
     setWriteBusId(typeof state.writeBusId === "string" ? state.writeBusId : "");
     setWriteGatewayConnection(null);
+    setWriteBusPortManual(state.writeBusPortManual === true);
     writeConnectRequestRef.current += 1;
     setConnectingWriteGateway(false);
     setGateway(loadedGateway);
@@ -2749,12 +2752,12 @@ export default function App() {
     setWriteSenderMsg(t("status.connectingGateway"));
     try {
       // Empty port: discover the selected bus. A manually entered port is strict.
-      const result = await window.electronAPI.connectWriteGateway({ portPath:port, expectedBaseId:expectedWriteBaseId });
+      const result = await window.electronAPI.connectWriteGateway({ portPath:port, expectedBaseId:expectedWriteBaseId, strictPort:writeBusPortManual });
       if (request !== writeConnectRequestRef.current) return;
       if (!result?.ok) throw new Error(result?.error || t("project.unknownError"));
       const detectedPort = String(result.portPath || port).trim();
       if (!detectedPort) throw new Error(t("senderWrite.noPort"));
-      if (port && detectedPort.toUpperCase() !== port.toUpperCase()) {
+      if (writeBusPortManual && port && detectedPort.toUpperCase() !== port.toUpperCase()) {
         throw new Error(t("senderWrite.otherPort", { port, found:result.portPath }));
       }
       const actualBase = normalizeId(result.baseId);
@@ -2764,7 +2767,7 @@ export default function App() {
       const detectedKey = `${detectedPort}|${expectedWriteBaseId}|${multiBusEnabled ? writeBusId : "single"}`;
       setWriteBusPort(detectedPort);
       if (Array.isArray(result.ports)) setPorts(result.ports);
-      setWriteGatewayConnection({ key:detectedKey, port:detectedPort, base_id:actualBase });
+      setWriteGatewayConnection({ key:detectedKey, port:detectedPort, base_id:actualBase, baudRate:Number(result.baudRate) === 9600 ? 9600 : 57600 });
       setWriteSenderMsg(t("senderWrite.connected", { port:detectedPort, baseId:actualBase }));
     } catch (error) {
       if (request !== writeConnectRequestRef.current) return;
@@ -2787,7 +2790,7 @@ export default function App() {
         await window.electronAPI.cancelWriteSenderIds();
         await new Promise(resolve => setTimeout(resolve, 1200));
       }
-      const result = await window.electronAPI.disconnectGateway({ portPath:port, gatewayType:"fam14", baudRate:57600 });
+      const result = await window.electronAPI.disconnectGateway({ portPath:port, gatewayType:"fam14", baudRate:writeGatewayConnection?.baudRate || 57600 });
       if (!result?.ok) throw new Error(result?.error || t("project.unknownError"));
       setWriteGatewayConnection(null);
       writeConnectRequestRef.current += 1;
@@ -2838,7 +2841,7 @@ export default function App() {
     const result = await window.electronAPI.writeSenderIdsToDevices({
       portPath: port,
       gatewayType: "fam14",
-      baudRate: 57600,
+      baudRate: writeGatewayConnection?.baudRate || 57600,
       targetGateways: activeGatewayBlocks,
       entries: senderProgrammingEntries,
     });
@@ -3792,7 +3795,7 @@ export default function App() {
               </div>
               {multiBusEnabled && <div style={{marginBottom:".8rem"}}>
                 <label>{t("multibus.writeBus")}</label>
-                <select value={writeBusId} disabled={writingSenders || writeGatewayBusy} onChange={e=>{setWriteBusId(e.target.value);setWriteSenderMsg("");setWriteSenderSummary(null);setWriteSenderLog([]);}}>
+                <select value={writeBusId} disabled={writingSenders || writeGatewayBusy} onChange={e=>{setWriteBusId(e.target.value);if(!writeBusPortManual)setWriteBusPort("");setWriteSenderMsg("");setWriteSenderSummary(null);setWriteSenderLog([]);}}>
                   <option value="">{t("multibus.selectBus")}</option>
                   {busSystems.map(bus=><option key={bus.id} value={bus.id}>{bus.name} · {bus.base_id}</option>)}
                 </select>
@@ -3802,7 +3805,7 @@ export default function App() {
                 <div style={{display:"grid",gridTemplateColumns:"minmax(210px,1fr) minmax(260px,1.2fr) auto",gap:".65rem",alignItems:"start"}}>
                   <div>
                     <label>{t("yaml.busComPort")}</label>
-                    <input disabled={!hasRs485Gateway || writingSenders || writeGatewayBusy} value={writeBusPort || defaultBusWritePort} onChange={e=>setWriteBusPort(e.target.value)} placeholder={t("gateway.serialPortPlaceholder")} list="serial-port-list" style={{height:42,minHeight:42}}/>
+                    <input disabled={!hasRs485Gateway || writingSenders || writeGatewayBusy} value={writeBusPort || defaultBusWritePort} onChange={e=>{setWriteBusPort(e.target.value);setWriteBusPortManual(Boolean(e.target.value.trim()));setWriteGatewayConnection(null);}} placeholder={t("gateway.serialPortPlaceholder")} list="serial-port-list" style={{height:42,minHeight:42}}/>
                   </div>
                   <div>
                     <label>{t("yaml.senderIdsFromGateway")}</label>

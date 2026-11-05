@@ -479,6 +479,50 @@ def _is_real_fd2g14(dev: Any) -> bool:
     return model[:2] == bytes((0x04, 0x82)) and size == 16
 
 
+def _prepare_fd2g14_memory_access(dev: Any) -> None:
+    """Guard only FD2G14 memory replies; retain its library programming layout."""
+    if not _is_real_fd2g14(dev) or getattr(dev, "_eedtoy_memory_guard", False):
+        return
+    from eltakobus.message import EltakoMemoryRequest, EltakoMemoryResponse
+    original_write = dev.write_mem_line
+
+    async def read_row(row):
+        cached = dev.memory[row]
+        if cached is not None:
+            return cached
+        for attempt in range(3):
+            try:
+                response = await dev.bus.exchange(
+                    EltakoMemoryRequest(dev.address, row), EltakoMemoryResponse,
+                    retries=1, timeout=1.0)
+                if (isinstance(response, EltakoMemoryResponse)
+                        and response.row == row
+                        and isinstance(response.value, (bytes, bytearray))
+                        and len(response.value) == 8):
+                    dev.memory[row] = bytes(response.value)
+                    return dev.memory[row]
+            except TimeoutError:
+                pass
+            if attempt < 2:
+                await asyncio.sleep(0.1)
+        raise TimeoutError(f"FD2G14 Basisadresse {dev.address}: keine gültige Speicherantwort für Zeile {row} nach 3 Versuchen; Schreiben abgebrochen.")
+
+    async def write_row(row, value):
+        try:
+            await original_write(row, value)
+        except Exception:
+            # A lost ACK may follow a successful write. Confirm the real memory
+            # before reporting failure; never accept the library's cache alone.
+            dev.memory[row] = None
+            if await read_row(row) == value:
+                return
+            raise
+
+    dev.read_mem_line = read_row
+    dev.write_mem_line = write_row
+    dev._eedtoy_memory_guard = True
+
+
 async def ensure_fd2g14_from_yaml(
     bus: Any,
     fam14_base_id_int: int,
@@ -503,15 +547,33 @@ async def ensure_fd2g14_from_yaml(
     if not targets:
         return events
 
-    # Normally there is one imported FD2G14 block. Scan once and keep all real
-    # FD2G14 objects so multiple gateways can still be handled deterministically.
+    pending_bases = {base for base, channels in targets.items()
+                     if any(item["device_id"] not in processed_ids for item in channels.values())}
+    if not pending_bases:
+        return events
+
+    from eltakobus.device import create_busobject
     discovered: List[Any] = []
-    async for dev in enumerate_bus_grimm(bus):
-        response = getattr(dev, "discovery_response", None)
-        model = bytes(getattr(response, "model", b"") or b"")
-        log("Grimm discovery", type(dev).__name__, "address", getattr(dev, "address", "?"), "size", getattr(dev, "size", "?"), "model", model[:2].hex("-").upper())
-        if _is_real_fd2g14(dev):
-            discovered.append(dev)
+    for address in sorted(pending_bases):
+        for attempt in range(3):
+            try:
+                dev = await create_busobject(bus=bus, id=address)
+                if dev is not None and int(getattr(dev, "address", -1)) == address and _is_real_fd2g14(dev):
+                    discovered.append(dev)
+                    break
+            except Exception as exc:
+                log("FD2G14 discovery retry", address, attempt + 1, repr(exc))
+            if attempt < 2:
+                await asyncio.sleep(0.15)
+
+    missing_bases = pending_bases - {int(d.address) for d in discovered}
+    if missing_bases:
+        async for dev in enumerate_bus_grimm(bus):
+            if _is_real_fd2g14(dev) and int(getattr(dev, "address", -1)) in missing_bases:
+                discovered.append(dev)
+                missing_bases.discard(int(dev.address))
+                if not missing_bases:
+                    break
 
     used_devices: Set[int] = set()
     for yaml_base, channels in sorted(targets.items()):
@@ -519,12 +581,8 @@ async def ensure_fd2g14_from_yaml(
         if not pending:
             continue
 
-        # Prefer an FD2G14 whose actual physical base matches the PCT14 base,
-        # but do not require that match. The discovery model/size is authoritative.
+        # Both the physical PCT14 address and FD2G14 identity must match.
         dev = next((d for d in discovered if int(getattr(d, "address", -1)) == yaml_base and id(d) not in used_devices), None)
-        if dev is None:
-            dev = next((d for d in discovered if id(d) not in used_devices), None)
-
         if dev is None:
             for channel in sorted(pending):
                 item = pending[channel]
@@ -539,6 +597,7 @@ async def ensure_fd2g14_from_yaml(
                 processed_ids.add(device_id)
             continue
 
+        _prepare_fd2g14_memory_access(dev)
         used_devices.add(id(dev))
         real_address = int(getattr(dev, "address", 0) or 0)
         log("FD2G14 matched", "yaml-base", yaml_base, "physical-base", real_address, "size", getattr(dev, "size", "?"))
@@ -595,6 +654,7 @@ async def ensure_programmed_for_device(fam14_base_id_int: int, dev: Any, sender_
     size = int(getattr(dev, "size", 1) or 1)
     address = int(getattr(dev, "address", 0) or 0)
     dev_type = type(dev).__name__
+    _prepare_fd2g14_memory_access(dev)
 
     for channel in range(size):
         device_ext_id = b2s((fam14_base_id_int + address + channel).to_bytes(4, "big"))

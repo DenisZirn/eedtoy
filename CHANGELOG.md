@@ -1,5 +1,11 @@
 ## 1.1.01
 
+- Bestehendes Release mit den hardwarebestätigten TEST-5-Korrekturen aktualisiert, ohne neue Versionsnummer.
+- Robuste Windows-Portsuche auch im Schreibschritt; gespeicherte Ports nur als Suchvorschlag, manuelle Ports bleiben verbindlich.
+- FAM14-Verbindung mit 57600-/9600-Baud-Prüfung und durchgängiger Nutzung der erkannten Baudrate.
+- FD2G14-Speicherantworten werden geprüft und bei Ausbleiben begrenzt wiederholt; verlorene Schreibbestätigungen werden durch reales Rücklesen geprüft.
+- FD2G14-Erkennung an der erwarteten Basisadresse wiederholt; kein Ersatz durch andere physische Aktoren und kein zusätzlicher Scan bereits erledigter Einträge.
+
 - Optionaler Mehrbus-Modus im PCT14-Import für mehrere getrennte FAM14-Systeme hinter einem FAM-USB.
 - Dauerhafte Buszuordnung, getrennte Empfangs-IDs bei gleichen lokalen Busadressen und gemeinsame Vergabe freier FAM-USB-Sender-IDs.
 - Direktes Verbinden und Trennen des FAM14 im Schreibschritt; automatische Portsuche nach der gewählten FAM14-Basis-ID bei leerem COM-Feld.

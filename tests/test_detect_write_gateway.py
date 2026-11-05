@@ -19,18 +19,42 @@ async def run():
     assert result['ok'] and result['portPath']=='COM3'
     assert len(calls)==3 and all(c[1:]==(57600,'fam14') for c in calls)
     calls.clear()
-    result=await detector.detect_write_gateway('COM2','FF-BB-00-00')
+    result=await detector.detect_write_gateway('COM2','FF-BB-00-00',strict_port=True)
     assert not result['ok'] and calls==[('COM2',57600,'fam14')]
     assert len(result['ports'])==3  # Do not hide the primary FAM-USB from the shared port list.
     calls.clear()
-    result=await detector.detect_write_gateway('com3','FF-BB-00-00')
+    result=await detector.detect_write_gateway('com3','FF-BB-00-00',strict_port=True)
     assert result['ok'] and result['portPath']=='COM3' and len(calls)==1
+    calls.clear()
+    result=await detector.detect_write_gateway('COM2','FF-BB-00-00')
+    assert result['ok'] and result['portPath']=='COM3', 'A cached port must not prevent finding another bus.'
+    calls.clear()
+    async def slow_probe(port,baud,target):
+        calls.append((port,baud,target))
+        if baud==57600:return {'ok':False,'error':'no response'}
+        return {'ok':True,'gateway':{'type':'fam14','base_id':'FF-BB-00-00'}}
+    detector.try_rs485_port=slow_probe
+    result=await detector.detect_write_gateway('COM3','FF-BB-00-00',strict_port=True)
+    assert result['ok'] and result['baudRate']==9600
+    assert calls==[('COM3',57600,'fam14'),('COM3',9600,'fam14')]
     calls.clear()
     result=await detector.detect_write_gateway('','invalid')
     assert not result['ok'] and not calls
     detector.list_ports=lambda preferred: []
     result=await detector.detect_write_gateway('', 'FF-BB-00-00')
     assert not result['ok']
+    calls.clear()
+    result=await detector.detect_write_gateway('', 'FF-BB-00-00', candidate_ports=['COM9','com9'])
+    assert result['ok'] and result['portPath']=='COM9' and len(result['ports'])==1
+    assert calls==[('COM9',57600,'fam14'),('COM9',9600,'fam14')]
+    calls.clear()
+    result=await detector.detect_write_gateway('COM7', 'FF-BB-00-00', strict_port=True, candidate_ports=['COM9'])
+    assert result['ok'] and result['portPath']=='COM7'
+    assert all(call[0]=='COM7' for call in calls)
+    def broken_list(preferred): raise RuntimeError('port enumeration failed')
+    detector.list_ports=broken_list
+    result=await detector.detect_write_gateway('', 'FF-BB-00-00', candidate_ports=['COM9'])
+    assert result['ok'] and result['portPath']=='COM9'
     print('Write-gateway discovery: empty port, multiple buses, FAM-USB exclusion, strict manual port, invalid base and no ports passed.')
 asyncio.run(run())
 
