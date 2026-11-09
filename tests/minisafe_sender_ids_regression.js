@@ -95,7 +95,8 @@ for (const gateway of [
   assert(yaml.includes('device_type: "FSR61-230V"'));
   assert(!yaml.includes('sender_id_source:') && !yaml.includes('source_sid:'));
   const saved = JSON.parse(JSON.stringify(imported.devices)).map(api.applyCurrentDatabaseProfile);
-  assert.equal(api.generateYaml(gateway, saved), yaml, 'project save/load must preserve imported sender IDs');
+  const withoutTimestamp = text => text.replace(/^# Generiert:.*$/m, '');
+  assert.equal(withoutTimestamp(api.generateYaml(gateway, saved)), withoutTimestamp(yaml), 'project save/load must preserve imported sender IDs');
 }
 
 // Full email and raw JSON inputs: direct IDs and SID-based state association.

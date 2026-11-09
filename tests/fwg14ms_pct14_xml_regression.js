@@ -163,7 +163,7 @@ const migratedDatabase = api.migrateCustomDeviceDatabase({
   DUMMY: { label:'User profile' },
 });
 assert(Boolean(migratedDatabase['A5-13-01-FWG14MS']), 'Schema-56 databases receive the dedicated FWG14MS profile once');
-assert(migratedDatabase.__eedtoy_database_schema === 59, 'Migration advances the database to schema 59');
+assert(migratedDatabase.__eedtoy_database_schema === 60, 'Migration advances the database to schema 60');
 
 const intentionallyDeleted = api.migrateCustomDeviceDatabase({
   __eedtoy_database_mode: 'authoritative',

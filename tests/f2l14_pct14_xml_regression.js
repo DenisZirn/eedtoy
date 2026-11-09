@@ -144,7 +144,7 @@ const migrated = api.migrateCustomDeviceDatabase({
   DUMMY: { label:'Benutzerprofil' },
 });
 assert(Boolean(migrated['F6-02-01-F2L14']), 'Schema 55 databases receive F2L14 once');
-assert(migrated.__eedtoy_database_schema === 59, 'Migration stores schema 59');
+assert(migrated.__eedtoy_database_schema === 60, 'Migration stores schema 60');
 const deliberatelyRemoved = api.migrateCustomDeviceDatabase({
   __eedtoy_database_mode: 'authoritative',
   __eedtoy_database_schema: 56,

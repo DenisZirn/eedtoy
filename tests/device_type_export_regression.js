@@ -159,7 +159,7 @@ delete api.EEP_DB[customKey];
 const legacyProfiles = Object.fromEntries(Object.entries(api.DEFAULT_EEP_DB).map(([key, { device_type, ...profile }]) => [key, profile]));
 legacyProfiles['F6-02-01-2CH'].label = 'User-edited profile display label';
 const migrated = api.migrateCustomDeviceDatabase({ ...legacyProfiles, __eedtoy_database_mode:'authoritative', __eedtoy_database_schema:57 });
-assert.equal(migrated.__eedtoy_database_schema, 59);
+assert.equal(migrated.__eedtoy_database_schema, api.DEVICE_DB_SCHEMA_VERSION);
 for (const [key, profile] of Object.entries(api.DEFAULT_EEP_DB)) {
   assert.equal(migrated[key].device_type, profile.device_type, `${key} is upgraded with its explicit technical type`);
 }
@@ -186,3 +186,39 @@ assert.equal(payload['F6-02-01-FTS14EM-RT'].operating_mode, 'RT', 'Saving databa
 assert.throws(() => context.buildDeviceDatabasePayload([{ key:customKey, label:'Custom profile', platform:'sensor' }]), /database.deviceTypeRequired/, 'New custom profiles must explicitly specify a technical type');
 
 console.log('All central device_type export regression tests passed.');
+
+for (const [key, type, id] of [
+  ['A5-06-01-FAH','FAH','01-94-65-67'],
+  ['A5-06-01-FHD60SB','FHD60SB','05-A9-9A-A6'],
+]) {
+  for (const language of ['de','en']) {
+    const entry = exported([{...deviceFor(key, 'wie vom Benutzer eingegeben'),dev_id:id}],language,gateways[2]).entries[0];
+    assert.deepEqual(entry, {id, eep:'A5-06-01',name:'wie vom Benutzer eingegeben',device_type:type,device_class:'illuminance',teach_in_telegram:'18-08-0D-80'});
+  }
+}
+const oldIlluminanceDatabase = {__eedtoy_database_mode:'authoritative',__eedtoy_database_schema:59,
+  'A5-06-01-FAH':{...api.DEFAULT_EEP_DB['A5-06-01-FAH'],label:'Eigener FAH-Name'}};
+const updatedIlluminanceDatabase = api.migrateCustomDeviceDatabase(oldIlluminanceDatabase);
+assert.equal(updatedIlluminanceDatabase['A5-06-01-FHD60SB'].device_type,'FHD60SB');
+assert.equal(updatedIlluminanceDatabase['A5-06-01-FAH'].label,'Eigener FAH-Name');
+delete updatedIlluminanceDatabase['A5-06-01-FHD60SB'];
+assert(!api.migrateCustomDeviceDatabase(updatedIlluminanceDatabase)['A5-06-01-FHD60SB']);
+console.log('PASS: FAH and FHD60SB match the requested YAML in both languages; schema 60 migration preserves custom profiles and later deletion.');
+
+for (const [key] of Object.entries(api.EEP_DB)) {
+  for (const gateway of gateways) {
+    const result = exported([{...deviceFor(key),room:'Garten'}],'de',gateway);
+    for (const entry of result.entries) assert.equal(entry.area,'Garten',`${key} exports its area on ${gateway.type}`);
+  }
+}
+for (const room of ['Garten','Küche "Nord"','Büro: EG #1','Raum\noben']) {
+  const {text,entries} = exported([{...deviceFor('F6-02-01-FRW-WS'),room}]);
+  assert.equal(entries[0].area,room);
+  assert(!text.includes('#comment:'),'Real rooms must be active area fields');
+}
+for (const room of ['', '   ', 'PCT14 Adresse 41 · Kanal 1', 'PCT14 address 41 · Channel 1']) {
+  const {text,entries} = exported([{...deviceFor('A5-06-01-FHD60SB'),room}]);
+  assert(!Object.hasOwn(entries[0],'area'),'Empty room or generated PCT14 metadata must not create an HA area');
+  if(room.startsWith('PCT14'))assert(text.includes('#comment:'));
+}
+console.log('PASS: Every profile exports entered rooms as area across gateways; quoted/Unicode rooms roundtrip; empty values and PCT14 address hints create no areas.');

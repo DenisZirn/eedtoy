@@ -555,6 +555,7 @@ const deviceLabelTranslations = {
   'FWS61 – Wetterstation Wind + Regen + Temperatur (A5-13-01)': 'FWS61 – Weather station: wind, rain and temperature (A5-13-01)',
   'FWG14MS – Wetterdaten-Gateway (A5-13-01)': 'FWG14MS – Weather data gateway (A5-13-01)',
   'FAH – Helligkeitssensor 0…30.000 lx (A5-06-01)': 'FAH – Illuminance sensor, 0…30,000 lx (A5-06-01)',
+  'FHD60SB – Funk-Helligkeitssensor (A5-06-01)': 'FHD60SB – Wireless illuminance sensor (A5-06-01)',
   'FUD14 – Dimmaktor (A5-38-08)': 'FUD14 – Dimming actuator (A5-38-08)',
   'FDG14 – DALI-Gateway / Dimmaktor (A5-38-08)': 'FDG14 – DALI gateway / dimming actuator (A5-38-08)',
   'FUD71 – Dimmaktor (A5-38-08)': 'FUD71 – Dimming actuator (A5-38-08)',

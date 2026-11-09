@@ -1,56 +1,33 @@
-# EEDTOY v1.1.01
+# EEDTOY v1.1.02
 
-EEDTOY v1.1.01 unterstützt mehrere getrennte FAM14-Bussysteme hinter einem gemeinsamen FAM-USB. Das FAM14 zum Programmieren kann direkt im YAML-/Schreibschritt erkannt und geprüft werden; ein Wechsel zum ersten Bildschirm ist dafür nicht mehr erforderlich.
+EEDTOY v1.1.02 ergänzt FHD60SB als eigenes Geräteprofil und übernimmt eingegebene Räume im Home-Assistant-YAML als `area`. Die im Offline-Test bestätigten Änderungen sind damit offiziell verfügbar.
 
-## Aktualisierung des bestehenden Releases
+## FHD60SB und FAH
 
-- Umlaute in Meldungen der FAM14-Verbindungsprüfung werden auch mit der isolierten Windows-Python-Laufzeit korrekt angezeigt.
-- Bestätigte Korrekturen aus dem Offline-Teststand TEST 5 sind übernommen; Version und Release-Tag bleiben v1.1.01.
-- „Gateway verbinden“ nutzt zusätzlich die robuste Windows-Portsuche. Auch ohne manuelle COM-Portangabe wird das passende FAM14 anhand der ausgewählten Basis-ID gesucht.
-- Automatisch ermittelte oder gespeicherte Ports sind Suchvorschläge. Beim Wechsel des Bussystems kann ein anderer Port gefunden werden; ausdrücklich manuell eingegebene Ports bleiben verbindlich.
-- Die Verbindung prüft 57600 und 9600 Baud und verwendet die tatsächlich erkannte Baudrate beim Schreiben und Trennen.
-- Fehlende FD2G14-Speicherantworten werden begrenzt wiederholt und auf Zeilennummer sowie Datenlänge geprüft. Eine fehlende Antwort gilt niemals als leerer Speicherplatz.
-- Bei verlorener FD2G14-Schreibbestätigung wird der reale Speicher zurückgelesen. Bereits erledigte Einträge lösen keinen zusätzlichen vollständigen Scan aus.
-- Die FD2G14-Erkennung wiederholt die erwartete physische Basisadresse; ein anderes Gerät wird nicht als Ersatz beschrieben.
-- Der Windows-Installer und die Quellen wurden aktualisiert. Vorhandene macOS-DMGs wurden nicht ersetzt.
+- FHD60SB ist unter **Wetterstation** als eigener Funk-Helligkeitssensor auswählbar.
+- FAH und FHD60SB exportieren `eep: "A5-06-01"`, `device_class: illuminance` und `teach_in_telegram: "18-08-0D-80"`.
+- `device_type` lautet je nach ausgewähltem Profil `FAH` oder `FHD60SB`. Der frei vergebene Gerätename verändert den technischen Gerätetyp nicht.
+- Bestehende Gerätedatenbanken erhalten das FHD60SB-Profil einmalig per Migration auf Schema 60. Eigene Einstellungen bleiben erhalten; spätere bewusste Änderungen oder Löschungen werden nicht zurückgesetzt.
+- Die Gerätedatenbank enthält jetzt 81 Profile. Die beiden EEP-Varianten für FFT60SB und FTFSB bleiben erhalten.
 
-## Mehrere getrennte FAM14-Bussysteme
+## Räume für Home Assistant
 
-- Die optionale Checkbox **Mehrere getrennte FAM14-Bussysteme vorhanden** im PCT14-Import blendet die zusätzlichen Optionen ein. Ohne Haken bleibt der bisherige Einbus-Ablauf erhalten.
-- Jede PCT14-Datei wird einem benannten Bussystem mit eigener FAM14-Basis-ID zugeordnet. Die Basis-ID wird aus der Datei übernommen.
-- Geräte mit derselben lokalen Busadresse bleiben zwischen den Systemen getrennt. Im FAM-USB-YAML werden ihre Empfangs-IDs aus dem jeweiligen FAM14-Basisbereich gebildet.
-- Steuerbare Kanäle erhalten freie FAM-USB-Sender-IDs über alle Busse hinweg. Belegte Adressen werden übersprungen; insgesamt stehen 127 Senderadressen zur Verfügung.
-- Beim erneuten Import desselben Busses werden vorhandene Geräte nicht doppelt angelegt. Eine Datei mit abweichender Basis-ID wird für einen bereits ausgewählten Bus abgelehnt.
-- Busnamen, Gerätezuordnungen, Sender-IDs und Auswahl werden im Projekt gespeichert und wiederhergestellt.
-- Bereits importierte Einbus-Geräte werden beim Aktivieren dem ersten Bus zugeordnet; ihre bisher wirksamen FAM-USB-Sender-IDs bleiben erhalten.
+- Der Inhalt des Felds **Raum** wird zentral für alle Geräteprofile als aktives `area`-Feld exportiert, beispielsweise `area: "Garten"`.
+- Die frühere Ausgabe ausschließlich als `#comment` entfällt für echte Raumnamen. Das gilt auch für übernommene MiniSafe2-Räume und bereits gespeicherte Projekte mit Raumangaben.
+- Anführungszeichen, Umlaute und mehrzeilige Angaben werden sicher als YAML-Zeichenketten ausgegeben.
+- Leere Raumfelder erzeugen kein `area`-Feld. Automatische PCT14-Adresshinweise bleiben Kommentare, damit sie keine unbeabsichtigten Home-Assistant-Räume anlegen.
+- Die Raumzuordnung wird beim erneuten Import der exportierten YAML durch die Home-Assistant-Integration übernommen.
 
-## FAM14 direkt beim Schreiben verbinden
+## Bestehende Funktionen
 
-- Der vorhandene Button heißt zunächst **Gateway verbinden** und nach erfolgreicher Prüfung **Gateway trennen**.
-- Bei leerem Bus-COM-Port sucht EEDTOY das angeschlossene FAM14 mit der Basis-ID des ausgewählten Bussystems und trägt den gefundenen Port ein.
-- Bei einem manuell eingetragenen Port wird ausschließlich dieser Anschluss geprüft.
-- Andere gefundene FAM14-Bussysteme und das FAM-USB werden nicht versehentlich als ausgewählter Schreibbus übernommen.
-- Die FAM-USB-Einstellungen und ihre Funktion als Quelle der Home-Assistant-Sender-IDs bleiben erhalten.
-- Port- oder Buswechsel sowie das erneute Öffnen eines Projekts erfordern eine neue Verbindungsprüfung. Veraltete Suchergebnisse werden verworfen.
-- Beim Schreiben werden nur die Einträge des ausgewählten Busses übertragen. Der Python-Schreibprozess prüft die tatsächliche FAM14-Basis-ID vor dem ersten Schreiben erneut.
-- Das Trennen gibt den Bus frei und setzt den Verbindungsbutton zurück.
-
-## YAML-Importhinweis
-
-Der Hinweis unter der YAML-Ausgabe verweist jetzt auf **EEDTOY YAML importieren** in der Home-Assistant-Integration **ELTAKO Sensors & Actuators**. Der bisherige pauschale Hinweis auf `/config/configuration.yaml` wurde auf Deutsch und Englisch ersetzt.
-
-## Bestehende Installation
-
-Die offizielle Version verwendet den normalen EEDTOY-Installations- und Einstellungsordner. Vorhandene Projekte und Gerätedatenbanken bleiben verwendbar. Die bisherigen Geräteprofile, profilspezifischen YAML-Felder und die Gateway-Erkennung im ersten Schritt bleiben erhalten. An der Home-Assistant-Integration ist für die Mehrbus-Zuordnung keine Änderung erforderlich.
-
-Die Mehrbus-Funktion dieser Version ist für ein gemeinsames FAM-USB als Hauptgateway und mehrere FAM14 mit unterschiedlichen Basis-IDs vorgesehen. Die Busse werden zum Programmieren nacheinander angeschlossen.
+Die bestätigten FAM14-Verbindungs-, FD2G14-Speicher- und Windows-Zeichenkodierungskorrekturen aus v1.1.01 bleiben enthalten. Die Gateway-Erkennung, Mehrbus-Zuordnung und übrigen Geräteprofile bleiben erhalten. Die README wurde nicht verändert.
 
 ## Installation
 
 ### Windows
 
-`EEDTOY-Setup-1.1.01.exe` herunterladen und installieren. Python und die benötigten Laufzeitmodule sind enthalten; die Installation funktioniert offline.
+`EEDTOY-Setup-1.1.02.exe` herunterladen und installieren. Die eingebettete Python-Laufzeit und die benötigten Module sind enthalten; die Installation funktioniert offline. Die offizielle Installation verwendet den normalen EEDTOY-Einstellungsordner, nicht den separaten Ordner der Offline-Testversion.
 
 ### macOS
 
-Die DMGs für Intel und Apple Silicon werden separat ergänzt. Die bisherige macOS-Gateway-Erkennung bleibt beim jeweiligen Plattformbuild erhalten: zuerst das physisch angeschlossene Gateway auswählen, danach **Gateway erkennen** verwenden.
+Die DMGs für Intel und Apple Silicon werden separat gebaut und ergänzt. Bestehende DMGs älterer Releases werden nicht verändert.

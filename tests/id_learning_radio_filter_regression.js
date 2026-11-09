@@ -21,7 +21,7 @@ const radioProfiles = {
     'A5-14-09-FFG7B', 'A5-07-01', 'A5-08-01-FBH-FBHT', 'A5-30-03-FRWB', 'A5-30-03-FHMB',
     'A5-04-02-FFT60SB', 'A5-04-03-FFT60SB', 'A5-04-02-FTFSB', 'A5-04-03-FTFSB', 'A5-04-02-FLGTF',
     'A5-09-0C-FLGTF', 'A5-09-04-FCO2TF65', 'A5-10-06-FUTH55', 'A5-10-12-FUTH55-HYGROSTAT',
-    'A5-10-06-FTR-FHK', 'A5-38-08-FTR-TF61', 'A5-12-01', 'A5-06-01-FAH', 'A5-13-01',
+    'A5-10-06-FTR-FHK', 'A5-38-08-FTR-TF61', 'A5-12-01', 'A5-06-01-FAH', 'A5-06-01-FHD60SB', 'A5-13-01',
     'A5-30-03-FSM60B-BA3', 'A5-30-01-FSM60B-BA4', 'A5-38-08-F4USM61B-M2',
     'A5-08-01-F4USM61B-M3', 'A5-08-01-F4USM61B-M6', 'A5-07-01-F4USM61B-M8',
   ],
@@ -30,7 +30,7 @@ const expectedFilters = new Map(Object.entries(radioProfiles).flatMap(([filter, 
 for (const key of Object.keys(profiles.db)) {
   assert.equal(profiles.filterFor(key), expectedFilters.get(key) || '', `${key} has the correct sensor/bus/actuator behavior`);
 }
-assert.equal(expectedFilters.size, 37, 'All 37 radio sensor profiles are covered');
+assert.equal(expectedFilters.size, 38, 'All 38 radio sensor profiles are covered');
 assert.equal(profiles.filterFor('unknown'), '');
 profiles.db['D2-CUSTOM-SENSOR'] = { platform:'sensor', eep_out:'D2-14-41' };
 assert.equal(profiles.filterFor('D2-CUSTOM-SENSOR'), 'radio-vld', 'Custom VLD sensors are filtered by their radio family');
@@ -143,5 +143,5 @@ assert.equal(context.parseLearnIdFromBuffer(esp2(selected, 0x06, 0x0B, [9, 1, 0,
     assert.equal(port.closed, true, 'The receiver closes only after the matching sensor');
     assert.equal(port.listenerCount('data'), 0);
   }
-  console.log('PASS: All 80 profiles classified, 37 radio sensor profiles, RPS/1BS/4BS/VLD, bus noise and streaming receiver.');
+  console.log('PASS: All 81 profiles classified, 38 radio sensor profiles, RPS/1BS/4BS/VLD, bus noise and streaming receiver.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

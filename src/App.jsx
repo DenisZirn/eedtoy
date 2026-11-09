@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getStoredLanguage, storeLanguage, translate, translateDeviceLabel, translateDeviceProfileLabel, translateDeviceName, translateGroup, translatePlatform, translateRuntimeText } from "./i18n.js";
 
-const APP_VERSION = "1.1.01";
+const APP_VERSION = "1.1.02";
 
 
 function serializeDeviceDatabaseYaml(database) {
@@ -97,6 +97,7 @@ const DEFAULT_EEP_DB = {
 
   // ── Wetterstation ─────────────────────────────────────────────
   "A5-06-01-FAH": { group:"Wetterstation", label:"FAH – Helligkeitssensor 0…30.000 lx (A5-06-01)", platform:"sensor", eep_out:"A5-06-01", teach_in_telegram:"18-08-0D-80", device_classes:["illuminance"], default_dc:"illuminance", device_family:"FAH", device_type:"FAH", eltako:"FAH" },
+  "A5-06-01-FHD60SB": { group:"Wetterstation", label:"FHD60SB – Funk-Helligkeitssensor (A5-06-01)", platform:"sensor", eep_out:"A5-06-01", teach_in_telegram:"18-08-0D-80", device_classes:["illuminance"], default_dc:"illuminance", device_family:"FHD60SB", device_type:"FHD60SB", eltako:"FHD60SB" },
   "A5-13-01": { group:"Wetterstation", label:"FWS61 – Wetterstation Wind + Regen + Temperatur (A5-13-01)", platform:"sensor", eep_out:"A5-13-01", teach_in_telegram:"4C-08-0D-80", device_type:"FWS61", eltako:"FWS61" },
   "A5-13-01-FWG14MS": { group:"Wetterstation", label:"FWG14MS – Wetterdaten-Gateway (A5-13-01)", platform:"sensor", eep_out:"A5-13-01", teach_in_telegram:"4C-08-0D-80", device_family:"FWG14MS", device_type:"FWG14MS", eltako:"FWG14MS" },
 
@@ -163,7 +164,7 @@ const DEVICE_DB_STORAGE_KEY = "eedtoy.customDeviceDatabase.v1";
 const DEVICE_DB_DELETED_KEYS = "__deleted_keys";
 const DEVICE_DB_MODE_KEY = "__eedtoy_database_mode";
 const DEVICE_DB_SCHEMA_KEY = "__eedtoy_database_schema";
-const DEVICE_DB_SCHEMA_VERSION = 59;
+const DEVICE_DB_SCHEMA_VERSION = 60;
 const DEVICE_DB_MODE_AUTHORITATIVE = "authoritative";
 const PROFILE_KEY_ALIASES = {
   "07-37-F7-FRGBW14": "07-3F-7F-FRGBW14",
@@ -358,6 +359,11 @@ function migrateCustomDeviceDatabase(input) {
             database[key] = cleaned;
           }
         }
+      }
+      // Add FHD60SB once to existing authoritative databases. Later deliberate
+      // edits or deletion remain untouched after schema 60 has been saved.
+      if (schemaVersion < 60 && !database["A5-06-01-FHD60SB"]) {
+        database["A5-06-01-FHD60SB"] = { ...DEFAULT_EEP_DB["A5-06-01-FHD60SB"] };
       }
       database[DEVICE_DB_SCHEMA_KEY] = DEVICE_DB_SCHEMA_VERSION;
     }
@@ -1058,9 +1064,15 @@ function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", la
         if (p.room_controller_mode && p.min_target_temperature != null) out += `        min_target_temperature: ${p.min_target_temperature}\n`;
         if (p.room_controller_mode && p.max_target_temperature != null) out += `        max_target_temperature: ${p.max_target_temperature}\n`;
         if (p.bidirectional) out += `        bidirectional: true\n`;
-        // Die Grimm-Integration erwartet hier keine freie comment-Eigenschaft.
-        // Zur Nachvollziehbarkeit bleibt sie als YAML-Kommentar erhalten.
-        if (d.room)        out += `        #comment: "${d.room}"\n`;
+        const area = String(d.room || "").trim();
+        if (area) {
+          // PCT14 imports use this field for a generated address hint until
+          // the user replaces it with a real room name.
+          const isPct14AddressHint = /^PCT14\s+(?:Adresse|address)\s+\d+(?:\s|$)/i.test(area);
+          out += isPct14AddressHint
+            ? `        #comment: ${JSON.stringify(area)}\n`
+            : `        area: ${JSON.stringify(area)}\n`;
+        }
         if (plat === "sensor" && eepOut === "A5-12-01") {
           out += `        meter_tariffs: ${d.meter_tariffs || p.meter_tariffs || "[]"}\n`;
         }

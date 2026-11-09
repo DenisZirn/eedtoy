@@ -1,3 +1,11 @@
+## 1.1.02
+
+- FHD60SB als eigenes A5-06-01-Helligkeitssensorprofil mit `device_type: FHD60SB`, `device_class: illuminance` und Lerntelegramm `18-08-0D-80` ergänzt.
+- FAH- und FHD60SB-Export mit frei vergebenen Namen und stabilen technischen Gerätetypen geprüft.
+- Migration auf Gerätedatenbankschema 60 ergänzt FHD60SB einmalig; die Datenbank umfasst 81 Profile.
+- Eingegebene Räume werden zentral als `area` exportiert, einschließlich sicherer Behandlung von Anführungszeichen und Umlauten. Automatische PCT14-Adresshinweise bleiben Kommentare.
+- Vollständige Export-, Migrations-, Sprach- und Funk-ID-Filterprüfungen für den erweiterten Gerätebestand ergänzt.
+
 ## 1.1.01
 
 - Zeichenkodierung der FAM14-Verbindungsmeldungen unter Windows korrigiert (z. B. „für“ statt eines Ersatzzeichens).
