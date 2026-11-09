@@ -222,3 +222,17 @@ for (const room of ['', '   ', 'PCT14 Adresse 41 · Kanal 1', 'PCT14 address 41 
   if(room.startsWith('PCT14'))assert(text.includes('#comment:'));
 }
 console.log('PASS: Every profile exports entered rooms as area across gateways; quoted/Unicode rooms roundtrip; empty values and PCT14 address hints create no areas.');
+
+for(const language of ['de','en']) {
+  const input={...deviceFor('F6-05-01-FWS81','Wasser im Keller'),dev_id:'01-23-45-67',room:'Keller'};
+  const entry=exported([input],language,gateways[2]).entries[0];
+  assert.deepEqual(entry,{id:'01-23-45-67',eep:'F6-05-01',name:'Wasser im Keller',device_type:'FWS81',area:'Keller',device_class:'moisture'});
+  for(const key of ['sender','teach_in_telegram','battery_low_data'])assert(!Object.hasOwn(entry,key));
+}
+const waterMigrated=api.migrateCustomDeviceDatabase({__eedtoy_database_mode:'authoritative',__eedtoy_database_schema:60,'A5-06-01-FAH':{...api.DEFAULT_EEP_DB['A5-06-01-FAH'],label:'Eigener Name'}});
+assert.equal(waterMigrated.__eedtoy_database_schema,61);
+assert.equal(waterMigrated['F6-05-01-FWS81'].device_type,'FWS81');
+assert.equal(waterMigrated['A5-06-01-FAH'].label,'Eigener Name');
+delete waterMigrated['F6-05-01-FWS81'];
+assert(!api.migrateCustomDeviceDatabase(waterMigrated)['F6-05-01-FWS81']);
+console.log('PASS: FWS81 exports stable type, F6-05-01, moisture and area; migration preserves user changes and later deletion.');

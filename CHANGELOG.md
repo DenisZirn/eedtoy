@@ -1,3 +1,9 @@
+## 1.1.03
+
+- FWS81 als eigener Wassermelder unter Wasser ergänzt: binary_sensor, F6-05-01, device_type FWS81, device_class moisture.
+- Migration auf Datenbankschema 61 ergänzt FWS81 einmalig; die Datenbank umfasst 82 Profile.
+- Export mit frei vergebenem Namen und Raum, englische Gerätebezeichnung und RPS-ID-Erkennung geprüft.
+
 ## 1.1.02
 
 - FHD60SB als eigenes A5-06-01-Helligkeitssensorprofil mit `device_type: FHD60SB`, `device_class: illuminance` und Lerntelegramm `18-08-0D-80` ergänzt.

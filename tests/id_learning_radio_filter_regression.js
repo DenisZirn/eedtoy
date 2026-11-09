@@ -14,7 +14,7 @@ vm.runInContext(app.slice(app.indexOf('const APP_VERSION'), app.indexOf('export 
 const radioProfiles = {
   'radio-rps': [
     'F6-02-01-2CH', 'F6-02-01-4CH', 'F6-01-01', 'F6-10-00-FFG7B', 'F6-02-01-FRW-WS',
-    'F6-02-01-FSM60B-BA1', 'F6-02-01-FSM60B-BA2', 'F6-02-01-F4USM61B-M1', 'F6-02-01-F4USM61B-M5',
+    'F6-05-01-FWS81', 'F6-02-01-FSM60B-BA1', 'F6-02-01-FSM60B-BA2', 'F6-02-01-F4USM61B-M1', 'F6-02-01-F4USM61B-M5',
   ],
   'radio-1bs': ['D5-00-01', 'D5-00-01-F4USM61B-M4', 'D5-00-01-F4USM61B-M7'],
   'radio-4bs': [
@@ -30,7 +30,7 @@ const expectedFilters = new Map(Object.entries(radioProfiles).flatMap(([filter, 
 for (const key of Object.keys(profiles.db)) {
   assert.equal(profiles.filterFor(key), expectedFilters.get(key) || '', `${key} has the correct sensor/bus/actuator behavior`);
 }
-assert.equal(expectedFilters.size, 38, 'All 38 radio sensor profiles are covered');
+assert.equal(expectedFilters.size, 39, 'All 39 radio sensor profiles are covered');
 assert.equal(profiles.filterFor('unknown'), '');
 profiles.db['D2-CUSTOM-SENSOR'] = { platform:'sensor', eep_out:'D2-14-41' };
 assert.equal(profiles.filterFor('D2-CUSTOM-SENSOR'), 'radio-vld', 'Custom VLD sensors are filtered by their radio family');
@@ -143,5 +143,5 @@ assert.equal(context.parseLearnIdFromBuffer(esp2(selected, 0x06, 0x0B, [9, 1, 0,
     assert.equal(port.closed, true, 'The receiver closes only after the matching sensor');
     assert.equal(port.listenerCount('data'), 0);
   }
-  console.log('PASS: All 81 profiles classified, 38 radio sensor profiles, RPS/1BS/4BS/VLD, bus noise and streaming receiver.');
+  console.log('PASS: All 82 profiles classified, 39 radio sensor profiles, RPS/1BS/4BS/VLD, bus noise and streaming receiver.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

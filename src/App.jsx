@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getStoredLanguage, storeLanguage, translate, translateDeviceLabel, translateDeviceProfileLabel, translateDeviceName, translateGroup, translatePlatform, translateRuntimeText } from "./i18n.js";
 
-const APP_VERSION = "1.1.02";
+const APP_VERSION = "1.1.03";
 
 
 function serializeDeviceDatabaseYaml(database) {
@@ -64,6 +64,9 @@ const DEFAULT_EEP_DB = {
   "F6-02-01-FRW-WS": { group:"Rauch / Hitze", label:"FRW-ws – Rauchwarnmelder mit Batteriewarnung (F6-02-01)", platform:"binary_sensor", eep_out:"F6-02-01", device_classes:["smoke"], default_dc:"smoke", device_family:"FRW-WS", battery_low_data:"0x30", device_type:"FRW-ws", eltako:"FRW-ws" },
   "A5-30-03-FRWB": { group:"Rauch / Hitze", label:"FRWB – Rauchmelder (A5-30-03)", platform:"binary_sensor", eep_out:"A5-30-03", teach_in_telegram:"C0-18-2D-80", device_classes:["smoke"], default_dc:"smoke", device_type:"FRWB", eltako:"FRWB" },
   "A5-30-03-FHMB": { group:"Rauch / Hitze", label:"FHMB – Rauch-/Hitzemelder (A5-30-03)", platform:"binary_sensor", eep_out:"A5-30-03", teach_in_telegram:"C0-18-2D-80", device_classes:["smoke","heat"], default_dc:"smoke", device_type:"FHMB", eltako:"FHMB" },
+
+  // ── Wasser ───────────────────────────────────────────────────
+  "F6-05-01-FWS81": { group:"Wasser", label:"FWS81 – Wassermelder (F6-05-01)", platform:"binary_sensor", eep_out:"F6-05-01", device_classes:["moisture"], default_dc:"moisture", device_family:"FWS81", device_type:"FWS81", eltako:"FWS81" },
 
   // ── Temperatur / Feuchte ──────────────────────────────────────
   "A5-04-02-FFT60SB": { group:"Temperatur / Feuchte", label:"FFT60SB – Temperatur + Feuchte −20…60 °C (A5-04-02)", platform:"sensor", eep_out:"A5-04-02", teach_in_telegram:"10-10-0D-87", device_type:"FFT60SB", eltako:"FFT60SB" },
@@ -164,7 +167,7 @@ const DEVICE_DB_STORAGE_KEY = "eedtoy.customDeviceDatabase.v1";
 const DEVICE_DB_DELETED_KEYS = "__deleted_keys";
 const DEVICE_DB_MODE_KEY = "__eedtoy_database_mode";
 const DEVICE_DB_SCHEMA_KEY = "__eedtoy_database_schema";
-const DEVICE_DB_SCHEMA_VERSION = 60;
+const DEVICE_DB_SCHEMA_VERSION = 61;
 const DEVICE_DB_MODE_AUTHORITATIVE = "authoritative";
 const PROFILE_KEY_ALIASES = {
   "07-37-F7-FRGBW14": "07-3F-7F-FRGBW14",
@@ -364,6 +367,9 @@ function migrateCustomDeviceDatabase(input) {
       // edits or deletion remain untouched after schema 60 has been saved.
       if (schemaVersion < 60 && !database["A5-06-01-FHD60SB"]) {
         database["A5-06-01-FHD60SB"] = { ...DEFAULT_EEP_DB["A5-06-01-FHD60SB"] };
+      }
+      if (schemaVersion < 61 && !database["F6-05-01-FWS81"]) {
+        database["F6-05-01-FWS81"] = { ...DEFAULT_EEP_DB["F6-05-01-FWS81"] };
       }
       database[DEVICE_DB_SCHEMA_KEY] = DEVICE_DB_SCHEMA_VERSION;
     }

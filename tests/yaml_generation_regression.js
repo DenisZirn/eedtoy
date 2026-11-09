@@ -39,8 +39,8 @@ vm.createContext(context);
 vm.runInContext(helperSource, context, { filename: 'src/App.helpers.jsx' });
 const api = context.__api;
 
-assert(api.APP_VERSION === '1.1.02', 'Application version is 1.1.02');
-assert(Object.keys(api.EEP_DB).length === 81, 'Approved device profile count is 81');
+assert(api.APP_VERSION === '1.1.03', 'Application version is 1.1.03');
+assert(Object.keys(api.EEP_DB).length === 82, 'Approved device profile count is 82');
 
 const gateway = {
   type: 'fam14',
@@ -99,7 +99,7 @@ const devices = [
 ];
 
 const deYaml = api.generateYaml(gateway, devices, [], '', 'de');
-assertIncludes(deYaml, '# Version: 1.1.02', 'German YAML version header');
+assertIncludes(deYaml, '# Version: 1.1.03', 'German YAML version header');
 assertIncludes(deYaml, '# Generiert:', 'German YAML timestamp label');
 assertIncludes(deYaml, 'device_type: fam14', 'Gateway type export');
 assertIncludes(deYaml, 'base_id: FF-AA-BB-00', 'Gateway base ID export');

@@ -1,7 +1,7 @@
 {
   "name": "eedtoy",
-  "version": "1.1.2",
-  "releaseVersion": "1.1.02",
+  "version": "1.1.3",
+  "releaseVersion": "1.1.03",
   "description": "EEDTOY - ELTAKO EnOcean Device to YAML Generator (privat entwickelt)",
   "author": "D. Zirnbauer",
   "main": "electron/main.js",
@@ -54,7 +54,7 @@
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
       "installerHeaderIcon": "build/icon.ico",
-      "artifactName": "EEDTOY-Setup-1.1.02.${ext}",
+      "artifactName": "EEDTOY-Setup-1.1.03.${ext}",
       "include": "build/installer.nsh",
       "displayLanguageSelector": true
     },
