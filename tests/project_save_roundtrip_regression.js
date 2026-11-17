@@ -160,5 +160,28 @@ const plain = value => JSON.parse(JSON.stringify(value));
   assert.equal(multi.devices.length,2);
   assert(multi.yaml.includes('FF-AA-00-01')&&multi.yaml.includes('FF-BB-00-01')&&multi.yaml.includes('FF-A6-04-82'));
   console.log('PASS: real project save/open preserves both bus assignments, names, sender IDs and current selections.');
+  const routedFile = path.join(temp, 'routed.eedtoy');
+  const routedDevice = {
+    ...fws,
+    export_gateway_key:'fam-usb|FF-A6-04-80',
+    sender_programming_pending:true,
+    imported_from_pct14:true,
+  };
+  const routedProject = renderer({
+    devices:[routedDevice],
+    projectFilePath:routedFile,
+    extraGateways:[{type:'fgw14usb',base_id:'FF-AA-BB-00'}],
+  });
+  await routedProject.actions.handleSaveProject();
+  const savedRouted = JSON.parse(fs.readFileSync(routedFile,'utf8'));
+  assert.equal(savedRouted.state.devices[0].export_gateway_key,'fam-usb|FF-A6-04-80');
+  assert.equal(savedRouted.state.devices[0].sender_programming_pending,true);
+  dialogs.openPath=routedFile;
+  await routedProject.actions.handleOpenProject();
+  assert.equal(routedProject.devices[0].export_gateway_key,'fam-usb|FF-A6-04-80');
+  assert.equal(routedProject.devices[0].sender_programming_pending,true);
+  assert(routedProject.yaml.includes('device_type: fam-usb'));
+  assert(!routedProject.yaml.includes('device_type: fgw14usb'));
+  console.log('PASS: actual project save/open retains gateway route and pending sender-ID warning.');
   console.log('All project save/open roundtrip regressions passed.');
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(() => fs.rmSync(temp, { recursive: true, force: true }));
