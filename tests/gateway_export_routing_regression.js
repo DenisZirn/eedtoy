@@ -12,7 +12,7 @@ vm.runInContext(app.slice(start, end) + `
 this.api = {
   gatewayKey, generateYaml, exportGatewayForDevice, gatewayCanExportDevice,
   assignDeviceExportGateway, pendingSenderDevices, buildSenderProgrammingEntries,
-  senderIdForGateway, normalizeLoadedDeviceProfile, profileFor, senderProgrammingIsPending
+  senderIdForGateway, normalizeLoadedDeviceProfile, profileFor, senderProgrammingIsPending, reconcilePct14ImportedDevices
 };
 `, context);
 const a = context.api;
@@ -156,6 +156,22 @@ const oldClean={...knownFgw,programmed_sender_id:'',sender_programming_pending:f
 const cleanMove=a.assignDeviceExportGateway(oldClean,a.gatewayKey(fam),a.gatewayKey(fam),busBase);
 assert.equal(cleanMove.sender_programming_pending,true);
 assert.equal(a.assignDeviceExportGateway(cleanMove,a.gatewayKey(fgw),a.gatewayKey(fam),busBase).sender_programming_pending,false);
+// Re-import PCT14 controller evidence into a previously saved project without
+// losing the user's selected gateway, custom name or other device options.
+const a2 = {...knownFgw,export_gateway_key:a.gatewayKey(fam),name:'My heating device',
+  programmed_sender_id:'',sender_programming_pending:true};
+const refreshed = a.reconcilePct14ImportedDevices([a2],
+  [{...device,programmed_sender_id:'00-00-B0-02'}],fam,busBase);
+assert.equal(refreshed.length,1);
+assert.equal(refreshed[0].name,'My heating device');
+assert.equal(refreshed[0].export_gateway_key,a.gatewayKey(fam));
+assert.equal(refreshed[0].programmed_sender_id,'00-00-B0-02');
+assert.equal(refreshed[0].sender_programming_pending,true);
+assert.equal(a.assignDeviceExportGateway(refreshed[0],a.gatewayKey(fgw),a.gatewayKey(fam),busBase).sender_programming_pending,false);
+const noEvidence=a.reconcilePct14ImportedDevices([a2],[{...device,programmed_sender_id:''}],fam,busBase);
+assert.equal(noEvidence[0].sender_programming_pending,true);
+assert.equal(noEvidence[0].programmed_sender_id,'');
+console.log('PASS: PCT14 reimport updates controller evidence without overwriting selected gateway.');
 console.log('PASS: roundtrip to already programmed controller clears warning; unverified route stays pending.');
 console.log('PASS: real UI handlers mark changed controller IDs pending and warn before preview.');
 console.log('PASS: exclusive YAML gateway routing, physical/sender IDs, pending write warnings, and project compatibility.');
