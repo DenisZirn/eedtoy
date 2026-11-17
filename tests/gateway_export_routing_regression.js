@@ -182,18 +182,18 @@ const fts={
   room:'PCT14 Adresse 31', imported_from_pct14:true,
   platform:'binary_sensor', device_type:'FTS14EM',
 };
-const fam14={type:'fam14',base_id:busBase};
+const fam14ForFts={type:'fam14',base_id:busBase};
 const otherBus={type:'fam14',base_id:'FF-00-12-80'};
-const routes=[fam14,fgw,otherBus];
-assert.equal(a.defaultExportGatewayForDevice(fts,fam,routes,busBase),a.gatewayKey(fam14));
+const routes=[fam14ForFts,fgw,otherBus];
+assert.equal(a.defaultExportGatewayForDevice(fts,fam,routes,busBase),a.gatewayKey(fam14ForFts));
 const initial=a.reconcilePct14ImportedDevices([], [fts],fam,busBase,routes);
 assert.equal(initial.length,1);
-assert.equal(initial[0].export_gateway_key,a.gatewayKey(fam14));
+assert.equal(initial[0].export_gateway_key,a.gatewayKey(fam14ForFts));
 assert.equal(a.generateYaml(fam,initial,routes,busBase,'de',a.gatewayKey(fam))
   .includes('device_type: fam-usb'),false);
 const legacy={...fts,export_gateway_key:a.gatewayKey(fam)};
 const repaired=a.repairIncompatiblePrimaryAssignments([legacy],fam,routes,busBase);
-assert.equal(repaired[0].export_gateway_key,a.gatewayKey(fam14));
+assert.equal(repaired[0].export_gateway_key,a.gatewayKey(fam14ForFts));
 assert.equal(a.repairIncompatiblePrimaryAssignments([legacy],fam,[],busBase)[0].export_gateway_key,a.gatewayKey(fam));
 assert.equal(a.repairIncompatiblePrimaryAssignments([{...fts,export_gateway_key:''}],fam,routes,busBase)[0].export_gateway_key,'');
 assert.equal(a.repairIncompatiblePrimaryAssignments(
@@ -203,10 +203,10 @@ const otherDevice={...fts,bus_base_id:otherBus.base_id};
 const selected=a.reconcilePct14ImportedDevices([], [otherDevice],fam,otherBus.base_id,routes);
 assert.equal(selected[0].export_gateway_key,a.gatewayKey(otherBus),'FTS14EM is assigned to its own bus');
 const multi=a.assignPct14BusDevices([], [fts], {id:'house',base_id:busBase},fam,routes);
-assert.equal(multi[0].export_gateway_key,a.gatewayKey(fam14));
+assert.equal(multi[0].export_gateway_key,a.gatewayKey(fam14ForFts));
 assert.equal(a.repairIncompatiblePrimaryAssignments(
- [{...fts,export_gateway_key:a.gatewayKey(fam)}],fam,[fam14],busBase
-)[0].export_gateway_key,a.gatewayKey(fam14));
+ [{...fts,export_gateway_key:a.gatewayKey(fam)}],fam,[fam14ForFts],busBase
+)[0].export_gateway_key,a.gatewayKey(fam14ForFts));
 console.log('PASS: FTS14EM import, saved legacy route repair, gateway activation, explicit exclusions and bus isolation.');
 
 console.log('PASS: exclusive YAML gateway routing, physical/sender IDs, pending write warnings, and project compatibility.');
