@@ -1385,7 +1385,7 @@ function reconcilePct14ImportedDevices(existing, imported, gateway, pct14BaseId 
         ...entry,
         sender_programming_pending: Boolean(profileFor(entry.eep).needs_sender)
           && (!normalizeId(entry.programmed_sender_id)
-            || senderIdForGatewayKey(entry, primaryKey, pct14BaseId)
+            || senderIdForGatewayKey(entry, entry.export_gateway_key, pct14BaseId)
               !== normalizeId(entry.programmed_sender_id)),
       });
     }
@@ -1408,7 +1408,7 @@ function assignPct14BusDevices(existing, imported, bus, gateway, availableGatewa
       ),
       sender_programming_pending: Boolean(profileFor(device.eep).needs_sender)
         && (!normalizeId(device.programmed_sender_id)
-          || senderIdForGatewayKey({...device,bus_base_id:normalizeId(bus.base_id)},gatewayKey(gateway),bus.base_id)
+          || senderIdForGatewayKey({...device,bus_base_id:normalizeId(bus.base_id)},entry.export_gateway_key,bus.base_id)
             !== normalizeId(device.programmed_sender_id)),
     };
     const existingIndex = next.findIndex(item =>
