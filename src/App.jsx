@@ -1324,6 +1324,45 @@ function buildSenderProgrammingEntries(devices, targetGateways, pct14BaseId, bus
   return entries;
 }
 
+function reconcilePct14ControllerEvidence(existingDevice, freshDevice, primaryKey, pct14BaseId = "") {
+  // PCT14 reimport is evidence of the current controller ID, not a reason to
+  // overwrite the user's existing YAML route, names or project changes.
+  const recordedId = normalizeId(freshDevice?.programmed_sender_id);
+  if (!recordedId || !profileFor(existingDevice.eep).needs_sender) return existingDevice;
+  const updated = { ...existingDevice, programmed_sender_id: recordedId };
+  return {
+    ...updated,
+    sender_programming_pending: senderProgrammingIsPending(updated, primaryKey, pct14BaseId),
+  };
+}
+
+function reconcilePct14ImportedDevices(existing, imported, gateway, pct14BaseId = "") {
+  const next = [...existing];
+  const primaryKey = gatewayKey(gateway);
+  for (const device of imported) {
+    const entry = {
+      ...device,
+      imported_from_pct14:true,
+      export_gateway_key:primaryKey,
+    };
+    const duplicate = next.findIndex(item =>
+      duplicateDeviceKey(item) && duplicateDeviceKey(item) === duplicateDeviceKey(entry)
+    );
+    if (duplicate >= 0) {
+      next[duplicate] = reconcilePct14ControllerEvidence(next[duplicate], entry, primaryKey, pct14BaseId);
+    } else {
+      next.push({
+        ...entry,
+        sender_programming_pending: Boolean(profileFor(entry.eep).needs_sender)
+          && (!normalizeId(entry.programmed_sender_id)
+            || senderIdForGatewayKey(entry, primaryKey, pct14BaseId)
+              !== normalizeId(entry.programmed_sender_id)),
+      });
+    }
+  }
+  return next;
+}
+
 function assignPct14BusDevices(existing, imported, bus, gateway) {
   if (!bus?.id || !normalizeId(bus.base_id)) throw new Error("multibus.invalidBase");
   const next = [...existing];
@@ -1339,7 +1378,13 @@ function assignPct14BusDevices(existing, imported, bus, gateway) {
           || senderIdForGatewayKey({...device,bus_base_id:normalizeId(bus.base_id)},gatewayKey(gateway),bus.base_id)
             !== normalizeId(device.programmed_sender_id)),
     };
-    if (next.some(item => duplicateDeviceKey(item) === duplicateDeviceKey(entry))) continue;
+    const existingIndex = next.findIndex(item =>
+      duplicateDeviceKey(item) && duplicateDeviceKey(item) === duplicateDeviceKey(entry)
+    );
+    if (existingIndex >= 0) {
+      next[existingIndex] = reconcilePct14ControllerEvidence(next[existingIndex], entry, gatewayKey(gateway), bus.base_id);
+      continue;
+    }
     if (profileFor(entry.eep).needs_sender) {
       entry.sender_id = autoSenderIdForGateway(gateway, next);
       if (!entry.sender_id) throw new Error("multibus.senderUnavailable");
@@ -2750,24 +2795,7 @@ export default function App() {
         setImportMsg(t("import.noSupportedDevices", { file: file.name }));
         return;
       }
-      setDevices(existing => {
-        const existingKeys = new Set(existing.map(duplicateDeviceKey).filter(Boolean));
-        const imported = result.devices.map(d => ({
-          ...d,
-          imported_from_pct14: true,
-          export_gateway_key: gatewayKey(gateway),
-          sender_programming_pending: Boolean(profileFor(d.eep).needs_sender)
-            && (!normalizeId(d.programmed_sender_id)
-              || senderIdForGatewayKey(d,gatewayKey(gateway),result.baseId)
-                !== normalizeId(d.programmed_sender_id)),
-        }));
-        return [...existing, ...imported.filter(d => {
-          const key = duplicateDeviceKey(d);
-          if (!key || existingKeys.has(key)) return false;
-          existingKeys.add(key);
-          return true;
-        })];
-      });
+      setDevices(existing => reconcilePct14ImportedDevices(existing, result.devices, gateway, result.baseId));
       const unsupportedText = result.unsupported.length ? t("import.notImported", { devices: `${[...new Set(result.unsupported)].slice(0, 8).join(", ")}${result.unsupported.length > 8 ? " …" : ""}` }) : "";
       const senderText = result.missingSender ? t("import.missingSender", { count: result.missingSender }) : "";
       const importNoun = t(result.devices.length === 1 ? "import.oneDeviceChannel" : "import.manyDevicesChannels");
