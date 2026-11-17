@@ -1804,8 +1804,9 @@ export default function App() {
   const learnMessageTimerRef = useRef(null);
   const [learnMsg, setLearnMsg] = useState("");
   const [learnMsgTarget, setLearnMsgTarget] = useState("device");
-  const [importFam14Gateway, setImportFam14Gateway] = useState(true);
-  const [importFgw14Gateway, setImportFgw14Gateway] = useState(true);
+  // PCT14-discovered gateways are selectable but not exported until enabled.
+  const [importFam14Gateway, setImportFam14Gateway] = useState(false);
+  const [importFgw14Gateway, setImportFgw14Gateway] = useState(false);
   const [pct14DetectedFam14, setPct14DetectedFam14] = useState(false);
   const [pct14DetectedFgw14, setPct14DetectedFgw14] = useState(false);
   const [pct14GatewayBaseId, setPct14GatewayBaseId] = useState("");
@@ -1846,7 +1847,7 @@ export default function App() {
   const buildProjectDocument = (projectDevices = devices) => {
     const gatewayBlocks = orderedGatewayBlocks(gateway, buildActiveExtraGateways()).map(item => ({ ...item }));
     const [primaryGateway, ...otherGateways] = gatewayBlocks;
-    const projectYaml = generateYaml(primaryGateway || gateway, projectDevices, otherGateways, pct14GatewayBaseId, language);
+    const projectYaml = generateYaml(primaryGateway || gateway, projectDevices, otherGateways, pct14GatewayBaseId, language, gatewayKey(gateway));
     return {
       project_format: "eedtoy-project",
       schema_version: 1,
@@ -1960,8 +1961,8 @@ export default function App() {
     const loadedGateway = state.gateway && typeof state.gateway === "object" ? { ...emptyGW, ...state.gateway } : emptyGW;
     const loadedDevices = Array.isArray(state.devices) ? state.devices.map(normalizeLoadedDeviceProfile) : [];
     const loadedGateways = Array.isArray(state.extraGateways) ? state.extraGateways : [];
-    const loadedImportFam14Gateway = state.importFam14Gateway !== false;
-    const loadedImportFgw14Gateway = state.importFgw14Gateway !== false;
+    const loadedImportFam14Gateway = state.importFam14Gateway === true;
+    const loadedImportFgw14Gateway = state.importFgw14Gateway === true;
     const loadedPct14DetectedFam14 = Boolean(state.pct14DetectedFam14);
     const loadedPct14DetectedFgw14 = Boolean(state.pct14DetectedFgw14);
     const loadedPct14GatewayBaseId = typeof state.pct14GatewayBaseId === "string" ? state.pct14GatewayBaseId : "";
@@ -1985,7 +1986,7 @@ export default function App() {
     }
     const loadedGatewayBlocks = orderedGatewayBlocks(loadedGateway, activeLoadedGateways);
     const loadedYaml = loadedDevices.length > 0
-      ? generateYaml(loadedGateway, loadedDevices, loadedGatewayBlocks.slice(1), loadedPct14GatewayBaseId, language)
+      ? generateYaml(loadedGateway, loadedDevices, loadedGatewayBlocks.slice(1), loadedPct14GatewayBaseId, language, gatewayKey(loadedGateway))
       : "";
 
     setMultiBusEnabled(Boolean(state.multiBusEnabled));
@@ -2490,7 +2491,7 @@ export default function App() {
 
     const nextDevices = editIdx !== null
       ? devices.map((x,i) => i===editIdx ? entry : x)
-      : [...devices, entry];
+      : [...devices, { ...entry, export_gateway_key: gatewayKey(gateway) }];
     return nextDevices;
   };
 
@@ -2697,7 +2698,21 @@ export default function App() {
         setImportMsg(t("import.noSupportedDevices", { file: file.name }));
         return;
       }
-      setDevices(existing => [...existing, ...result.devices]);
+      setDevices(existing => {
+        const existingKeys = new Set(existing.map(duplicateDeviceKey).filter(Boolean));
+        const imported = result.devices.map(d => ({
+          ...d,
+          imported_from_pct14: true,
+          export_gateway_key: gatewayKey(gateway),
+          sender_programming_pending: Boolean(profileFor(d.eep).needs_sender),
+        }));
+        return [...existing, ...imported.filter(d => {
+          const key = duplicateDeviceKey(d);
+          if (!key || existingKeys.has(key)) return false;
+          existingKeys.add(key);
+          return true;
+        })];
+      });
       const unsupportedText = result.unsupported.length ? t("import.notImported", { devices: `${[...new Set(result.unsupported)].slice(0, 8).join(", ")}${result.unsupported.length > 8 ? " …" : ""}` }) : "";
       const senderText = result.missingSender ? t("import.missingSender", { count: result.missingSender }) : "";
       const importNoun = t(result.devices.length === 1 ? "import.oneDeviceChannel" : "import.manyDevicesChannels");
@@ -2749,16 +2764,39 @@ export default function App() {
       ? generatedGatewayBlocks
       : orderedGatewayBlocks(gateway, buildActiveExtraGateways());
     const [snapshotPrimary, ...snapshotExtras] = snapshot;
-    setYaml(generateYaml(snapshotPrimary || gateway, devices, snapshotExtras, pct14GatewayBaseId, language));
+    setYaml(generateYaml(snapshotPrimary || gateway, devices, snapshotExtras, pct14GatewayBaseId, language, gatewayKey(gateway)));
   }, [language]);
+
+  const handleDeviceGatewaySelection = (index, targetKey) => {
+    const choices = orderedGatewayBlocks(gateway, buildActiveExtraGateways());
+    const target = choices.find(item => gatewayKey(item) === targetKey);
+    const device = devices[index];
+    if (!device || (targetKey && (!target || !gatewayCanExportDevice(device, target, pct14GatewayBaseId)))) return;
+    setDevices(current => current.map((item, i) =>
+      i === index ? assignDeviceExportGateway(item, targetKey, gatewayKey(gateway)) : item
+    ));
+    setYaml("");
+    setGeneratedGatewayBlocks([]);
+    setWriteSenderSummary(null);
+  };
 
   const handleGenerate = () => {
     const normalized = normalizeFksSenderAssignments(gateway, devices, pct14GatewayBaseId);
-    if (normalized.changed || normalized.devices.length !== devices.length) setDevices(normalized.devices);
     const gatewaySnapshot = orderedGatewayBlocks(gateway, buildActiveExtraGateways()).map(gw => ({ ...gw }));
     const [snapshotPrimary, ...snapshotExtras] = gatewaySnapshot;
+    const activeChoices = gatewaySnapshot.filter(gw => normalized.devices.some(d =>
+      exportGatewayForDevice(d, gatewayKey(gateway)) === gatewayKey(gw) &&
+      gatewayCanExportDevice(d, gw, pct14GatewayBaseId)
+    ));
+    if (!activeChoices.length) {
+      setImportMsg(t("routing.noExportableDevices"));
+      return;
+    }
+    if (normalized.changed || normalized.devices.length !== devices.length) setDevices(normalized.devices);
+    const pending = pendingSenderDevices(normalized.devices, gatewayKey(gateway));
+    if (pending.length && !window.confirm(t("routing.beforeYaml", { count: pending.length }))) return;
     setGeneratedGatewayBlocks(gatewaySnapshot);
-    setYaml(generateYaml(snapshotPrimary || gateway, normalized.devices, snapshotExtras, pct14GatewayBaseId, language));
+    setYaml(generateYaml(snapshotPrimary || gateway, normalized.devices, snapshotExtras, pct14GatewayBaseId, language, gatewayKey(gateway)));
     setStep(3);
   };
   const handleCopy = () => { navigator.clipboard.writeText(yaml); setCopied(true); setTimeout(()=>setCopied(false),2000); };
@@ -2778,7 +2816,7 @@ export default function App() {
     ? activeGatewayBlocks.filter(gw => gw.type === "fam-usb" || normalizeId(gw.base_id) === normalizeId(selectedWriteBus?.base_id))
     : activeGatewayBlocks;
   const senderProgrammingEntries = multiBusEnabled && !selectedWriteBus ? []
-    : buildSenderProgrammingEntries(devices, programmingGatewayBlocks, selectedWriteBus?.base_id || pct14GatewayBaseId, multiBusEnabled ? writeBusId : "");
+    : buildSenderProgrammingEntries(devices, programmingGatewayBlocks, selectedWriteBus?.base_id || pct14GatewayBaseId, multiBusEnabled ? writeBusId : "", gatewayKey(gateway));
   const senderGatewaySummary = activeGatewayBlocks
     .map(gw => `${gw.type}${gw.base_id ? ` (${gw.base_id})` : ""}`)
     .join(" · ");
