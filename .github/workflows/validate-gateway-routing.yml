@@ -30,5 +30,12 @@ jobs:
         run: |
           node tests/multibus_regression.js
           node tests/yaml_generation_regression.js
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Python dependencies
+        run: python -m pip install -r python/requirements.txt
+      - name: Full EEDTOY application regression suite
+        run: npm test
       - name: UI compile
         run: npm run build
