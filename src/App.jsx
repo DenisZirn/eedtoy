@@ -2089,7 +2089,7 @@ export default function App() {
     const project = result.project || {};
     const state = project.state || {};
     const loadedGateway = state.gateway && typeof state.gateway === "object" ? { ...emptyGW, ...state.gateway } : emptyGW;
-    const loadedDevices = Array.isArray(state.devices) ? state.devices.map(normalizeLoadedDeviceProfile) : [];
+    const projectDevices = Array.isArray(state.devices) ? state.devices.map(normalizeLoadedDeviceProfile) : [];
     const loadedGateways = Array.isArray(state.extraGateways) ? state.extraGateways : [];
     const loadedImportFam14Gateway = state.importFam14Gateway === true;
     const loadedImportFgw14Gateway = state.importFgw14Gateway === true;
@@ -2115,6 +2115,9 @@ export default function App() {
       activeLoadedGateways.push({ type:"fgw14usb", base_id:loadedPct14GatewayBaseId, source:"pct14-fgw14" });
     }
     const loadedGatewayBlocks = orderedGatewayBlocks(loadedGateway, activeLoadedGateways);
+    const loadedDevices = repairIncompatiblePrimaryAssignments(
+      projectDevices, loadedGateway, loadedGatewayBlocks.slice(1), loadedPct14GatewayBaseId
+    );
     const loadedYaml = loadedDevices.length > 0
       ? generateYaml(loadedGateway, loadedDevices, loadedGatewayBlocks.slice(1), loadedPct14GatewayBaseId, language, gatewayKey(loadedGateway))
       : "";
@@ -2621,7 +2624,9 @@ export default function App() {
 
     const nextDevices = editIdx !== null
       ? devices.map((x,i) => i===editIdx ? entry : x)
-      : [...devices, { ...entry, export_gateway_key: gatewayKey(gateway) }];
+      : [...devices, { ...entry, export_gateway_key: defaultExportGatewayForDevice(
+          entry, gateway, buildActiveExtraGateways(), pct14GatewayBaseId
+        ) }];
     return nextDevices;
   };
 
@@ -2652,6 +2657,12 @@ export default function App() {
       }
       return next;
     });
+    if (checked && pct14DetectedFam14 && pct14GatewayBaseId) {
+      setDevices(current => repairIncompatiblePrimaryAssignments(
+        current, gateway, [{ type:"fam14", base_id:pct14GatewayBaseId },
+          ...buildActiveExtraGateways()], pct14GatewayBaseId
+      ));
+    }
   };
 
   const handleImportFgw14GatewayToggle = (checked) => {
@@ -2663,6 +2674,12 @@ export default function App() {
       }
       return next;
     });
+    if (checked && pct14DetectedFgw14 && pct14GatewayBaseId) {
+      setDevices(current => repairIncompatiblePrimaryAssignments(
+        current, gateway, [{ type:"fgw14usb", base_id:pct14GatewayBaseId },
+          ...buildActiveExtraGateways()], pct14GatewayBaseId
+      ));
+    }
   };
 
   const readTextFileUtf8 = async (file) => {
@@ -2799,7 +2816,14 @@ export default function App() {
         if (sameBase && sameBase.id !== selected?.id) throw new Error(t("multibus.duplicateBase"));
         const bus = { ...(selected || { id:`bus-${Date.now()}`, name:t("multibus.busNumber", { count:busSystems.length + 1 }) }),
           base_id:base, hasFam14:Boolean(result.hasFam14Gateway), hasFgw14:Boolean(result.hasFgw14Gateway) };
-        const next = assignPct14BusDevices(devices, result.devices, bus, gateway);
+        const available = [
+          ...buildActiveExtraGateways(),
+          ...(importFam14Gateway && bus.hasFam14
+            ? [{ type:"fam14", base_id:base, source:"pct14-rootdevice" }] : []),
+          ...(importFgw14Gateway && bus.hasFgw14
+            ? [{ type:"fgw14usb", base_id:base, source:"pct14-fgw14" }] : []),
+        ];
+        const next = assignPct14BusDevices(devices, result.devices, bus, gateway, available);
         setDevices(next);
         setBusSystems(existing => [...existing.filter(item => item.id !== bus.id), bus]);
         setImportBusId(bus.id);
@@ -2828,7 +2852,10 @@ export default function App() {
         setImportMsg(t("import.noSupportedDevices", { file: file.name }));
         return;
       }
-      setDevices(existing => reconcilePct14ImportedDevices(existing, result.devices, gateway, result.baseId));
+      setDevices(existing => reconcilePct14ImportedDevices(
+        existing, result.devices, gateway, result.baseId,
+        [...buildActiveExtraGateways(), ...(result.extraGateways || [])]
+      ));
       const unsupportedText = result.unsupported.length ? t("import.notImported", { devices: `${[...new Set(result.unsupported)].slice(0, 8).join(", ")}${result.unsupported.length > 8 ? " …" : ""}` }) : "";
       const senderText = result.missingSender ? t("import.missingSender", { count: result.missingSender }) : "";
       const importNoun = t(result.devices.length === 1 ? "import.oneDeviceChannel" : "import.manyDevicesChannels");
