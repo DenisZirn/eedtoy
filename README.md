@@ -4,6 +4,10 @@ EEDTOY ist ein Desktop-Konfigurator für EnOcean-Geräte, ELTAKO-Gateways, PCT14
 
 > **Hinweis:** EEDTOY wird privat von D. Zirnbauer entwickelt und ist kein offizielles Produkt der ELTAKO GmbH. ELTAKO-Produktnamen werden ausschließlich zur Beschreibung der Gerätekompatibilität verwendet.
 
+## Dokumentation
+
+Das **[deutsche EEDTOY-Benutzerhandbuch (v1.1.04)](docs/de/README.md)** bietet einen Schnellstart und Schritt-für-Schritt-Anleitungen zu Installation, Gateways, Geräten, PCT14, MiniSafe2, Sender-IDs, Home Assistant und Fehlerbehebung.
+
 ## Funktionen
 
 - FAM14-, FAM-USB- und FGW14-USB-Unterstützung
