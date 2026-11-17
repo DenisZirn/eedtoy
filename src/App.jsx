@@ -659,6 +659,34 @@ function gatewayCanExportDevice(device, gw, pct14BaseId = "") {
   return !["fam14", "fgw14usb"].includes(gw.type) || !busBase || normalizeId(gw.base_id) === busBase;
 }
 
+// Keep an explicitly valid user choice. Only repair an incompatible
+// *automatic primary* assignment (not an explicit "" / deselection) when a
+// matching bus gateway becomes available. In particular FTS14EM has no
+// FAM-USB export path and belongs by default to its own FAM14 bus.
+function defaultExportGatewayForDevice(device, primaryGateway, availableGateways, pct14BaseId = "") {
+  const primaryKey = gatewayKey(primaryGateway);
+  if (gatewayCanExportDevice(device, primaryGateway, pct14BaseId)) return primaryKey;
+  const match = orderedGatewayBlocks(primaryGateway, availableGateways).find(gw =>
+    gatewayCanExportDevice(device, gw, pct14BaseId)
+  );
+  // Without any usable gateway keep the invalid primary assignment visible:
+  // silently excluding the device would conceal an incomplete configuration.
+  return match ? gatewayKey(match) : primaryKey;
+}
+
+function repairIncompatiblePrimaryAssignments(devices, primaryGateway, availableGateways, pct14BaseId = "") {
+  const primaryKey = gatewayKey(primaryGateway);
+  return (devices || []).map(device => {
+    if (exportGatewayForDevice(device, primaryKey) !== primaryKey
+        || gatewayCanExportDevice(device, primaryGateway, pct14BaseId)) return device;
+    const selectedKey = defaultExportGatewayForDevice(
+      device, primaryGateway, availableGateways, pct14BaseId
+    );
+    return selectedKey === primaryKey ? device
+      : assignDeviceExportGateway(device, selectedKey, primaryKey, pct14BaseId);
+  });
+}
+
 function senderIdForGatewayKey(device, key, pct14BaseId = "") {
   const separator = String(key || "").indexOf("|");
   if (separator <= 0) return "";
@@ -1336,14 +1364,16 @@ function reconcilePct14ControllerEvidence(existingDevice, freshDevice, primaryKe
   };
 }
 
-function reconcilePct14ImportedDevices(existing, imported, gateway, pct14BaseId = "") {
+function reconcilePct14ImportedDevices(existing, imported, gateway, pct14BaseId = "", availableGateways = []) {
   const next = [...existing];
   const primaryKey = gatewayKey(gateway);
   for (const device of imported) {
     const entry = {
       ...device,
       imported_from_pct14:true,
-      export_gateway_key:primaryKey,
+      export_gateway_key:defaultExportGatewayForDevice(
+        device, gateway, availableGateways, pct14BaseId
+      ),
     };
     const duplicate = next.findIndex(item =>
       duplicateDeviceKey(item) && duplicateDeviceKey(item) === duplicateDeviceKey(entry)
@@ -1360,10 +1390,10 @@ function reconcilePct14ImportedDevices(existing, imported, gateway, pct14BaseId 
       });
     }
   }
-  return next;
+  return repairIncompatiblePrimaryAssignments(next, gateway, availableGateways, pct14BaseId);
 }
 
-function assignPct14BusDevices(existing, imported, bus, gateway) {
+function assignPct14BusDevices(existing, imported, bus, gateway, availableGateways = []) {
   if (!bus?.id || !normalizeId(bus.base_id)) throw new Error("multibus.invalidBase");
   const next = [...existing];
   for (const device of imported) {
@@ -1372,7 +1402,10 @@ function assignPct14BusDevices(existing, imported, bus, gateway) {
       bus_system_id: bus.id,
       bus_base_id: normalizeId(bus.base_id),
       imported_from_pct14: true,
-      export_gateway_key: gatewayKey(gateway),
+      export_gateway_key: defaultExportGatewayForDevice(
+        { ...device, bus_base_id:normalizeId(bus.base_id) },
+        gateway, availableGateways, bus.base_id,
+      ),
       sender_programming_pending: Boolean(profileFor(device.eep).needs_sender)
         && (!normalizeId(device.programmed_sender_id)
           || senderIdForGatewayKey({...device,bus_base_id:normalizeId(bus.base_id)},gatewayKey(gateway),bus.base_id)
@@ -1391,7 +1424,7 @@ function assignPct14BusDevices(existing, imported, bus, gateway) {
     }
     next.push(entry);
   }
-  return next;
+  return repairIncompatiblePrimaryAssignments(next, gateway, availableGateways, bus.base_id);
 }
 
 function senderOffsetFromId(id) {
