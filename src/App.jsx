@@ -637,6 +637,46 @@ function gatewayKey(gw) {
   return `${gw?.type || ""}|${gw?.base_id || ""}`;
 }
 
+// One selected export/command route per device. Older projects without a
+// selection use the first configured gateway, not every discovered gateway.
+function exportGatewayForDevice(device, primaryKey) {
+  if (Object.prototype.hasOwnProperty.call(device || {}, "export_gateway_key")) {
+    return String(device.export_gateway_key || "");
+  }
+  return primaryKey || "";
+}
+
+function gatewayCanExportDevice(device, gw, pct14BaseId = "") {
+  if (!device || !gw) return false;
+  const family = String(profileFor(device.eep).device_family || device.device_family || "").toUpperCase();
+  if (family === "FTS14EM" && gw.type === "fam-usb") return false;
+  if (!isPct14ImportedDevice(device) || gw.type === "fam-usb") return true;
+  const busBase = normalizeId(device.bus_base_id || pct14BaseId);
+  return !["fam14", "fgw14usb"].includes(gw.type) || !busBase || normalizeId(gw.base_id) === busBase;
+}
+
+function assignDeviceExportGateway(device, selectedKey, primaryKey) {
+  const prior = exportGatewayForDevice(device, primaryKey);
+  if (prior === selectedKey) return device;
+  // PCT14 controllers must be reprogrammed whenever their physical sender
+  // gateway changes. A passive sensor needs no actuator write.
+  const mustWrite = Boolean(profileFor(device.eep).needs_sender && isPct14ImportedDevice(device));
+  return {
+    ...device,
+    export_gateway_key: selectedKey,
+    sender_programming_pending: Boolean(device.sender_programming_pending) || mustWrite,
+  };
+}
+
+function pendingSenderDevices(devices, primaryKey) {
+  return (devices || []).filter(device =>
+    Boolean(device.sender_programming_pending) &&
+    Boolean(exportGatewayForDevice(device, primaryKey)) &&
+    Boolean(profileFor(device.eep).needs_sender) &&
+    isPct14ImportedDevice(device)
+  );
+}
+
 
 const FTS14EM_ID_RANGES = [
   { value: "1", label: "1", baseId: "00-00-10-01" },
@@ -966,7 +1006,7 @@ function expandMultiIdExportDevices(devices) {
 }
 
 // ─── YAML Generator — grimmpp eltako: format ─────────────────────
-function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", language = "de") {
+function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", language = "de", primaryExportGatewayKey = gatewayKey(gateway)) {
   if (!devices.length) return "";
   // Resolve every device against the current database at export time. This makes
   // edits to EEP, sender EEP, platform and profile options immediately effective
@@ -994,7 +1034,14 @@ function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", la
   out += `eltako:\n`;
   out += `  gateway:\n`;
 
-  const gatewayBlocks = orderedGatewayBlocks(gateway, extraGateways);
+  // A gateway is included only if at least one device explicitly belongs to
+  // it. This avoids empty gateway blocks and duplicate HA entities.
+  const gatewayBlocks = orderedGatewayBlocks(gateway, extraGateways).filter(gw =>
+    exportDevices.some(d =>
+      exportGatewayForDevice(d, primaryExportGatewayKey) === gatewayKey(gw) &&
+      gatewayCanExportDevice(d, gw, pct14BaseId)
+    )
+  );
 
   const writeGatewayBlock = (gw, index) => {
     // Format bewusst wie in der Grimm/Home-Assistant-Eltako-Konfiguration:
@@ -1008,12 +1055,10 @@ function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", la
 
     const ORDER = ["light","switch","cover","fan","sensor","binary_sensor","climate"];
     for (const plat of ORDER) {
-      const platformDevices = (byPlat[plat] || []).filter(d => {
-        if (d.bus_system_id && ["fam14", "fgw14usb"].includes(gw.type) && normalizeId(d.bus_base_id) !== normalizeId(gw.base_id)) return false;
-        const p = profileFor(d.eep);
-        const family = String(p.device_family || d.device_family || "").toUpperCase();
-        return !(family === "FTS14EM" && String(gw.type || "").toLowerCase() === "fam-usb");
-      });
+      const platformDevices = (byPlat[plat] || []).filter(d =>
+        exportGatewayForDevice(d, primaryExportGatewayKey) === gatewayKey(gw) &&
+        gatewayCanExportDevice(d, gw, pct14BaseId)
+      );
       if (!platformDevices.length) continue;
       out += `      ${plat}:\n`;
       for (const d of platformDevices) {
@@ -1153,7 +1198,7 @@ function addressFromBusId(id) {
 }
 
 function isPct14ImportedDevice(device) {
-  return Boolean(device?.bus_system_id) || /PCT14\s+(Adresse|address)\b/i.test(String(device?.room || ""));
+  return Boolean(device?.imported_from_pct14 || device?.bus_system_id) || /PCT14\s+(Adresse|address)\b/i.test(String(device?.room || ""));
 }
 
 function deviceIdForGateway(device, gw, pct14BaseId) {
@@ -1190,7 +1235,7 @@ function busDeviceIdForProgramming(device, pct14BaseId) {
   return addToBaseId(pct14BaseId, offset);
 }
 
-function buildSenderProgrammingEntries(devices, targetGateways, pct14BaseId, busSystemId = "") {
+function buildSenderProgrammingEntries(devices, targetGateways, pct14BaseId, busSystemId = "", primaryExportGatewayKey = "") {
   const gateways = Array.isArray(targetGateways) ? targetGateways.filter(Boolean) : [targetGateways].filter(Boolean);
   if (!gateways.length || (!pct14BaseId && !busSystemId)) return [];
 
@@ -1207,12 +1252,20 @@ function buildSenderProgrammingEntries(devices, targetGateways, pct14BaseId, bus
     const typeText = String(deviceTypeForDevice(d)).toUpperCase();
     const hasSingleControllerSlotPerChannel = /(^|\s)(?:FHK14|F4HK14|FAE14SSR|FAE14LPR)(?:\s|$)/.test(typeText);
     const gatewayPriority = { fgw14usb: 3, "fam-usb": 2, fam14: 1 };
-    const programmingGateways = hasSingleControllerSlotPerChannel
-      ? gateways
-          .slice()
-          .sort((a, b) => (gatewayPriority[String(b.type || "").toLowerCase()] || 0) - (gatewayPriority[String(a.type || "").toLowerCase()] || 0))
-          .slice(0, 1)
-      : gateways;
+    const selectedKey = exportGatewayForDevice(d, primaryExportGatewayKey);
+    // Legacy helper callers without a primary key retain the previous
+    // programming behavior; the application always supplies its configured
+    // primary key and therefore only writes the selected controller sender.
+    const programmingGateways = selectedKey
+      ? gateways.filter(gw => gatewayKey(gw) === selectedKey && gatewayCanExportDevice(d, gw, pct14BaseId))
+      : Object.prototype.hasOwnProperty.call(d, "export_gateway_key")
+        ? []
+        : hasSingleControllerSlotPerChannel
+          ? gateways.slice().sort((a, b) =>
+              (gatewayPriority[String(b.type || "").toLowerCase()] || 0) -
+              (gatewayPriority[String(a.type || "").toLowerCase()] || 0)
+            ).slice(0, 1)
+          : gateways;
 
     for (const targetGateway of programmingGateways) {
       const sender_id = senderIdForGateway(d, targetGateway, pct14BaseId);
@@ -1243,7 +1296,14 @@ function assignPct14BusDevices(existing, imported, bus, gateway) {
   if (!bus?.id || !normalizeId(bus.base_id)) throw new Error("multibus.invalidBase");
   const next = [...existing];
   for (const device of imported) {
-    const entry = { ...device, bus_system_id: bus.id, bus_base_id: normalizeId(bus.base_id) };
+    const entry = {
+      ...device,
+      bus_system_id: bus.id,
+      bus_base_id: normalizeId(bus.base_id),
+      imported_from_pct14: true,
+      export_gateway_key: gatewayKey(gateway),
+      sender_programming_pending: Boolean(profileFor(device.eep).needs_sender),
+    };
     if (next.some(item => duplicateDeviceKey(item) === duplicateDeviceKey(entry))) continue;
     if (profileFor(entry.eep).needs_sender) {
       entry.sender_id = autoSenderIdForGateway(gateway, next);
