@@ -3619,7 +3619,8 @@ export default function App() {
           <div className="topMeta projectActions">
             {projectFileName&&<span className="statusPill" title={t("common.projectFileTitle")}>{projectFileName}</span>}
             <button className="btn ghost" onClick={handleOpenProject} disabled={!isElectron} title={t("common.openProjectTitle")}>{t("common.openProject")}</button>
-            <button className="btn pri" onClick={handleSaveProject} disabled={!isElectron} title={t("common.saveProjectAsTitle")}>{t("common.saveProject")}</button>
+            <button className="btn pri" onClick={handleSaveProject} disabled={!isElectron} title={t("common.saveProject")}>{t("common.saveProject")}</button>
+            <button className="btn ghost" onClick={handleSaveProjectAs} disabled={!isElectron} title={t("common.saveProjectAsTitle")}>{t("common.saveProjectAs")}</button>
             <span className="statusPill">{t(devices.length === 1 ? "common.deviceCount" : "common.deviceCountPlural", { count: devices.length })}</span>
           </div>
         </header>
