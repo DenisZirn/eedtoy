@@ -646,6 +646,10 @@ function exportGatewayForDevice(device, primaryKey) {
   return primaryKey || "";
 }
 
+function pct14BaseIdForDevice(device, fallback = "") {
+  return device?.bus_base_id || fallback;
+}
+
 function gatewayCanExportDevice(device, gw, pct14BaseId = "") {
   if (!device || !gw) return false;
   const family = String(profileFor(device.eep).device_family || device.device_family || "").toUpperCase();
@@ -2793,6 +2797,18 @@ export default function App() {
       return;
     }
     if (normalized.changed || normalized.devices.length !== devices.length) setDevices(normalized.devices);
+    const missingRoutes = normalized.devices.filter(device => {
+      const selectedKey = exportGatewayForDevice(device, gatewayKey(gateway));
+      if (!selectedKey) return false; // Explicitly excluded from YAML
+      return !gatewaySnapshot.some(gw =>
+        gatewayKey(gw) === selectedKey &&
+        gatewayCanExportDevice(device, gw, pct14BaseIdForDevice(device, pct14GatewayBaseId))
+      );
+    });
+    if (missingRoutes.length) {
+      setImportMsg(t("routing.invalidExportRoute", { count: missingRoutes.length }));
+      return;
+    }
     const pending = pendingSenderDevices(normalized.devices, gatewayKey(gateway));
     if (pending.length && !window.confirm(t("routing.beforeYaml", { count: pending.length }))) return;
     setGeneratedGatewayBlocks(gatewaySnapshot);
@@ -2970,7 +2986,29 @@ export default function App() {
     }
     if (result.ok) {
       const c = result.counts || {};
-      setWriteSenderMsg("");
+      const fullyWritten = Number(c.error || 0) === 0
+        && Number(c.unsupported || 0) === 0
+        && Number(c.updated || 0) + Number(c.exists || 0) === senderProgrammingEntries.length
+        && Array.isArray(result.events)
+        && result.events.filter(event => ["updated", "exists"].includes(event.status)).length === senderProgrammingEntries.length;
+      if (fullyWritten) {
+        // Only clear pending flags for devices represented in this successful
+        // verified write operation, never for another bus or gateway route.
+        setDevices(previous => previous.map(device => {
+          if (!device.sender_programming_pending) return device;
+          const entries = buildSenderProgrammingEntries(
+            [device], programmingGatewayBlocks,
+            selectedWriteBus?.base_id || pct14GatewayBaseId,
+            multiBusEnabled ? writeBusId : "", gatewayKey(gateway),
+          );
+          return entries.some(entry => senderProgrammingEntries.some(done =>
+            done.device_id === entry.device_id &&
+            done.sender_id === entry.sender_id &&
+            done.sender_eep === entry.sender_eep
+          )) ? { ...device, sender_programming_pending: false } : device;
+        }));
+      }
+      setWriteSenderMsg(fullyWritten ? "" : t("routing.writeNotConfirmed"));
       setWriteSenderSummary({ updated: c.updated || 0, exists: c.exists || 0, unsupported: c.unsupported || 0, errors: c.error || 0 });
     } else {
       setWriteSenderMsg("✗ " + runtimeText(result.error || t("senderWrite.failed")));
