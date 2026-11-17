@@ -1397,7 +1397,7 @@ function assignPct14BusDevices(existing, imported, bus, gateway, availableGatewa
   if (!bus?.id || !normalizeId(bus.base_id)) throw new Error("multibus.invalidBase");
   const next = [...existing];
   for (const device of imported) {
-    const entry = {
+    const routed = {
       ...device,
       bus_system_id: bus.id,
       bus_base_id: normalizeId(bus.base_id),
@@ -1406,10 +1406,13 @@ function assignPct14BusDevices(existing, imported, bus, gateway, availableGatewa
         { ...device, bus_base_id:normalizeId(bus.base_id) },
         gateway, availableGateways, bus.base_id,
       ),
-      sender_programming_pending: Boolean(profileFor(device.eep).needs_sender)
-        && (!normalizeId(device.programmed_sender_id)
-          || senderIdForGatewayKey({...device,bus_base_id:normalizeId(bus.base_id)},entry.export_gateway_key,bus.base_id)
-            !== normalizeId(device.programmed_sender_id)),
+    };
+    const entry = {
+      ...routed,
+      sender_programming_pending: Boolean(profileFor(routed.eep).needs_sender)
+        && (!normalizeId(routed.programmed_sender_id)
+          || senderIdForGatewayKey(routed, routed.export_gateway_key, bus.base_id)
+            !== normalizeId(routed.programmed_sender_id)),
     };
     const existingIndex = next.findIndex(item =>
       duplicateDeviceKey(item) && duplicateDeviceKey(item) === duplicateDeviceKey(entry)
@@ -2097,7 +2100,7 @@ export default function App() {
     const loadedPct14DetectedFgw14 = Boolean(state.pct14DetectedFgw14);
     const loadedPct14GatewayBaseId = typeof state.pct14GatewayBaseId === "string" ? state.pct14GatewayBaseId : "";
     const loadedStep = [1, 2, 3].includes(Number(state.step)) ? Number(state.step) : 1;
-    const loadedEditIdx = Number.isInteger(state.editIdx) && state.editIdx >= 0 && state.editIdx < loadedDevices.length
+    const loadedEditIdx = Number.isInteger(state.editIdx) && state.editIdx >= 0 && state.editIdx < projectDevices.length
       ? state.editIdx
       : null;
 
