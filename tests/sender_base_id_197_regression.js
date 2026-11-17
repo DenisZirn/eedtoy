@@ -77,6 +77,8 @@ vm.runInContext(`this.runAdd = (gateway, devices, form, editIdx = null) => {
   const profile = profileFor(form.eep);
   const language = 'en';
   const t = key => key;
+  const pct14GatewayBaseId = '';
+  const buildActiveExtraGateways = () => [];
   let result = {devices, form, errors: {}};
   const setDevices = value => { result.devices = value; };
   const setForm = value => { result.form = value; };
