@@ -61,8 +61,8 @@ const xml = `<?xml version="1.0"?>
     <header><address>7</address><addressrange>1</addressrange><numberofblocks>127</numberofblocks></header>
     <channels numberofchannels="1"><channel channelnumber="1" description="RGBW"/></channels>
     <data><rangeofid numberofentries="2">
-      <entry><entry_number>1</entry_number><entry_id>45076</entry_id><entry_function>32</entry_function><entry_button>0</entry_button><entry_channel>1</entry_channel></entry>
-      <entry><entry_number>2</entry_number><entry_id>45063</entry_id><entry_function>81</entry_function><entry_button>0</entry_button><entry_channel>15</entry_channel></entry>
+      <entry><entry_number>1</entry_number><entry_id>347078656</entry_id><entry_function>32</entry_function><entry_button>0</entry_button><entry_channel>1</entry_channel></entry>
+      <entry><entry_number>2</entry_number><entry_id>128974848</entry_id><entry_function>81</entry_function><entry_button>0</entry_button><entry_channel>15</entry_channel></entry>
     </rangeofid></data>
   </device></devices>
 </exchange>`;
