@@ -1,8 +1,25 @@
 # EEDTOY – ELTAKO EnOcean Device to YAML Generator
 
+<p align="center">
+  <a href="https://github.com/DenisZirn/eedtoy/releases/latest"><img src="https://img.shields.io/badge/EEDTOY-Desktop%20App-1687c7?style=flat" alt="EEDTOY Desktop App"></a>
+  <a href="https://github.com/DenisZirn/eedtoy/releases/latest"><img src="https://img.shields.io/badge/Windows-x64-1687c7?style=flat" alt="Windows x64"></a>
+  <a href="docs/de/yaml-home-assistant.md"><img src="https://img.shields.io/badge/Home%20Assistant-YAML%20Export-1687c7?style=flat" alt="Home Assistant YAML Export"></a>
+  <a href="https://github.com/DenisZirn/eedtoy/releases/latest"><img src="https://img.shields.io/github/v/release/DenisZirn/eedtoy?label=release&amp;color=1687c7" alt="Aktuelles Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-97ca00?style=flat" alt="Lizenz GPL-3.0-or-later"></a>
+  <a href="docs/de/README.md"><img src="https://img.shields.io/badge/Dokumentation-Handbuch-2f67cf?style=flat" alt="Deutsches Benutzerhandbuch"></a>
+</p>
+
+<p align="center">
+  <a href="https://www.paypal.me/DenisZirnb"><img src="https://img.shields.io/badge/SUPPORT%20THIS%20PROJECT-PayPal.me-249e57?style=flat" alt="Projekt über PayPal.me unterstützen"></a>
+</p>
+
 EEDTOY ist ein Desktop-Konfigurator für EnOcean-Geräte, ELTAKO-Gateways, PCT14-Import und den YAML-Export für Home Assistant.
 
 > **Hinweis:** EEDTOY wird privat von D. Zirnbauer entwickelt und ist kein offizielles Produkt der ELTAKO GmbH. ELTAKO-Produktnamen werden ausschließlich zur Beschreibung der Gerätekompatibilität verwendet.
+
+## Dokumentation
+
+Das **[deutsche EEDTOY-Benutzerhandbuch (v1.1.04)](docs/de/README.md)** bietet einen Schnellstart und Schritt-für-Schritt-Anleitungen zu Installation, Gateways, Geräten, PCT14, MiniSafe2, Sender-IDs, Home Assistant und Fehlerbehebung.
 
 ## Funktionen
 
