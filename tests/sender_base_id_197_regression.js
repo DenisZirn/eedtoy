@@ -34,7 +34,7 @@ function fullRange(gw) {
   assert.equal(api.autoSenderIdForGateway(gw, devices), '', 'exhaustion must not wrap to first address');
   return devices;
 }
-check('version is 1.1.03', () => assert.equal(api.APP_VERSION, '1.1.03'));
+check('version is 1.1.04', () => assert.equal(api.APP_VERSION, '1.1.04'));
 check('reported base-80 regression', () => assert.equal(api.autoSenderIdForGateway(gw80, originalExample), 'FF-A6-07-82'));
 for (const base of ['FF-A6-07-00', 'FF-A6-07-80', 'FF-FF-FF-80']) {
   check(`all 127 addresses and exhaustion: ${base}`, () => fullRange({type: 'fam-usb', base_id: base}));
@@ -77,6 +77,8 @@ vm.runInContext(`this.runAdd = (gateway, devices, form, editIdx = null) => {
   const profile = profileFor(form.eep);
   const language = 'en';
   const t = key => key;
+  const pct14GatewayBaseId = '';
+  const buildActiveExtraGateways = () => [];
   let result = {devices, form, errors: {}};
   const setDevices = value => { result.devices = value; };
   const setForm = value => { result.form = value; };

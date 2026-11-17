@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getStoredLanguage, storeLanguage, translate, translateDeviceLabel, translateDeviceProfileLabel, translateDeviceName, translateGroup, translatePlatform, translateRuntimeText } from "./i18n.js";
 
-const APP_VERSION = "1.1.03";
+const APP_VERSION = "1.1.04";
 
 
 function serializeDeviceDatabaseYaml(database) {
@@ -637,6 +637,106 @@ function gatewayKey(gw) {
   return `${gw?.type || ""}|${gw?.base_id || ""}`;
 }
 
+// One selected export/command route per device. Older projects without a
+// selection use the first configured gateway, not every discovered gateway.
+function exportGatewayForDevice(device, primaryKey) {
+  if (Object.prototype.hasOwnProperty.call(device || {}, "export_gateway_key")) {
+    return String(device.export_gateway_key || "");
+  }
+  return primaryKey || "";
+}
+
+function pct14BaseIdForDevice(device, fallback = "") {
+  return device?.bus_base_id || fallback;
+}
+
+function gatewayCanExportDevice(device, gw, pct14BaseId = "") {
+  if (!device || !gw) return false;
+  const family = String(profileFor(device.eep).device_family || device.device_family || "").toUpperCase();
+  if (family === "FTS14EM" && gw.type === "fam-usb") return false;
+  if (!isPct14ImportedDevice(device) || gw.type === "fam-usb") return true;
+  const busBase = normalizeId(device.bus_base_id || pct14BaseId);
+  return !["fam14", "fgw14usb"].includes(gw.type) || !busBase || normalizeId(gw.base_id) === busBase;
+}
+
+// Keep an explicitly valid user choice. Only repair an incompatible
+// *automatic primary* assignment (not an explicit "" / deselection) when a
+// matching bus gateway becomes available. In particular FTS14EM has no
+// FAM-USB export path and belongs by default to its own FAM14 bus.
+function defaultExportGatewayForDevice(device, primaryGateway, availableGateways, pct14BaseId = "") {
+  const primaryKey = gatewayKey(primaryGateway);
+  if (gatewayCanExportDevice(device, primaryGateway, pct14BaseId)) return primaryKey;
+  const match = orderedGatewayBlocks(primaryGateway, availableGateways).find(gw =>
+    gatewayCanExportDevice(device, gw, pct14BaseId)
+  );
+  // Without any usable gateway keep the invalid primary assignment visible:
+  // silently excluding the device would conceal an incomplete configuration.
+  return match ? gatewayKey(match) : primaryKey;
+}
+
+function repairIncompatiblePrimaryAssignments(devices, primaryGateway, availableGateways, pct14BaseId = "") {
+  const primaryKey = gatewayKey(primaryGateway);
+  return (devices || []).map(device => {
+    if (exportGatewayForDevice(device, primaryKey) !== primaryKey
+        || gatewayCanExportDevice(device, primaryGateway, pct14BaseId)) return device;
+    const selectedKey = defaultExportGatewayForDevice(
+      device, primaryGateway, availableGateways, pct14BaseId
+    );
+    return selectedKey === primaryKey ? device
+      : assignDeviceExportGateway(device, selectedKey, primaryKey, pct14BaseId);
+  });
+}
+
+function senderIdForGatewayKey(device, key, pct14BaseId = "") {
+  const separator = String(key || "").indexOf("|");
+  if (separator <= 0) return "";
+  const gw = { type:key.slice(0, separator), base_id:key.slice(separator + 1) };
+  // Sender IDs, not gateway names, decide whether reprogramming is needed:
+  // FAM14 and FGW14-USB can use the same virtual controller ID.
+  return normalizeId(senderIdForGateway(device, gw, pct14BaseIdForDevice(device, pct14BaseId)));
+}
+
+function senderProgrammingIsPending(device, primaryKey, pct14BaseId = "") {
+  if (!device || !profileFor(device.eep).needs_sender || !isPct14ImportedDevice(device)) return false;
+  const selectedKey = exportGatewayForDevice(device, primaryKey);
+  if (!selectedKey) return false;
+  const knownSender = normalizeId(device.programmed_sender_id);
+  if (knownSender) {
+    const requestedSender = senderIdForGatewayKey(device, selectedKey, pct14BaseId);
+    return !requestedSender || requestedSender !== knownSender;
+  }
+  // Older project data may not have a recorded sender ID yet. Preserve the
+  // outstanding warning until a previously clean route or a confirmed write
+  // provides a trustworthy baseline.
+  return Boolean(device.sender_programming_pending);
+}
+
+function assignDeviceExportGateway(device, selectedKey, primaryKey, pct14BaseId = "") {
+  const priorKey = exportGatewayForDevice(device, primaryKey);
+  if (priorKey === selectedKey) return device;
+  const mustProgram = Boolean(profileFor(device.eep).needs_sender && isPct14ImportedDevice(device));
+  if (!mustProgram) return { ...device, export_gateway_key:selectedKey, sender_programming_pending:false };
+  let knownSender = normalizeId(device.programmed_sender_id);
+  if (!knownSender && !device.sender_programming_pending && priorKey) {
+    // A project which previously considered its selected gateway programmed
+    // should return to that clean state if the user switches away and back
+    // WITHOUT actually writing to the actuator. This is project evidence,
+    // not a claim that hardware was read back just now.
+    knownSender = senderIdForGatewayKey(device, priorKey, pct14BaseId);
+  }
+  const selectedSender = senderIdForGatewayKey(device, selectedKey, pct14BaseId);
+  return {
+    ...device,
+    export_gateway_key: selectedKey,
+    programmed_sender_id: knownSender,
+    sender_programming_pending: Boolean(selectedKey) && (!knownSender || !selectedSender || knownSender !== selectedSender),
+  };
+}
+
+function pendingSenderDevices(devices, primaryKey, pct14BaseId = "") {
+  return (devices || []).filter(device => senderProgrammingIsPending(device, primaryKey, pct14BaseId));
+}
+
 
 const FTS14EM_ID_RANGES = [
   { value: "1", label: "1", baseId: "00-00-10-01" },
@@ -966,7 +1066,7 @@ function expandMultiIdExportDevices(devices) {
 }
 
 // ─── YAML Generator — grimmpp eltako: format ─────────────────────
-function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", language = "de") {
+function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", language = "de", primaryExportGatewayKey = gatewayKey(gateway)) {
   if (!devices.length) return "";
   // Resolve every device against the current database at export time. This makes
   // edits to EEP, sender EEP, platform and profile options immediately effective
@@ -994,7 +1094,14 @@ function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", la
   out += `eltako:\n`;
   out += `  gateway:\n`;
 
-  const gatewayBlocks = orderedGatewayBlocks(gateway, extraGateways);
+  // A gateway is included only if at least one device explicitly belongs to
+  // it. This avoids empty gateway blocks and duplicate HA entities.
+  const gatewayBlocks = orderedGatewayBlocks(gateway, extraGateways).filter(gw =>
+    exportDevices.some(d =>
+      exportGatewayForDevice(d, primaryExportGatewayKey) === gatewayKey(gw) &&
+      gatewayCanExportDevice(d, gw, pct14BaseId)
+    )
+  );
 
   const writeGatewayBlock = (gw, index) => {
     // Format bewusst wie in der Grimm/Home-Assistant-Eltako-Konfiguration:
@@ -1008,12 +1115,10 @@ function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", la
 
     const ORDER = ["light","switch","cover","fan","sensor","binary_sensor","climate"];
     for (const plat of ORDER) {
-      const platformDevices = (byPlat[plat] || []).filter(d => {
-        if (d.bus_system_id && ["fam14", "fgw14usb"].includes(gw.type) && normalizeId(d.bus_base_id) !== normalizeId(gw.base_id)) return false;
-        const p = profileFor(d.eep);
-        const family = String(p.device_family || d.device_family || "").toUpperCase();
-        return !(family === "FTS14EM" && String(gw.type || "").toLowerCase() === "fam-usb");
-      });
+      const platformDevices = (byPlat[plat] || []).filter(d =>
+        exportGatewayForDevice(d, primaryExportGatewayKey) === gatewayKey(gw) &&
+        gatewayCanExportDevice(d, gw, pct14BaseId)
+      );
       if (!platformDevices.length) continue;
       out += `      ${plat}:\n`;
       for (const d of platformDevices) {
@@ -1153,7 +1258,7 @@ function addressFromBusId(id) {
 }
 
 function isPct14ImportedDevice(device) {
-  return Boolean(device?.bus_system_id) || /PCT14\s+(Adresse|address)\b/i.test(String(device?.room || ""));
+  return Boolean(device?.imported_from_pct14 || device?.bus_system_id) || /PCT14\s+(Adresse|address)\b/i.test(String(device?.room || ""));
 }
 
 function deviceIdForGateway(device, gw, pct14BaseId) {
@@ -1190,7 +1295,7 @@ function busDeviceIdForProgramming(device, pct14BaseId) {
   return addToBaseId(pct14BaseId, offset);
 }
 
-function buildSenderProgrammingEntries(devices, targetGateways, pct14BaseId, busSystemId = "") {
+function buildSenderProgrammingEntries(devices, targetGateways, pct14BaseId, busSystemId = "", primaryExportGatewayKey = "") {
   const gateways = Array.isArray(targetGateways) ? targetGateways.filter(Boolean) : [targetGateways].filter(Boolean);
   if (!gateways.length || (!pct14BaseId && !busSystemId)) return [];
 
@@ -1207,12 +1312,20 @@ function buildSenderProgrammingEntries(devices, targetGateways, pct14BaseId, bus
     const typeText = String(deviceTypeForDevice(d)).toUpperCase();
     const hasSingleControllerSlotPerChannel = /(^|\s)(?:FHK14|F4HK14|FAE14SSR|FAE14LPR)(?:\s|$)/.test(typeText);
     const gatewayPriority = { fgw14usb: 3, "fam-usb": 2, fam14: 1 };
-    const programmingGateways = hasSingleControllerSlotPerChannel
-      ? gateways
-          .slice()
-          .sort((a, b) => (gatewayPriority[String(b.type || "").toLowerCase()] || 0) - (gatewayPriority[String(a.type || "").toLowerCase()] || 0))
-          .slice(0, 1)
-      : gateways;
+    const selectedKey = exportGatewayForDevice(d, primaryExportGatewayKey);
+    // Legacy helper callers without a primary key retain the previous
+    // programming behavior; the application always supplies its configured
+    // primary key and therefore only writes the selected controller sender.
+    const programmingGateways = selectedKey
+      ? gateways.filter(gw => gatewayKey(gw) === selectedKey && gatewayCanExportDevice(d, gw, pct14BaseId))
+      : Object.prototype.hasOwnProperty.call(d, "export_gateway_key")
+        ? []
+        : hasSingleControllerSlotPerChannel
+          ? gateways.slice().sort((a, b) =>
+              (gatewayPriority[String(b.type || "").toLowerCase()] || 0) -
+              (gatewayPriority[String(a.type || "").toLowerCase()] || 0)
+            ).slice(0, 1)
+          : gateways;
 
     for (const targetGateway of programmingGateways) {
       const sender_id = senderIdForGateway(d, targetGateway, pct14BaseId);
@@ -1239,19 +1352,82 @@ function buildSenderProgrammingEntries(devices, targetGateways, pct14BaseId, bus
   return entries;
 }
 
-function assignPct14BusDevices(existing, imported, bus, gateway) {
+function reconcilePct14ControllerEvidence(existingDevice, freshDevice, primaryKey, pct14BaseId = "") {
+  // PCT14 reimport is evidence of the current controller ID, not a reason to
+  // overwrite the user's existing YAML route, names or project changes.
+  const recordedId = normalizeId(freshDevice?.programmed_sender_id);
+  if (!recordedId || !profileFor(existingDevice.eep).needs_sender) return existingDevice;
+  const updated = { ...existingDevice, programmed_sender_id: recordedId };
+  return {
+    ...updated,
+    sender_programming_pending: senderProgrammingIsPending(updated, primaryKey, pct14BaseId),
+  };
+}
+
+function reconcilePct14ImportedDevices(existing, imported, gateway, pct14BaseId = "", availableGateways = []) {
+  const next = [...existing];
+  const primaryKey = gatewayKey(gateway);
+  for (const device of imported) {
+    const entry = {
+      ...device,
+      imported_from_pct14:true,
+      export_gateway_key:defaultExportGatewayForDevice(
+        device, gateway, availableGateways, pct14BaseId
+      ),
+    };
+    const duplicate = next.findIndex(item =>
+      duplicateDeviceKey(item) && duplicateDeviceKey(item) === duplicateDeviceKey(entry)
+    );
+    if (duplicate >= 0) {
+      next[duplicate] = reconcilePct14ControllerEvidence(next[duplicate], entry, primaryKey, pct14BaseId);
+    } else {
+      next.push({
+        ...entry,
+        sender_programming_pending: Boolean(profileFor(entry.eep).needs_sender)
+          && (!normalizeId(entry.programmed_sender_id)
+            || senderIdForGatewayKey(entry, entry.export_gateway_key, pct14BaseId)
+              !== normalizeId(entry.programmed_sender_id)),
+      });
+    }
+  }
+  return repairIncompatiblePrimaryAssignments(next, gateway, availableGateways, pct14BaseId);
+}
+
+function assignPct14BusDevices(existing, imported, bus, gateway, availableGateways = []) {
   if (!bus?.id || !normalizeId(bus.base_id)) throw new Error("multibus.invalidBase");
   const next = [...existing];
   for (const device of imported) {
-    const entry = { ...device, bus_system_id: bus.id, bus_base_id: normalizeId(bus.base_id) };
-    if (next.some(item => duplicateDeviceKey(item) === duplicateDeviceKey(entry))) continue;
+    const routed = {
+      ...device,
+      bus_system_id: bus.id,
+      bus_base_id: normalizeId(bus.base_id),
+      imported_from_pct14: true,
+      export_gateway_key: defaultExportGatewayForDevice(
+        { ...device, bus_base_id:normalizeId(bus.base_id) },
+        gateway, availableGateways, bus.base_id,
+      ),
+    };
+    const entry = {
+      ...routed,
+      sender_programming_pending: Boolean(profileFor(routed.eep).needs_sender)
+        && (!normalizeId(routed.programmed_sender_id)
+          || senderIdForGatewayKey(routed, routed.export_gateway_key, bus.base_id)
+            !== normalizeId(routed.programmed_sender_id)),
+    };
+    const existingIndex = next.findIndex(item =>
+      duplicateDeviceKey(item) && duplicateDeviceKey(item) === duplicateDeviceKey(entry)
+    );
+    if (existingIndex >= 0) {
+      next[existingIndex] = reconcilePct14ControllerEvidence(next[existingIndex], entry, gatewayKey(gateway), bus.base_id);
+      continue;
+    }
     if (profileFor(entry.eep).needs_sender) {
       entry.sender_id = autoSenderIdForGateway(gateway, next);
       if (!entry.sender_id) throw new Error("multibus.senderUnavailable");
     }
     next.push(entry);
   }
-  return next;
+  return repairIncompatiblePrimaryAssignments(next, gateway, availableGateways, bus.base_id);
 }
 
 function senderOffsetFromId(id) {
@@ -1479,6 +1655,8 @@ function parsePct14Xml(text, currentBaseId = "", options = {}, language = "de") 
     }
 
     const senderByChannel = new Map();
+    const controllerByChannel = new Map();
+    const isHeatingController = /^(FHK14|F4HK14|FAE14LPR|FAE14SSR)/i.test(String(model || ""));
     for (const entry of Array.from(device.querySelectorAll("rangeofid > entry"))) {
       const raw = textOf(entry, "entry_id", "");
       const id = byteIdFromDecimal(raw);
@@ -1489,6 +1667,18 @@ function parsePct14Xml(text, currentBaseId = "", options = {}, language = "de") 
       }
       if (/^00-00-B0-[0-9A-F]{2}$/.test(id) && ch > 0 && !senderByChannel.has(ch)) {
         senderByChannel.set(ch, id);
+      }
+      // Function 65 is the actual controller entry shown by PCT14 for
+      // FHK/FAE, unlike the computed 00-00-B0-xx fallback sender.
+      // Accept a single-channel FHK without an explicit channel field.
+      if (isHeatingController && id !== "00-00-00-00"
+          && Number(textOf(entry, "entry_function", "-1")) === 65) {
+        const channelIndex = ch > 0 ? ch : (channelCount === 1 ? 1 : 0);
+        if (channelIndex > 0) {
+          const already = controllerByChannel.get(channelIndex);
+          if (!already) controllerByChannel.set(channelIndex, id);
+          else if (already !== id) controllerByChannel.set(channelIndex, "");
+        }
       }
     }
 
@@ -1519,6 +1709,9 @@ function parsePct14Xml(text, currentBaseId = "", options = {}, language = "de") 
         eltako: normalizePct14ModelName(model, language),
         room: `PCT14 ${language === "en" ? "address" : "Adresse"} ${address}${channelCount > 1 ? ` · ${language === "en" ? "Channel" : "Kanal"} ${channelNumber}` : ""}${mapping.dali ? ` · ${language === "en" ? "DALI gateway" : "DALI-Gateway"}` : ""}${mapping.rgbw ? ` · ${language === "en" ? "RGBW profile" : "RGBW-Profil"}` : ""}`,
         sender_id: senderId,
+        // Saved PCT14 hardware evidence, used only for the controller-ID
+        // warning and never to silently rewrite sender IDs.
+        programmed_sender_id: controllerByChannel.get(channelNumber) || "",
         sender_eep: mapping.sender_eep ?? p.sender_eep ?? "",
         device_class: mapping.platform === "cover" ? "shutter" : "",
         time_opens: mapping.time_opens ?? "",
@@ -1744,8 +1937,9 @@ export default function App() {
   const learnMessageTimerRef = useRef(null);
   const [learnMsg, setLearnMsg] = useState("");
   const [learnMsgTarget, setLearnMsgTarget] = useState("device");
-  const [importFam14Gateway, setImportFam14Gateway] = useState(true);
-  const [importFgw14Gateway, setImportFgw14Gateway] = useState(true);
+  // PCT14-discovered gateways are selectable but not exported until enabled.
+  const [importFam14Gateway, setImportFam14Gateway] = useState(false);
+  const [importFgw14Gateway, setImportFgw14Gateway] = useState(false);
   const [pct14DetectedFam14, setPct14DetectedFam14] = useState(false);
   const [pct14DetectedFgw14, setPct14DetectedFgw14] = useState(false);
   const [pct14GatewayBaseId, setPct14GatewayBaseId] = useState("");
@@ -1786,7 +1980,7 @@ export default function App() {
   const buildProjectDocument = (projectDevices = devices) => {
     const gatewayBlocks = orderedGatewayBlocks(gateway, buildActiveExtraGateways()).map(item => ({ ...item }));
     const [primaryGateway, ...otherGateways] = gatewayBlocks;
-    const projectYaml = generateYaml(primaryGateway || gateway, projectDevices, otherGateways, pct14GatewayBaseId, language);
+    const projectYaml = generateYaml(primaryGateway || gateway, projectDevices, otherGateways, pct14GatewayBaseId, language, gatewayKey(gateway));
     return {
       project_format: "eedtoy-project",
       schema_version: 1,
@@ -1898,15 +2092,15 @@ export default function App() {
     const project = result.project || {};
     const state = project.state || {};
     const loadedGateway = state.gateway && typeof state.gateway === "object" ? { ...emptyGW, ...state.gateway } : emptyGW;
-    const loadedDevices = Array.isArray(state.devices) ? state.devices.map(normalizeLoadedDeviceProfile) : [];
+    const projectDevices = Array.isArray(state.devices) ? state.devices.map(normalizeLoadedDeviceProfile) : [];
     const loadedGateways = Array.isArray(state.extraGateways) ? state.extraGateways : [];
-    const loadedImportFam14Gateway = state.importFam14Gateway !== false;
-    const loadedImportFgw14Gateway = state.importFgw14Gateway !== false;
+    const loadedImportFam14Gateway = state.importFam14Gateway === true;
+    const loadedImportFgw14Gateway = state.importFgw14Gateway === true;
     const loadedPct14DetectedFam14 = Boolean(state.pct14DetectedFam14);
     const loadedPct14DetectedFgw14 = Boolean(state.pct14DetectedFgw14);
     const loadedPct14GatewayBaseId = typeof state.pct14GatewayBaseId === "string" ? state.pct14GatewayBaseId : "";
     const loadedStep = [1, 2, 3].includes(Number(state.step)) ? Number(state.step) : 1;
-    const loadedEditIdx = Number.isInteger(state.editIdx) && state.editIdx >= 0 && state.editIdx < loadedDevices.length
+    const loadedEditIdx = Number.isInteger(state.editIdx) && state.editIdx >= 0 && state.editIdx < projectDevices.length
       ? state.editIdx
       : null;
 
@@ -1924,8 +2118,11 @@ export default function App() {
       activeLoadedGateways.push({ type:"fgw14usb", base_id:loadedPct14GatewayBaseId, source:"pct14-fgw14" });
     }
     const loadedGatewayBlocks = orderedGatewayBlocks(loadedGateway, activeLoadedGateways);
+    const loadedDevices = repairIncompatiblePrimaryAssignments(
+      projectDevices, loadedGateway, loadedGatewayBlocks.slice(1), loadedPct14GatewayBaseId
+    );
     const loadedYaml = loadedDevices.length > 0
-      ? generateYaml(loadedGateway, loadedDevices, loadedGatewayBlocks.slice(1), loadedPct14GatewayBaseId, language)
+      ? generateYaml(loadedGateway, loadedDevices, loadedGatewayBlocks.slice(1), loadedPct14GatewayBaseId, language, gatewayKey(loadedGateway))
       : "";
 
     setMultiBusEnabled(Boolean(state.multiBusEnabled));
@@ -2430,7 +2627,9 @@ export default function App() {
 
     const nextDevices = editIdx !== null
       ? devices.map((x,i) => i===editIdx ? entry : x)
-      : [...devices, entry];
+      : [...devices, { ...entry, export_gateway_key: defaultExportGatewayForDevice(
+          entry, gateway, buildActiveExtraGateways(), pct14GatewayBaseId
+        ) }];
     return nextDevices;
   };
 
@@ -2461,6 +2660,12 @@ export default function App() {
       }
       return next;
     });
+    if (checked && pct14DetectedFam14 && pct14GatewayBaseId) {
+      setDevices(current => repairIncompatiblePrimaryAssignments(
+        current, gateway, [{ type:"fam14", base_id:pct14GatewayBaseId },
+          ...buildActiveExtraGateways()], pct14GatewayBaseId
+      ));
+    }
   };
 
   const handleImportFgw14GatewayToggle = (checked) => {
@@ -2472,6 +2677,12 @@ export default function App() {
       }
       return next;
     });
+    if (checked && pct14DetectedFgw14 && pct14GatewayBaseId) {
+      setDevices(current => repairIncompatiblePrimaryAssignments(
+        current, gateway, [{ type:"fgw14usb", base_id:pct14GatewayBaseId },
+          ...buildActiveExtraGateways()], pct14GatewayBaseId
+      ));
+    }
   };
 
   const readTextFileUtf8 = async (file) => {
@@ -2608,7 +2819,14 @@ export default function App() {
         if (sameBase && sameBase.id !== selected?.id) throw new Error(t("multibus.duplicateBase"));
         const bus = { ...(selected || { id:`bus-${Date.now()}`, name:t("multibus.busNumber", { count:busSystems.length + 1 }) }),
           base_id:base, hasFam14:Boolean(result.hasFam14Gateway), hasFgw14:Boolean(result.hasFgw14Gateway) };
-        const next = assignPct14BusDevices(devices, result.devices, bus, gateway);
+        const available = [
+          ...buildActiveExtraGateways(),
+          ...(importFam14Gateway && bus.hasFam14
+            ? [{ type:"fam14", base_id:base, source:"pct14-rootdevice" }] : []),
+          ...(importFgw14Gateway && bus.hasFgw14
+            ? [{ type:"fgw14usb", base_id:base, source:"pct14-fgw14" }] : []),
+        ];
+        const next = assignPct14BusDevices(devices, result.devices, bus, gateway, available);
         setDevices(next);
         setBusSystems(existing => [...existing.filter(item => item.id !== bus.id), bus]);
         setImportBusId(bus.id);
@@ -2637,7 +2855,10 @@ export default function App() {
         setImportMsg(t("import.noSupportedDevices", { file: file.name }));
         return;
       }
-      setDevices(existing => [...existing, ...result.devices]);
+      setDevices(existing => reconcilePct14ImportedDevices(
+        existing, result.devices, gateway, result.baseId,
+        [...buildActiveExtraGateways(), ...(result.extraGateways || [])]
+      ));
       const unsupportedText = result.unsupported.length ? t("import.notImported", { devices: `${[...new Set(result.unsupported)].slice(0, 8).join(", ")}${result.unsupported.length > 8 ? " …" : ""}` }) : "";
       const senderText = result.missingSender ? t("import.missingSender", { count: result.missingSender }) : "";
       const importNoun = t(result.devices.length === 1 ? "import.oneDeviceChannel" : "import.manyDevicesChannels");
@@ -2689,16 +2910,51 @@ export default function App() {
       ? generatedGatewayBlocks
       : orderedGatewayBlocks(gateway, buildActiveExtraGateways());
     const [snapshotPrimary, ...snapshotExtras] = snapshot;
-    setYaml(generateYaml(snapshotPrimary || gateway, devices, snapshotExtras, pct14GatewayBaseId, language));
+    setYaml(generateYaml(snapshotPrimary || gateway, devices, snapshotExtras, pct14GatewayBaseId, language, gatewayKey(gateway)));
   }, [language]);
+
+  const handleDeviceGatewaySelection = (index, targetKey) => {
+    const choices = orderedGatewayBlocks(gateway, buildActiveExtraGateways());
+    const target = choices.find(item => gatewayKey(item) === targetKey);
+    const device = devices[index];
+    if (!device || (targetKey && (!target || !gatewayCanExportDevice(device, target, pct14GatewayBaseId)))) return;
+    setDevices(current => current.map((item, i) =>
+      i === index ? assignDeviceExportGateway(item, targetKey, gatewayKey(gateway), pct14GatewayBaseId) : item
+    ));
+    setYaml("");
+    setGeneratedGatewayBlocks([]);
+    setWriteSenderSummary(null);
+  };
 
   const handleGenerate = () => {
     const normalized = normalizeFksSenderAssignments(gateway, devices, pct14GatewayBaseId);
-    if (normalized.changed || normalized.devices.length !== devices.length) setDevices(normalized.devices);
     const gatewaySnapshot = orderedGatewayBlocks(gateway, buildActiveExtraGateways()).map(gw => ({ ...gw }));
     const [snapshotPrimary, ...snapshotExtras] = gatewaySnapshot;
+    const activeChoices = gatewaySnapshot.filter(gw => normalized.devices.some(d =>
+      exportGatewayForDevice(d, gatewayKey(gateway)) === gatewayKey(gw) &&
+      gatewayCanExportDevice(d, gw, pct14GatewayBaseId)
+    ));
+    if (!activeChoices.length) {
+      setImportMsg(t("routing.noExportableDevices"));
+      return;
+    }
+    if (normalized.changed || normalized.devices.length !== devices.length) setDevices(normalized.devices);
+    const missingRoutes = normalized.devices.filter(device => {
+      const selectedKey = exportGatewayForDevice(device, gatewayKey(gateway));
+      if (!selectedKey) return false; // Explicitly excluded from YAML
+      return !gatewaySnapshot.some(gw =>
+        gatewayKey(gw) === selectedKey &&
+        gatewayCanExportDevice(device, gw, pct14BaseIdForDevice(device, pct14GatewayBaseId))
+      );
+    });
+    if (missingRoutes.length) {
+      setImportMsg(t("routing.invalidExportRoute", { count: missingRoutes.length }));
+      return;
+    }
+    const pending = pendingSenderDevices(normalized.devices, gatewayKey(gateway), pct14GatewayBaseId);
+    if (pending.length && !window.confirm(t("routing.beforeYaml", { count: pending.length }))) return;
     setGeneratedGatewayBlocks(gatewaySnapshot);
-    setYaml(generateYaml(snapshotPrimary || gateway, normalized.devices, snapshotExtras, pct14GatewayBaseId, language));
+    setYaml(generateYaml(snapshotPrimary || gateway, normalized.devices, snapshotExtras, pct14GatewayBaseId, language, gatewayKey(gateway)));
     setStep(3);
   };
   const handleCopy = () => { navigator.clipboard.writeText(yaml); setCopied(true); setTimeout(()=>setCopied(false),2000); };
@@ -2718,7 +2974,7 @@ export default function App() {
     ? activeGatewayBlocks.filter(gw => gw.type === "fam-usb" || normalizeId(gw.base_id) === normalizeId(selectedWriteBus?.base_id))
     : activeGatewayBlocks;
   const senderProgrammingEntries = multiBusEnabled && !selectedWriteBus ? []
-    : buildSenderProgrammingEntries(devices, programmingGatewayBlocks, selectedWriteBus?.base_id || pct14GatewayBaseId, multiBusEnabled ? writeBusId : "");
+    : buildSenderProgrammingEntries(devices, programmingGatewayBlocks, selectedWriteBus?.base_id || pct14GatewayBaseId, multiBusEnabled ? writeBusId : "", gatewayKey(gateway));
   const senderGatewaySummary = activeGatewayBlocks
     .map(gw => `${gw.type}${gw.base_id ? ` (${gw.base_id})` : ""}`)
     .join(" · ");
@@ -2872,7 +3128,32 @@ export default function App() {
     }
     if (result.ok) {
       const c = result.counts || {};
-      setWriteSenderMsg("");
+      const fullyWritten = Number(c.error || 0) === 0
+        && Number(c.unsupported || 0) === 0
+        && Number(c.updated || 0) + Number(c.exists || 0) === senderProgrammingEntries.length
+        && Array.isArray(result.events)
+        && result.events.filter(event => ["updated", "exists"].includes(event.status)).length === senderProgrammingEntries.length;
+      if (fullyWritten) {
+        // Only clear pending flags for devices represented in this successful
+        // verified write operation, never for another bus or gateway route.
+        setDevices(previous => previous.map(device => {
+          if (!device.sender_programming_pending) return device;
+          const entries = buildSenderProgrammingEntries(
+            [device], programmingGatewayBlocks,
+            selectedWriteBus?.base_id || pct14GatewayBaseId,
+            multiBusEnabled ? writeBusId : "", gatewayKey(gateway),
+          );
+          const confirmed = entries.find(entry => senderProgrammingEntries.some(done =>
+            done.device_id === entry.device_id &&
+            done.sender_id === entry.sender_id &&
+            done.sender_eep === entry.sender_eep
+          ));
+          return confirmed
+            ? { ...device, programmed_sender_id: normalizeId(confirmed.sender_id), sender_programming_pending: false }
+            : device;
+        }));
+      }
+      setWriteSenderMsg(fullyWritten ? "" : t("routing.writeNotConfirmed"));
       setWriteSenderSummary({ updated: c.updated || 0, exists: c.exists || 0, unsupported: c.unsupported || 0, errors: c.error || 0 });
     } else {
       setWriteSenderMsg("✗ " + runtimeText(result.error || t("senderWrite.failed")));
@@ -3338,7 +3619,8 @@ export default function App() {
           <div className="topMeta projectActions">
             {projectFileName&&<span className="statusPill" title={t("common.projectFileTitle")}>{projectFileName}</span>}
             <button className="btn ghost" onClick={handleOpenProject} disabled={!isElectron} title={t("common.openProjectTitle")}>{t("common.openProject")}</button>
-            <button className="btn pri" onClick={handleSaveProject} disabled={!isElectron} title={t("common.saveProjectAsTitle")}>{t("common.saveProject")}</button>
+            <button className="btn pri" onClick={handleSaveProject} disabled={!isElectron} title={t("common.saveProject")}>{t("common.saveProject")}</button>
+            <button className="btn ghost" onClick={handleSaveProjectAs} disabled={!isElectron} title={t("common.saveProjectAsTitle")}>{t("common.saveProjectAs")}</button>
             <span className="statusPill">{t(devices.length === 1 ? "common.deviceCount" : "common.deviceCountPlural", { count: devices.length })}</span>
           </div>
         </header>
@@ -3767,8 +4049,20 @@ export default function App() {
                     <button className="btn pri" onClick={handleGenerate}>{t("common.generateYaml")}</button>
                   </div>
                 </div>
+                <div style={{padding:".65rem 1.1rem",borderBottom:"1px solid #d9e0e7",background:"#f2f8fb",fontSize:".7rem",color:"#405061"}}>
+                  {t("routing.explanation")}
+                  {pendingSenderDevices(devices, gatewayKey(gateway), pct14GatewayBaseId).length > 0 && (
+                    <strong style={{display:"block",marginTop:".35rem",color:"#9a3412"}}>
+                      {t("routing.pendingCount", { count: pendingSenderDevices(devices, gatewayKey(gateway), pct14GatewayBaseId).length })}
+                    </strong>
+                  )}
+                </div>
                 {devices.map((d,i)=>{
                   const col = PC[d.platform]??"#2f6f8f";
+                  const selectedKey = exportGatewayForDevice(d, gatewayKey(gateway));
+                  const availableRoutes = currentGatewayBlocks.filter(gw =>
+                    gatewayCanExportDevice(d, gw, pct14GatewayBaseId)
+                  );
                   return(
                     <div key={i} className="rh" style={{display:"flex",alignItems:"center",gap:".65rem",padding:".65rem 1.1rem",borderBottom:i<devices.length-1?"1px solid #d9e0e7":"none"}}>
                       <span style={{fontSize:".6rem",padding:".12rem .4rem",borderRadius:3,background:col+"20",color:col,fontWeight:600,flexShrink:0,whiteSpace:"nowrap"}}>{PI[d.platform]} {translatePlatform(language, d.platform)}</span>
@@ -3776,7 +4070,26 @@ export default function App() {
                         <div style={{color:"#111827",fontWeight:600,fontSize:".82rem",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.name}</div>
                         <div style={{color:"#6b7280",fontSize:".68rem"}}>{multiBusEnabled && d.bus_system_id ? `${busSystems.find(bus=>bus.id===d.bus_system_id)?.name || d.bus_system_id} · ` : ""}{d.dev_id} · {d.source_device_type || d.eep.replace(/-sw$/,"")}{d.room?" · "+d.room:""}</div>
                       </div>
-                      <div style={{display:"flex",gap:".35rem",flexShrink:0}}>
+                      <div style={{display:"flex",gap:".55rem",alignItems:"center",flexWrap:"wrap",justifyContent:"flex-end",flexShrink:0}}>
+                        <div style={{display:"flex",flexDirection:"column",gap:".22rem",alignItems:"flex-start"}}>
+                          <span style={{fontSize:".62rem",fontWeight:700,color:"#53616f"}}>{t("routing.gatewayForDevice")}</span>
+                          <div style={{display:"flex",gap:".5rem",alignItems:"center",flexWrap:"wrap",maxWidth:420}}>
+                            {availableRoutes.map(gw=>(
+                              <label key={gatewayKey(gw)} title={gw.base_id || ""} style={{display:"flex",gap:".22rem",alignItems:"center",margin:0,fontSize:".66rem",cursor:"pointer",whiteSpace:"nowrap"}}>
+                                <input type="checkbox" checked={selectedKey===gatewayKey(gw)}
+                                  onChange={e=>handleDeviceGatewaySelection(i,e.target.checked?gatewayKey(gw):"")}
+                                  style={{width:"auto",margin:0}}/>
+                                {gw.type}{gw.base_id?" · "+gw.base_id.slice(-5):""}
+                              </label>
+                            ))}
+                            {!availableRoutes.length&&<span style={{fontSize:".65rem",color:"#b42318"}}>{t("routing.noCompatibleGateway")}</span>}
+                            {selectedKey&&!availableRoutes.some(gw=>gatewayKey(gw)===selectedKey)&&
+                              <span style={{fontSize:".65rem",color:"#b42318"}}>{t("routing.invalidDeviceRoute")}</span>}
+                          </div>
+                          {senderProgrammingIsPending(d,gatewayKey(gateway),pct14GatewayBaseId)&&(
+                            <span style={{fontSize:".62rem",fontWeight:700,color:"#b45309"}}>{t("routing.mustWrite")}</span>
+                          )}
+                        </div>
                         <button className="btn edit" onClick={()=>handleEdit(i)}>{t("devices.editButton")}</button>
                         <button className="btn del" onClick={()=>handleDelete(i)}>✕</button>
                       </div>
@@ -3801,6 +4114,11 @@ export default function App() {
         {/* ─── STEP 3: YAML ─── */}
         {step===3&&(
           <>
+            {pendingSenderDevices(devices, gatewayKey(gateway), pct14GatewayBaseId).length>0&&(
+              <div style={{marginBottom:".85rem",padding:".85rem 1rem",border:"1px solid #fed7aa",borderRadius:8,background:"#fff7ed",color:"#92400e",fontSize:".75rem",lineHeight:1.6}}>
+                <strong>{t("routing.mustWrite")}</strong> · {t("routing.yamlWarning", { count:pendingSenderDevices(devices, gatewayKey(gateway), pct14GatewayBaseId).length })}
+              </div>
+            )}
             <div className="card" style={{marginBottom:"1rem",padding:"1rem 1.1rem"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:"1rem",flexWrap:"wrap",marginBottom:".8rem"}}>
                 <div>

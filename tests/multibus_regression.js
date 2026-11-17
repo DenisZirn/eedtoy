@@ -20,11 +20,14 @@ assert.notEqual(a.duplicateDeviceKey(devices[0]),a.duplicateDeviceKey(devices[1]
 assert.equal(a.assignPct14BusDevices(devices,[actor],bus1,gateway).length,2);
 assert.equal(a.assignPct14BusDevices(devices,[{...actor,dev_id:'00-00-00-02'}],bus2,gateway)[2].sender_id,'FF-A6-04-83');
 const extras=[{type:'fam14',base_id:bus1.base_id},{type:'fam14',base_id:bus2.base_id}];
-const yaml=a.generateYaml(gateway,devices,extras);
+// Route each imported device to its own physical bus gateway. The YAML must
+// not export a second copy under FAM-USB unless it is explicitly selected.
+const routed=devices.map(d=>({...d,export_gateway_key:`fam14|${d.bus_base_id}`}));
+const yaml=a.generateYaml(gateway,routed,extras);
 const gatewaySections=yaml.split(/  - id: \d+\n/).slice(1);
-const radio=gatewaySections.find(block=>block.includes('device_type: fam-usb')); 
-for(const id of ['FF-AA-00-01','FF-BB-00-01','FF-A6-04-81','FF-A6-04-82']) assert(radio.includes(id),id);
-const blocks=gatewaySections.filter(block=>block.includes('device_type: fam14')); 
+assert.equal(gatewaySections.length,2,'only the two selected bus gateways are exported');
+assert(!yaml.includes('device_type: fam-usb'),'no duplicate FAM-USB gateway block');
+const blocks=gatewaySections.filter(block=>block.includes('device_type: fam14'));
 assert(blocks[0].includes('name: "Licht"')&&!blocks[0].includes('Licht Wohnung'));
 assert(blocks[1].includes('Licht Wohnung')&&!blocks[1].includes('name: "Licht"'));
 for(const [bus,sender] of [[bus1,'FF-A6-04-81'],[bus2,'FF-A6-04-82']]) {
@@ -35,7 +38,7 @@ for(const [bus,sender] of [[bus1,'FF-A6-04-81'],[bus2,'FF-A6-04-82']]) {
  assert.equal(entries[0].expected_bus_base_id,bus.base_id);
 }
 assert.equal(a.buildSenderProgrammingEntries(devices,[gateway],bus1.base_id,'missing').length,0);
-const reopened=JSON.parse(JSON.stringify(devices));
+const reopened=JSON.parse(JSON.stringify(routed));
 assert.equal(a.generateYaml(gateway,reopened,extras).replace(/^# Generiert:.*$/m,''),yaml.replace(/^# Generiert:.*$/m,''));
 assert.throws(()=>a.assignPct14BusDevices([], [actor],bus1,{type:'fam-usb'}));
 const full=Array.from({length:127},(_,i)=>({dev_id:'01-00-00-'+i.toString(16).padStart(2,'0'),sender_id:'FF-A6-04-'+(0x81+i).toString(16).toUpperCase()}));

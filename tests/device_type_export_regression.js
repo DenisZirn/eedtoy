@@ -45,13 +45,21 @@ function exported(input, language = 'de', gateway = gateways[0]) {
   const text = api.generateYaml(gateway, input, [], 'FF-BF-5C-80', language);
   // js-yaml rejects duplicate properties, including duplicate device_type.
   const parsed = yaml.load(text);
-  const entries = Object.values(parsed.eltako.gateway[0].devices || {}).flat();
+  // Empty gateways are now intentionally omitted. In particular FTS14EM
+  // cannot be routed via FAM-USB, so no gateway block exists for that case.
+  const actualGateway = parsed.eltako.gateway?.[0];
+  if (!actualGateway) {
+    assert.equal(gateway.type, 'fam-usb');
+    assert(input.every(device => api.EEP_DB[device.eep]?.device_family === 'FTS14EM'));
+  }
+  const exportedGateway = actualGateway || {device_type:gateway.type,devices:{}};
+  const entries = Object.values(exportedGateway.devices || {}).flat();
   for (const entry of entries) {
     for (const forbidden of ['device_family', 'profile_key', 'rocker_positions']) {
       assert(!Object.hasOwn(entry, forbidden), `${forbidden} must stay out of HA YAML`);
     }
   }
-  return { text, entries, gateway:parsed.eltako.gateway[0] };
+  return { text, entries, gateway:exportedGateway };
 }
 
 function withoutNames(entries) {
