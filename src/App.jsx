@@ -659,26 +659,54 @@ function gatewayCanExportDevice(device, gw, pct14BaseId = "") {
   return !["fam14", "fgw14usb"].includes(gw.type) || !busBase || normalizeId(gw.base_id) === busBase;
 }
 
-function assignDeviceExportGateway(device, selectedKey, primaryKey) {
-  const prior = exportGatewayForDevice(device, primaryKey);
-  if (prior === selectedKey) return device;
-  // PCT14 controllers must be reprogrammed whenever their physical sender
-  // gateway changes. A passive sensor needs no actuator write.
-  const mustWrite = Boolean(profileFor(device.eep).needs_sender && isPct14ImportedDevice(device));
+function senderIdForGatewayKey(device, key, pct14BaseId = "") {
+  const separator = String(key || "").indexOf("|");
+  if (separator <= 0) return "";
+  const gw = { type:key.slice(0, separator), base_id:key.slice(separator + 1) };
+  // Sender IDs, not gateway names, decide whether reprogramming is needed:
+  // FAM14 and FGW14-USB can use the same virtual controller ID.
+  return normalizeId(senderIdForGateway(device, gw, pct14BaseIdForDevice(device, pct14BaseId)));
+}
+
+function senderProgrammingIsPending(device, primaryKey, pct14BaseId = "") {
+  if (!device || !profileFor(device.eep).needs_sender || !isPct14ImportedDevice(device)) return false;
+  const selectedKey = exportGatewayForDevice(device, primaryKey);
+  if (!selectedKey) return false;
+  const knownSender = normalizeId(device.programmed_sender_id);
+  if (knownSender) {
+    const requestedSender = senderIdForGatewayKey(device, selectedKey, pct14BaseId);
+    return !requestedSender || requestedSender !== knownSender;
+  }
+  // Older project data may not have a recorded sender ID yet. Preserve the
+  // outstanding warning until a previously clean route or a confirmed write
+  // provides a trustworthy baseline.
+  return Boolean(device.sender_programming_pending);
+}
+
+function assignDeviceExportGateway(device, selectedKey, primaryKey, pct14BaseId = "") {
+  const priorKey = exportGatewayForDevice(device, primaryKey);
+  if (priorKey === selectedKey) return device;
+  const mustProgram = Boolean(profileFor(device.eep).needs_sender && isPct14ImportedDevice(device));
+  if (!mustProgram) return { ...device, export_gateway_key:selectedKey, sender_programming_pending:false };
+  let knownSender = normalizeId(device.programmed_sender_id);
+  if (!knownSender && !device.sender_programming_pending && priorKey) {
+    // A project which previously considered its selected gateway programmed
+    // should return to that clean state if the user switches away and back
+    // WITHOUT actually writing to the actuator. This is project evidence,
+    // not a claim that hardware was read back just now.
+    knownSender = senderIdForGatewayKey(device, priorKey, pct14BaseId);
+  }
+  const selectedSender = senderIdForGatewayKey(device, selectedKey, pct14BaseId);
   return {
     ...device,
     export_gateway_key: selectedKey,
-    sender_programming_pending: Boolean(device.sender_programming_pending) || mustWrite,
+    programmed_sender_id: knownSender,
+    sender_programming_pending: Boolean(selectedKey) && (!knownSender || !selectedSender || knownSender !== selectedSender),
   };
 }
 
-function pendingSenderDevices(devices, primaryKey) {
-  return (devices || []).filter(device =>
-    Boolean(device.sender_programming_pending) &&
-    Boolean(exportGatewayForDevice(device, primaryKey)) &&
-    Boolean(profileFor(device.eep).needs_sender) &&
-    isPct14ImportedDevice(device)
-  );
+function pendingSenderDevices(devices, primaryKey, pct14BaseId = "") {
+  return (devices || []).filter(device => senderProgrammingIsPending(device, primaryKey, pct14BaseId));
 }
 
 
