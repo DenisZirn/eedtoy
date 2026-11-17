@@ -1,3 +1,11 @@
+## 1.1.04
+
+- Pro Gerät genau eine Gateway-Zuordnung für den YAML-Export, mit persistenter Auswahl statt doppelter Geräte in mehreren Gateway-Blöcken.
+- PCT14-Import und Mehrbus-Betrieb: passende FAM14/FGW14-USB-Auswahl; FTS14EM automatisch auf geeignetem Bussystem statt FAM-USB.
+- Controller-ID-Schreibwarnung bei geändertem Sender, Abgleich mit PCT14 bzw. bestätigtem Schreibstand, Warnung vor YAML-Vorschau und Rückwechsel zum bereits eingelernten Gateway.
+- Projekt speichern unter als zusätzliche Schaltfläche in der oberen Leiste.
+- Erweiterte Gateway-, YAML-, Writer- und Projektdatei-Regressionstests.
+
 ## 1.1.03
 
 - FWS81 als eigener Wassermelder unter Wasser ergänzt: binary_sensor, F6-05-01, device_type FWS81, device_class moisture.
