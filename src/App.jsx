@@ -1657,6 +1657,7 @@ function parsePct14Xml(text, currentBaseId = "", options = {}, language = "de") 
     const senderByChannel = new Map();
     const controllerByChannel = new Map();
     const isHeatingController = /^(FHK14|F4HK14|FAE14LPR|FAE14SSR)/i.test(String(model || ""));
+    const isRgbw14Controller = /^FRGBW14/i.test(String(model || ""));
     for (const entry of Array.from(device.querySelectorAll("rangeofid > entry"))) {
       const raw = textOf(entry, "entry_id", "");
       const id = byteIdFromDecimal(raw);
@@ -1671,6 +1672,15 @@ function parsePct14Xml(text, currentBaseId = "", options = {}, language = "de") 
       // Function 65 is the actual controller entry shown by PCT14 for
       // FHK/FAE, unlike the computed 00-00-B0-xx fallback sender.
       // Accept a single-channel FHK without an explicit channel field.
+      // FRGBW14 uses the RGBW controller (function 81) with the four-channel
+      // mask 0x0F in function group 3, not the legacy dimming-value function 32.
+      if (isRgbw14Controller && id !== "00-00-00-00"
+          && Number(textOf(entry, "entry_function", "-1")) === 81
+          && ch === 15) {
+        const prior = controllerByChannel.get(1);
+        if (!prior) controllerByChannel.set(1, id);
+        else if (prior !== id) controllerByChannel.set(1, "");
+      }
       if (isHeatingController && id !== "00-00-00-00"
           && Number(textOf(entry, "entry_function", "-1")) === 65) {
         const channelIndex = ch > 0 ? ch : (channelCount === 1 ? 1 : 0);
