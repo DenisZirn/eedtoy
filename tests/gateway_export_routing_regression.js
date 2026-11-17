@@ -12,7 +12,7 @@ vm.runInContext(app.slice(start, end) + `
 this.api = {
   gatewayKey, generateYaml, exportGatewayForDevice, gatewayCanExportDevice,
   assignDeviceExportGateway, pendingSenderDevices, buildSenderProgrammingEntries,
-  senderIdForGateway, normalizeLoadedDeviceProfile, profileFor
+  senderIdForGateway, normalizeLoadedDeviceProfile, profileFor, senderProgrammingIsPending
 };
 `, context);
 const a = context.api;
@@ -132,5 +132,30 @@ assert(context.yaml.includes('device_type: fgw14usb'));
 assert(!context.yaml.includes('device_type: fam-usb'));
 assert.equal(context.generatedGatewayBlocks.length,2);
 
+// Explicitly known controller (from PCT14 or a verified write): changing away
+// and back must clear the warning without rewriting an unchanged actuator.
+const knownFgw = {...device,export_gateway_key:a.gatewayKey(fgw),programmed_sender_id:'00-00-B0-02',sender_programming_pending:false};
+const movedToRadio = a.assignDeviceExportGateway(knownFgw,a.gatewayKey(fam),a.gatewayKey(fam),busBase);
+assert.equal(movedToRadio.sender_programming_pending,true);
+assert.equal(a.pendingSenderDevices([movedToRadio],a.gatewayKey(fam),busBase).length,1);
+const returnedToBus = a.assignDeviceExportGateway(movedToRadio,a.gatewayKey(fgw),a.gatewayKey(fam),busBase);
+assert.equal(returnedToBus.sender_programming_pending,false);
+assert.equal(a.pendingSenderDevices([returnedToBus],a.gatewayKey(fam),busBase).length,0);
+assert.equal(returnedToBus.programmed_sender_id,'00-00-B0-02');
+// A second gateway using the same logical controller ID also needs no write.
+const fam14={type:'fam14',base_id:busBase};
+const sameSender = a.assignDeviceExportGateway(returnedToBus,a.gatewayKey(fam14),a.gatewayKey(fam),busBase);
+assert.equal(sameSender.sender_programming_pending,false);
+// Unknown / unverified controller IDs must NOT silently become "written".
+const unknown={...knownFgw,programmed_sender_id:'',sender_programming_pending:true};
+const unknownChange=a.assignDeviceExportGateway(unknown,a.gatewayKey(fam),a.gatewayKey(fam),busBase);
+const unknownReturn=a.assignDeviceExportGateway(unknownChange,a.gatewayKey(fgw),a.gatewayKey(fam),busBase);
+assert.equal(a.senderProgrammingIsPending(unknownReturn,a.gatewayKey(fam),busBase),true);
+// A previous explicit clean state can still be used as a local baseline.
+const oldClean={...knownFgw,programmed_sender_id:'',sender_programming_pending:false};
+const cleanMove=a.assignDeviceExportGateway(oldClean,a.gatewayKey(fam),a.gatewayKey(fam),busBase);
+assert.equal(cleanMove.sender_programming_pending,true);
+assert.equal(a.assignDeviceExportGateway(cleanMove,a.gatewayKey(fgw),a.gatewayKey(fam),busBase).sender_programming_pending,false);
+console.log('PASS: roundtrip to already programmed controller clears warning; unverified route stays pending.');
 console.log('PASS: real UI handlers mark changed controller IDs pending and warn before preview.');
 console.log('PASS: exclusive YAML gateway routing, physical/sender IDs, pending write warnings, and project compatibility.');
