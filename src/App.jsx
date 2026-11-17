@@ -3903,8 +3903,20 @@ export default function App() {
                     <button className="btn pri" onClick={handleGenerate}>{t("common.generateYaml")}</button>
                   </div>
                 </div>
+                <div style={{padding:".65rem 1.1rem",borderBottom:"1px solid #d9e0e7",background:"#f2f8fb",fontSize:".7rem",color:"#405061"}}>
+                  {t("routing.explanation")}
+                  {pendingSenderDevices(devices, gatewayKey(gateway)).length > 0 && (
+                    <strong style={{display:"block",marginTop:".35rem",color:"#9a3412"}}>
+                      {t("routing.pendingCount", { count: pendingSenderDevices(devices, gatewayKey(gateway)).length })}
+                    </strong>
+                  )}
+                </div>
                 {devices.map((d,i)=>{
                   const col = PC[d.platform]??"#2f6f8f";
+                  const selectedKey = exportGatewayForDevice(d, gatewayKey(gateway));
+                  const availableRoutes = currentGatewayBlocks.filter(gw =>
+                    gatewayCanExportDevice(d, gw, pct14GatewayBaseId)
+                  );
                   return(
                     <div key={i} className="rh" style={{display:"flex",alignItems:"center",gap:".65rem",padding:".65rem 1.1rem",borderBottom:i<devices.length-1?"1px solid #d9e0e7":"none"}}>
                       <span style={{fontSize:".6rem",padding:".12rem .4rem",borderRadius:3,background:col+"20",color:col,fontWeight:600,flexShrink:0,whiteSpace:"nowrap"}}>{PI[d.platform]} {translatePlatform(language, d.platform)}</span>
@@ -3912,7 +3924,26 @@ export default function App() {
                         <div style={{color:"#111827",fontWeight:600,fontSize:".82rem",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.name}</div>
                         <div style={{color:"#6b7280",fontSize:".68rem"}}>{multiBusEnabled && d.bus_system_id ? `${busSystems.find(bus=>bus.id===d.bus_system_id)?.name || d.bus_system_id} · ` : ""}{d.dev_id} · {d.source_device_type || d.eep.replace(/-sw$/,"")}{d.room?" · "+d.room:""}</div>
                       </div>
-                      <div style={{display:"flex",gap:".35rem",flexShrink:0}}>
+                      <div style={{display:"flex",gap:".55rem",alignItems:"center",flexWrap:"wrap",justifyContent:"flex-end",flexShrink:0}}>
+                        <div style={{display:"flex",flexDirection:"column",gap:".22rem",alignItems:"flex-start"}}>
+                          <span style={{fontSize:".62rem",fontWeight:700,color:"#53616f"}}>{t("routing.gatewayForDevice")}</span>
+                          <div style={{display:"flex",gap:".5rem",alignItems:"center",flexWrap:"wrap",maxWidth:420}}>
+                            {availableRoutes.map(gw=>(
+                              <label key={gatewayKey(gw)} title={gw.base_id || ""} style={{display:"flex",gap:".22rem",alignItems:"center",margin:0,fontSize:".66rem",cursor:"pointer",whiteSpace:"nowrap"}}>
+                                <input type="checkbox" checked={selectedKey===gatewayKey(gw)}
+                                  onChange={e=>handleDeviceGatewaySelection(i,e.target.checked?gatewayKey(gw):"")}
+                                  style={{width:"auto",margin:0}}/>
+                                {gw.type}{gw.base_id?" · "+gw.base_id.slice(-5):""}
+                              </label>
+                            ))}
+                            {!availableRoutes.length&&<span style={{fontSize:".65rem",color:"#b42318"}}>{t("routing.noCompatibleGateway")}</span>}
+                            {selectedKey&&!availableRoutes.some(gw=>gatewayKey(gw)===selectedKey)&&
+                              <span style={{fontSize:".65rem",color:"#b42318"}}>{t("routing.invalidDeviceRoute")}</span>}
+                          </div>
+                          {d.sender_programming_pending&&isPct14ImportedDevice(d)&&profileFor(d.eep).needs_sender&&(
+                            <span style={{fontSize:".62rem",fontWeight:700,color:"#b45309"}}>{t("routing.mustWrite")}</span>
+                          )}
+                        </div>
                         <button className="btn edit" onClick={()=>handleEdit(i)}>{t("devices.editButton")}</button>
                         <button className="btn del" onClick={()=>handleDelete(i)}>✕</button>
                       </div>
@@ -3937,6 +3968,11 @@ export default function App() {
         {/* ─── STEP 3: YAML ─── */}
         {step===3&&(
           <>
+            {pendingSenderDevices(devices, gatewayKey(gateway)).length>0&&(
+              <div style={{marginBottom:".85rem",padding:".85rem 1rem",border:"1px solid #fed7aa",borderRadius:8,background:"#fff7ed",color:"#92400e",fontSize:".75rem",lineHeight:1.6}}>
+                <strong>{t("routing.mustWrite")}</strong> · {t("routing.yamlWarning", { count:pendingSenderDevices(devices, gatewayKey(gateway)).length })}
+              </div>
+            )}
             <div className="card" style={{marginBottom:"1rem",padding:"1rem 1.1rem"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:"1rem",flexWrap:"wrap",marginBottom:".8rem"}}>
                 <div>
