@@ -23,8 +23,5 @@ Die Navigation führt durch **Gateway → Geräte → YAML**. In der oberen Leis
 
 Für einen ersten Test zunächst nur ein Gateway erkennen, COM-Port und Base-ID prüfen und danach Geräte importieren oder anlegen. **Sender-IDs noch nicht schreiben**, solange Anlage und Buszuordnung nicht geprüft sind.
 
-## macOS
-
-Für Version 1.1.04 sind im geprüften GitHub-Release die Windows-Dateien vorhanden. DMGs für Intel und Apple Silicon sollen separat ergänzt werden; deshalb enthält dieses Handbuch noch keine verbindliche macOS-Installationsanleitung.
 
 Weiter: [Gateway-Einrichtung](gateways.md).
