@@ -82,4 +82,55 @@ assert(app.includes('t("routing.beforeYaml"'));
 assert(app.includes('handleDeviceGatewaySelection(i,e.target.checked?gatewayKey(gw):"")'));
 assert(app.includes('fullyWritten'));
 assert(app.includes('sender_programming_pending: false'));
+// Execute the actual Devices -> YAML handlers (without rendering React).
+// The user must see an explicit warning but may choose to preview YAML safely.
+Object.assign(context, {
+  gateway:fam,
+  extraGateways:[fgw],
+  devices:[{...device,export_gateway_key:a.gatewayKey(fam),sender_programming_pending:false}],
+  importFam14Gateway:false,
+  importFgw14Gateway:false,
+  pct14DetectedFam14:false,
+  pct14DetectedFgw14:false,
+  pct14GatewayBaseId:busBase,
+  multiBusEnabled:false,
+  busSystems:[],
+  language:'de',
+  step:2,
+  yaml:'previous YAML',
+  generatedGatewayBlocks:[],
+  importMsg:'',
+  writeSenderSummary:null,
+  t:(key,{count}={})=>count==null?key:`${key}:${count}`,
+  window:{confirm:()=>false},
+});
+for(const key of ['Devices','Yaml','GeneratedGatewayBlocks','ImportMsg','Step','WriteSenderSummary']) {
+  const property=key[0].toLowerCase()+key.slice(1);
+  context['set'+key]=v=>{
+    context[property]=typeof v==='function'?v(context[property]):v;
+  };
+}
+const extraStart=app.indexOf('  const buildActiveExtraGateways =');
+const extraEnd=app.indexOf('  // Keep an already generated YAML',extraStart);
+const handleStart=app.indexOf('  const handleDeviceGatewaySelection =');
+const handleEnd=app.indexOf('  const handleCopy =',handleStart);
+assert(extraStart>0&&extraEnd>extraStart&&handleStart>0&&handleEnd>handleStart);
+vm.runInContext(
+  app.slice(extraStart,extraEnd)+app.slice(handleStart,handleEnd)+
+  '\nthis.handlers={handleDeviceGatewaySelection,handleGenerate};',context
+);
+context.handlers.handleDeviceGatewaySelection(0,a.gatewayKey(fgw));
+assert.equal(context.devices[0].export_gateway_key,a.gatewayKey(fgw));
+assert.equal(context.devices[0].sender_programming_pending,true);
+assert.equal(context.yaml,'');
+context.handlers.handleGenerate();
+assert.equal(context.step,2,'canceling pending-write warning stays on Devices');
+context.window.confirm=msg=>{assert(String(msg).includes('routing.beforeYaml'));return true;};
+context.handlers.handleGenerate();
+assert.equal(context.step,3,'confirming warning permits a non-writing YAML preview');
+assert(context.yaml.includes('device_type: fgw14usb'));
+assert(!context.yaml.includes('device_type: fam-usb'));
+assert.equal(context.generatedGatewayBlocks.length,2);
+
+console.log('PASS: real UI handlers mark changed controller IDs pending and warn before preview.');
 console.log('PASS: exclusive YAML gateway routing, physical/sender IDs, pending write warnings, and project compatibility.');
