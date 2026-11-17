@@ -2888,7 +2888,7 @@ export default function App() {
       setImportMsg(t("routing.invalidExportRoute", { count: missingRoutes.length }));
       return;
     }
-    const pending = pendingSenderDevices(normalized.devices, gatewayKey(gateway));
+    const pending = pendingSenderDevices(normalized.devices, gatewayKey(gateway), pct14GatewayBaseId);
     if (pending.length && !window.confirm(t("routing.beforeYaml", { count: pending.length }))) return;
     setGeneratedGatewayBlocks(gatewaySnapshot);
     setYaml(generateYaml(snapshotPrimary || gateway, normalized.devices, snapshotExtras, pct14GatewayBaseId, language, gatewayKey(gateway)));
@@ -3987,9 +3987,9 @@ export default function App() {
                 </div>
                 <div style={{padding:".65rem 1.1rem",borderBottom:"1px solid #d9e0e7",background:"#f2f8fb",fontSize:".7rem",color:"#405061"}}>
                   {t("routing.explanation")}
-                  {pendingSenderDevices(devices, gatewayKey(gateway)).length > 0 && (
+                  {pendingSenderDevices(devices, gatewayKey(gateway), pct14GatewayBaseId).length > 0 && (
                     <strong style={{display:"block",marginTop:".35rem",color:"#9a3412"}}>
-                      {t("routing.pendingCount", { count: pendingSenderDevices(devices, gatewayKey(gateway)).length })}
+                      {t("routing.pendingCount", { count: pendingSenderDevices(devices, gatewayKey(gateway), pct14GatewayBaseId).length })}
                     </strong>
                   )}
                 </div>
@@ -4050,9 +4050,9 @@ export default function App() {
         {/* ─── STEP 3: YAML ─── */}
         {step===3&&(
           <>
-            {pendingSenderDevices(devices, gatewayKey(gateway)).length>0&&(
+            {pendingSenderDevices(devices, gatewayKey(gateway), pct14GatewayBaseId).length>0&&(
               <div style={{marginBottom:".85rem",padding:".85rem 1rem",border:"1px solid #fed7aa",borderRadius:8,background:"#fff7ed",color:"#92400e",fontSize:".75rem",lineHeight:1.6}}>
-                <strong>{t("routing.mustWrite")}</strong> · {t("routing.yamlWarning", { count:pendingSenderDevices(devices, gatewayKey(gateway)).length })}
+                <strong>{t("routing.mustWrite")}</strong> · {t("routing.yamlWarning", { count:pendingSenderDevices(devices, gatewayKey(gateway), pct14GatewayBaseId).length })}
               </div>
             )}
             <div className="card" style={{marginBottom:"1rem",padding:"1rem 1.1rem"}}>
