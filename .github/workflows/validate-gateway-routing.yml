@@ -1,0 +1,34 @@
+name: Validate EEDTOY gateway routing
+
+on:
+  push:
+    branches:
+      - feature/gateway-export-routing-and-write-warning
+  pull_request:
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "package.json"
+      - ".github/workflows/validate-gateway-routing.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  gateway-routing:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+      - name: Gateway export and sender programming regression
+        run: node tests/gateway_export_routing_regression.js
+      - name: Existing multi-bus and YAML generation regressions
+        run: |
+          node tests/multibus_regression.js
+          node tests/yaml_generation_regression.js
+      - name: UI compile
+        run: npm run build
