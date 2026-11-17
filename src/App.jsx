@@ -1334,7 +1334,10 @@ function assignPct14BusDevices(existing, imported, bus, gateway) {
       bus_base_id: normalizeId(bus.base_id),
       imported_from_pct14: true,
       export_gateway_key: gatewayKey(gateway),
-      sender_programming_pending: Boolean(profileFor(device.eep).needs_sender),
+      sender_programming_pending: Boolean(profileFor(device.eep).needs_sender)
+        && (!normalizeId(device.programmed_sender_id)
+          || senderIdForGatewayKey({...device,bus_base_id:normalizeId(bus.base_id)},gatewayKey(gateway),bus.base_id)
+            !== normalizeId(device.programmed_sender_id)),
     };
     if (next.some(item => duplicateDeviceKey(item) === duplicateDeviceKey(entry))) continue;
     if (profileFor(entry.eep).needs_sender) {
@@ -1571,6 +1574,8 @@ function parsePct14Xml(text, currentBaseId = "", options = {}, language = "de") 
     }
 
     const senderByChannel = new Map();
+    const controllerByChannel = new Map();
+    const isHeatingController = /^(FHK14|F4HK14|FAE14LPR|FAE14SSR)/i.test(String(model || ""));
     for (const entry of Array.from(device.querySelectorAll("rangeofid > entry"))) {
       const raw = textOf(entry, "entry_id", "");
       const id = byteIdFromDecimal(raw);
@@ -1581,6 +1586,18 @@ function parsePct14Xml(text, currentBaseId = "", options = {}, language = "de") 
       }
       if (/^00-00-B0-[0-9A-F]{2}$/.test(id) && ch > 0 && !senderByChannel.has(ch)) {
         senderByChannel.set(ch, id);
+      }
+      // Function 65 is the actual controller entry shown by PCT14 for
+      // FHK/FAE, unlike the computed 00-00-B0-xx fallback sender.
+      // Accept a single-channel FHK without an explicit channel field.
+      if (isHeatingController && id !== "00-00-00-00"
+          && Number(textOf(entry, "entry_function", "-1")) === 65) {
+        const channelIndex = ch > 0 ? ch : (channelCount === 1 ? 1 : 0);
+        if (channelIndex > 0) {
+          const already = controllerByChannel.get(channelIndex);
+          if (!already) controllerByChannel.set(channelIndex, id);
+          else if (already !== id) controllerByChannel.set(channelIndex, "");
+        }
       }
     }
 
@@ -1611,6 +1628,9 @@ function parsePct14Xml(text, currentBaseId = "", options = {}, language = "de") 
         eltako: normalizePct14ModelName(model, language),
         room: `PCT14 ${language === "en" ? "address" : "Adresse"} ${address}${channelCount > 1 ? ` · ${language === "en" ? "Channel" : "Kanal"} ${channelNumber}` : ""}${mapping.dali ? ` · ${language === "en" ? "DALI gateway" : "DALI-Gateway"}` : ""}${mapping.rgbw ? ` · ${language === "en" ? "RGBW profile" : "RGBW-Profil"}` : ""}`,
         sender_id: senderId,
+        // Saved PCT14 hardware evidence, used only for the controller-ID
+        // warning and never to silently rewrite sender IDs.
+        programmed_sender_id: controllerByChannel.get(channelNumber) || "",
         sender_eep: mapping.sender_eep ?? p.sender_eep ?? "",
         device_class: mapping.platform === "cover" ? "shutter" : "",
         time_opens: mapping.time_opens ?? "",
@@ -2736,7 +2756,10 @@ export default function App() {
           ...d,
           imported_from_pct14: true,
           export_gateway_key: gatewayKey(gateway),
-          sender_programming_pending: Boolean(profileFor(d.eep).needs_sender),
+          sender_programming_pending: Boolean(profileFor(d.eep).needs_sender)
+            && (!normalizeId(d.programmed_sender_id)
+              || senderIdForGatewayKey(d,gatewayKey(gateway),result.baseId)
+                !== normalizeId(d.programmed_sender_id)),
         }));
         return [...existing, ...imported.filter(d => {
           const key = duplicateDeviceKey(d);
@@ -2805,7 +2828,7 @@ export default function App() {
     const device = devices[index];
     if (!device || (targetKey && (!target || !gatewayCanExportDevice(device, target, pct14GatewayBaseId)))) return;
     setDevices(current => current.map((item, i) =>
-      i === index ? assignDeviceExportGateway(item, targetKey, gatewayKey(gateway)) : item
+      i === index ? assignDeviceExportGateway(item, targetKey, gatewayKey(gateway), pct14GatewayBaseId) : item
     ));
     setYaml("");
     setGeneratedGatewayBlocks([]);
@@ -3029,11 +3052,14 @@ export default function App() {
             selectedWriteBus?.base_id || pct14GatewayBaseId,
             multiBusEnabled ? writeBusId : "", gatewayKey(gateway),
           );
-          return entries.some(entry => senderProgrammingEntries.some(done =>
+          const confirmed = entries.find(entry => senderProgrammingEntries.some(done =>
             done.device_id === entry.device_id &&
             done.sender_id === entry.sender_id &&
             done.sender_eep === entry.sender_eep
-          )) ? { ...device, sender_programming_pending: false } : device;
+          ));
+          return confirmed
+            ? { ...device, programmed_sender_id: normalizeId(confirmed.sender_id), sender_programming_pending: false }
+            : device;
         }));
       }
       setWriteSenderMsg(fullyWritten ? "" : t("routing.writeNotConfirmed"));
@@ -3968,7 +3994,7 @@ export default function App() {
                             {selectedKey&&!availableRoutes.some(gw=>gatewayKey(gw)===selectedKey)&&
                               <span style={{fontSize:".65rem",color:"#b42318"}}>{t("routing.invalidDeviceRoute")}</span>}
                           </div>
-                          {d.sender_programming_pending&&isPct14ImportedDevice(d)&&profileFor(d.eep).needs_sender&&(
+                          {senderProgrammingIsPending(d,gatewayKey(gateway),pct14GatewayBaseId)&&(
                             <span style={{fontSize:".62rem",fontWeight:700,color:"#b45309"}}>{t("routing.mustWrite")}</span>
                           )}
                         </div>
