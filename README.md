@@ -63,9 +63,11 @@ Sicherheitsprobleme bitte über eine private GitHub Security Advisory melden. De
 
 ## Rechte und Marken
 
-Copyright © 2026 D. Zirnbauer. Der Quellcode steht unter der Lizenz **GPL-3.0-or-later**. Siehe [LICENSE](LICENSE).
+Copyright © 2026 D. Zirnbauer
 
-ELTAKO ist eine Marke der ELTAKO GmbH. Dieses Projekt ist weder mit der ELTAKO GmbH verbunden noch von ihr herausgegeben oder bestätigt.
+Der Quellcode dieses Projekts wird unter der **GNU General Public License v3.0 oder neuer (GPL-3.0-or-later)** veröffentlicht. Weitere Informationen enthält die [LICENSE](https://github.com/DenisZirn/eedtoy/blob/main/LICENSE).
+
+**ELTAKO** ist eine Marke der ELTAKO GmbH. EEDTOY ist ein unabhängig entwickeltes Projekt und kein offizielles Produkt der ELTAKO GmbH. Die Verwendung von Markennamen und Produktbezeichnungen dient ausschließlich der Beschreibung der Gerätekompatibilität.
 
 ## Versionshinweise
 
