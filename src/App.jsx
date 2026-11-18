@@ -1657,6 +1657,7 @@ function parsePct14Xml(text, currentBaseId = "", options = {}, language = "de") 
     const senderByChannel = new Map();
     const controllerByChannel = new Map();
     const isHeatingController = /^(FHK14|F4HK14|FAE14LPR|FAE14SSR)/i.test(String(model || ""));
+    const isFrgbw14 = /^FRGBW14/i.test(String(model || ""));
     for (const entry of Array.from(device.querySelectorAll("rangeofid > entry"))) {
       const raw = textOf(entry, "entry_id", "");
       const id = byteIdFromDecimal(raw);
@@ -1667,6 +1668,19 @@ function parsePct14Xml(text, currentBaseId = "", options = {}, language = "de") 
       }
       if (/^00-00-B0-[0-9A-F]{2}$/.test(id) && ch > 0 && !senderByChannel.has(ch)) {
         senderByChannel.set(ch, id);
+      }
+      // FRGBW14 uses its own free RGBW controller profile:
+      // PCT14 ID entry 5+ = function group 3; function 81; channel bitmask 15.
+      // Unlike heating actuators, this is one controller for all four RGBW
+      // channels, not six separate sender IDs for the six bus addresses.
+      if (isFrgbw14 && id !== "00-00-00-00"
+          && Number(textOf(entry, "entry_number", "0")) >= 5
+          && Number(textOf(entry, "entry_function", "-1")) === 81
+          && Number(textOf(entry, "entry_button", "-1")) === 0
+          && Number(textOf(entry, "entry_channel", "0")) === 15) {
+        const existing = controllerByChannel.get(1);
+        if (!existing) controllerByChannel.set(1, id);
+        else if (existing !== id) controllerByChannel.set(1, "");
       }
       // Function 65 is the actual controller entry shown by PCT14 for
       // FHK/FAE, unlike the computed 00-00-B0-xx fallback sender.
