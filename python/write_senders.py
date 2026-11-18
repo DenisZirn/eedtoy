@@ -616,6 +616,7 @@ async def ensure_fd2g14_from_yaml(
     fam14_base_id_int: int,
     sender_map: Dict[str, List[Dict[str, Any]]],
     processed_ids: Set[str],
+    known_devices: Optional[Dict[int, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """Program FD2G14 through Grimm's real FD2G14/FDG14 BusObject path.
 
@@ -641,8 +642,19 @@ async def ensure_fd2g14_from_yaml(
         return events
 
     from eltakobus.device import create_busobject
-    discovered: List[Any] = []
-    for address in sorted(pending_bases):
+    # Reuse FD2G14 objects from the first targeted scan. The previous code
+    # sometimes programmed via the generic path and sometimes via this path,
+    # depending on the first discovery response.
+    known_devices = known_devices or {}
+    discovered: List[Any] = [
+        known_devices[address]
+        for address in sorted(pending_bases)
+        if address in known_devices
+        and _is_real_fd2g14(known_devices[address])
+        and int(getattr(known_devices[address], "address", -1)) == address
+    ]
+    already_found = {int(dev.address) for dev in discovered}
+    for address in sorted(pending_bases - already_found):
         for attempt in range(3):
             try:
                 dev = await create_busobject(bus=bus, id=address)
@@ -834,7 +846,11 @@ async def write_senders(port: str, sender_map_path: str, baud_rate: int = 57600,
     locked = False
     events: List[Dict[str, Any]] = []
     try:
-        delay_message = 0.001 if baud_rate == 57600 else 0.2
+        # The FGW14-USB RS485 adapter needs ~10 ms pacing at 57600 baud.
+        # The previous 1 ms pacing could overload consecutive memory reads
+        # after writing dozens of sender IDs; use the conservative delay for
+        # all 57600-baud Series-14 write sessions.
+        delay_message = 0.01 if baud_rate == 57600 else 0.2
         log("connect", port, baud_rate, gateway_type, "sender entries", sum(len(entries) for entries in sender_map.values()))
         bus = RS485SerialInterfaceV2(port, baud_rate=baud_rate, delay_message=delay_message, auto_reconnect=False)
         bus.start()
@@ -864,13 +880,24 @@ async def write_senders(port: str, sender_map_path: str, baud_rate: int = 57600,
         target_addresses = target_bus_addresses(fam14_base_id_int, sender_map)
         log("target bus addresses", ",".join(str(a) for a in target_addresses))
         processed_ids: Set[str] = set()
+        fd2g_targets = _fd2g14_targets(fam14_base_id_int, sender_map)
+        discovered_fd2g: Dict[int, Any] = {}
 
         async for dev in enumerate_target_devices(bus, target_addresses):
+            device_address = int(getattr(dev, "address", 0) or 0)
+            if device_address in fd2g_targets and _is_real_fd2g14(dev):
+                # Never program FD2G14 through the generic path: its sixteen
+                # logical channel IDs belong to one physical base address.
+                discovered_fd2g[device_address] = dev
+                log("FD2G14 reserved for dedicated path", device_address)
+                continue
             device_events = await ensure_programmed_for_device(fam14_base_id_int, dev, sender_map)
             events.extend(device_events)
             processed_ids.update(e.get("device_id", "") for e in device_events)
 
-        fd2g_events = await ensure_fd2g14_from_yaml(bus, fam14_base_id_int, sender_map, processed_ids)
+        fd2g_events = await ensure_fd2g14_from_yaml(
+            bus, fam14_base_id_int, sender_map, processed_ids, discovered_fd2g
+        )
         events.extend(fd2g_events)
 
         for device_id, entries in sender_map.items():
