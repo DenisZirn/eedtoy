@@ -703,7 +703,20 @@ async def ensure_fd2g14_from_yaml(
             try:
                 sender_address = AddressExpression.parse(sender_id)
                 profile = EEP.find("A5-38-08")
-                changed = await dev.ensure_programmed(channel, sender_address, profile)
+                # FD2G14 occasionally fails to answer a memory-read request.
+                # Retry the entire idempotent ensure_programmed operation, just
+                # as restarting the writer manually would. Never ignore a final
+                # timeout or retry non-timeout programming failures.
+                for operation_attempt in range(3):
+                    try:
+                        changed = await dev.ensure_programmed(channel, sender_address, profile)
+                        break
+                    except TimeoutError as exc:
+                        log("FD2G14 channel timeout", real_address, channel + 1,
+                            operation_attempt + 1, repr(exc))
+                        if operation_attempt == 2:
+                            raise
+                        await asyncio.sleep(0.25 * (operation_attempt + 1))
                 await asyncio.sleep(0.05)
                 if changed:
                     status = "updated"
