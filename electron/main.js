@@ -165,7 +165,7 @@ async function changeLanguage(language) {
 const UPDATE_RELEASE_API = 'https://api.github.com/repos/DenisZirn/eedtoy/releases/latest';
 
 function _versionParts(value) {
-  const match = String(value || '').trim().match(/^v?(\\d+(?:\\.\\d+)*)(?:[-+].*)?$/i);
+  const match = String(value || '').trim().match(/^v?(\d+(?:\.\d+)*)(?:[-+].*)?$/i);
   return match ? match[1].split('.').map(Number) : null;
 }
 
@@ -227,11 +227,20 @@ async function checkForApplicationUpdate({ silent = false } = {}) {
       return false;
     }
 
-    const asset = (release.assets || []).find(item =>
-      /\\.exe$/i.test(item.name || '') &&
-      /setup|installer/i.test(item.name || '') &&
-      /^https:\\/\\/github\\.com\\/DenisZirn\\/eedtoy\\/releases\\/download\\//i.test(item.browser_download_url || '')
-    );
+    const asset = (release.assets || []).find(item => {
+      const name = String(item.name || '');
+      let downloadUrl;
+      try {
+        downloadUrl = new URL(String(item.browser_download_url || ''));
+      } catch (_) {
+        return false;
+      }
+      return /\.exe$/i.test(name) &&
+        /setup|installer/i.test(name) &&
+        downloadUrl.protocol === 'https:' &&
+        downloadUrl.hostname === 'github.com' &&
+        downloadUrl.pathname.startsWith('/DenisZirn/eedtoy/releases/download/');
+    });
     if (!asset) throw new Error('Kein Windows-Installer im neuesten Release gefunden.');
 
     const result = await dialog.showMessageBox(mainWindow || undefined, {
