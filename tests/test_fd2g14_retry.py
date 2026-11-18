@@ -82,6 +82,21 @@ async def run():
     assert calls==[('discover',41),('discover',41),('write',0,'00-00-B0-29')]
     assert await writer.ensure_fd2g14_from_yaml(None,0xFFBF5C80,target,processed)==[]
 
+    # If the first bus scan already discovered the physical FD2G14, do not
+    # rediscover it and never fall back to the generic writer.
+    reused=FD2G14([])
+    reuse_calls=[]
+    async def reuse_program(channel,sender,profile):
+        reuse_calls.append(channel)
+        return False
+    reused.ensure_programmed=reuse_program
+    async def forbidden_discovery(**kwargs):
+        raise AssertionError('FD2G14 was already discovered; no second scan allowed')
+    devices.create_busobject=forbidden_discovery
+    result=await writer.ensure_fd2g14_from_yaml(None,0xFFBF5C80,target,set(),{41:reused})
+    assert result[0]['status']=='exists'
+    assert reuse_calls==[0]
+
     transient=FD2G14([])
     transient_calls=[]
     async def transient_program(channel,sender,profile):
