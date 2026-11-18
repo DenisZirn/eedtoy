@@ -190,7 +190,7 @@ const messages = {
     'yaml.backToDevices': '← Geräte bearbeiten',
 
     'project.newConfirm': 'Neues Projekt erstellen? Ungespeicherte Änderungen am aktuellen Projekt gehen verloren.',
-    'project.newBusy': 'Ein Lern-, Verbindungs- oder Schreibvorgang ist noch aktiv. Bitte zuerst abschließen oder abbrechen.',
+    'project.newBusy': 'Bitte laufende Lern- oder Schreibvorgänge zuerst beenden und eine bestehende RS485-Verbindung über „Gateway trennen“ lösen, bevor du ein neues Projekt erstellst.',
     'project.newCreated': '✓ Neues Projekt erstellt.',
     'project.desktopSaveOnly': '✗ Projektdateien können nur in der installierten EEDTOY-Desktop-App gespeichert werden.',
     'project.desktopOpenOnly': '✗ Projektdateien können nur in der installierten EEDTOY-Desktop-App geöffnet werden.',
@@ -456,7 +456,7 @@ const messages = {
 
     'project.desktopSaveOnly': '✗ Project files can only be saved in the installed EEDTOY desktop app.',
     'project.newConfirm': 'Create a new project? Unsaved changes to the current project will be lost.',
-    'project.newBusy': 'An ID-learning, connection or writing operation is still active. Finish or cancel it first.',
+    'project.newBusy': 'Finish any active learning or writing operation and disconnect an existing RS485 connection using “Disconnect gateway” before creating a new project.',
     'project.newCreated': '✓ New project created.',
     'project.desktopOpenOnly': '✗ Project files can only be opened in the installed EEDTOY desktop app.',
     'project.saveFailed': '✗ Project could not be saved: {{error}}',
