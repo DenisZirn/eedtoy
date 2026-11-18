@@ -35,16 +35,16 @@ jobs:
       PYTHONIOENCODING: utf-8
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: npm
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12.10'
 
@@ -109,7 +109,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Original installer backup failed' }
 
       - name: Preserve original build as rollback artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: EEDTOY-1.0.97-before-sender-id-hotfix
           path: release-backup/
@@ -155,7 +155,7 @@ jobs:
           "HOTFIX_SHA=$sha" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "INSTALLER_SHA256=$digest" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: EEDTOY-1.0.97-verified-sender-id-hotfix
           path: |

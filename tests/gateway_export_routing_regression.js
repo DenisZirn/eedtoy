@@ -78,12 +78,13 @@ assert.equal(reopened.export_gateway_key,a.gatewayKey(fgw));
 assert.equal(reopened.sender_programming_pending,true);
 assert.equal(a.generateYaml(fam,[reopened],[fgw],busBase,'de',a.gatewayKey(fam)).includes('device_type: fam-usb'),false);
 
-assert(app.includes('t("routing.beforeYaml"'));
+assert(!app.includes('t("routing.beforeYaml"'), 'no confirmation popup when generating YAML');
+assert(app.includes('t("routing.yamlInfoTitle")'), 'next step shows localized pending-write guidance');
 assert(app.includes('handleDeviceGatewaySelection(i,e.target.checked?gatewayKey(gw):"")'));
 assert(app.includes('fullyWritten'));
 assert(app.includes('sender_programming_pending: false'));
 // Execute the actual Devices -> YAML handlers (without rendering React).
-// The user must see an explicit warning but may choose to preview YAML safely.
+// YAML generation is always read-only and must not block on pending sender IDs.
 Object.assign(context, {
   gateway:fam,
   extraGateways:[fgw],
@@ -102,7 +103,7 @@ Object.assign(context, {
   importMsg:'',
   writeSenderSummary:null,
   t:(key,{count}={})=>count==null?key:`${key}:${count}`,
-  window:{confirm:()=>false},
+  window:{confirm:()=>{throw new Error('YAML generation must not open a confirmation dialog');}},
 });
 for(const key of ['Devices','Yaml','GeneratedGatewayBlocks','ImportMsg','Step','WriteSenderSummary']) {
   const property=key[0].toLowerCase()+key.slice(1);
@@ -124,10 +125,7 @@ assert.equal(context.devices[0].export_gateway_key,a.gatewayKey(fgw));
 assert.equal(context.devices[0].sender_programming_pending,true);
 assert.equal(context.yaml,'');
 context.handlers.handleGenerate();
-assert.equal(context.step,2,'canceling pending-write warning stays on Devices');
-context.window.confirm=msg=>{assert(String(msg).includes('routing.beforeYaml'));return true;};
-context.handlers.handleGenerate();
-assert.equal(context.step,3,'confirming warning permits a non-writing YAML preview');
+assert.equal(context.step,3,'pending sender IDs do not block the read-only YAML preview');
 assert(context.yaml.includes('device_type: fgw14usb'));
 assert(!context.yaml.includes('device_type: fam-usb'));
 assert.equal(context.generatedGatewayBlocks.length,2);
@@ -173,7 +171,7 @@ assert.equal(noEvidence[0].sender_programming_pending,true);
 assert.equal(noEvidence[0].programmed_sender_id,'');
 console.log('PASS: PCT14 reimport updates controller evidence without overwriting selected gateway.');
 console.log('PASS: roundtrip to already programmed controller clears warning; unverified route stays pending.');
-console.log('PASS: real UI handlers mark changed controller IDs pending and warn before preview.');
+console.log('PASS: real UI handlers mark changed controller IDs pending and allow YAML preview without a modal.');
 // FTS14EM cannot be exported using FAM-USB. Detect a compatible
 // PCT14 Series-14 gateway on initial import and repair legacy FAM-USB
 // defaults only when the matching physical bus is known.

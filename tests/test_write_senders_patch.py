@@ -26,6 +26,53 @@ class FakeDevice:
         self.memory[line] = value
 
 
+async def test_frgbw14_function81_four_channel_mask():
+    """One controller must drive all four RGBW channels, not dimming value."""
+    dev = FakeDevice(memory_size=32)
+    unrelated = bytes.fromhex("0102030400510F00")
+    dev.memory[12] = unrelated
+    assert await module._ensure_programmed_frgbw14(dev, "00-00-B0-07") is True
+    expected = bytes.fromhex("0000B00700510F00")
+    assert dev.memory[12] == unrelated
+    assert dev.memory[13] == expected
+    assert await module._ensure_programmed_frgbw14(dev, "00-00-B0-07") is False
+
+    # Repair only the same sender's historical single-channel function 32,
+    # do not consume another controller slot or touch other sender mappings.
+    old = bytes.fromhex("0000B00700200100")
+    dev.memory[13] = old
+    assert await module._ensure_programmed_frgbw14(dev, "00-00-B0-07") is True
+    assert dev.memory[13] == expected
+    assert dev.memory[12] == unrelated
+    assert not any(dev.memory[14])
+
+    # When the new entry is already present, clean only legacy dimming rows
+    # with the identical controller ID.
+    dev.memory[14] = old
+    dev.memory[15] = bytes.fromhex("1122334400200100")
+    assert await module._ensure_programmed_frgbw14(dev, "00-00-B0-07") is True
+    assert dev.memory[13] == expected
+    assert not any(dev.memory[14])
+    assert dev.memory[15] == bytes.fromhex("1122334400200100")
+    assert await module._ensure_programmed_frgbw14(dev, "00-00-B0-07") is False
+
+    # A four-channel mask is a single row, not four separate sensor entries.
+    assert sum(row == expected for row in dev.memory) == 1
+
+
+async def test_frgbw14_no_room_or_bus_access():
+    small = FakeDevice(memory_size=12)
+    assert await module._ensure_programmed_frgbw14(small, "00-00-B0-07") is None
+    full = FakeDevice(memory_size=15)
+    for row in range(12, 15):
+        full.memory[row] = bytes.fromhex("AABBCCDD00510F00")
+    try:
+        await module._ensure_programmed_frgbw14(full, "00-00-B0-07")
+        raise AssertionError("must not overwrite another controller when FG3 full")
+    except RuntimeError as exc:
+        assert "Funktionsgruppe 3" in str(exc)
+
+
 async def test_fhk_single_function_group_3_sender():
     dev = FakeDevice(memory_size=24)
     first = module._sender_bytes_from_id("00-00-B0-01") + bytes((0, 65, 1, 0))
@@ -309,6 +356,8 @@ if __name__ == "__main__":
     test_target_addresses()
     test_fd2g14_uses_grimm_scan()
     test_multiple_senders_per_device_are_preserved()
+    asyncio.run(test_frgbw14_function81_four_channel_mask())
+    asyncio.run(test_frgbw14_no_room_or_bus_access())
     asyncio.run(test_fhk_single_function_group_3_sender())
     asyncio.run(test_f2l14_confirmed_pct14_additive_double_rocker_entry())
     asyncio.run(test_f2l14_mode_change_replaces_existing_sender_and_cleans_duplicates())

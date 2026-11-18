@@ -1,6 +1,7 @@
 const MAIN_MESSAGES = {
   de: {
     'menu.file': 'Datei',
+    'menu.new': 'Neues Projekt',
     'menu.open': 'Projekt öffnen…',
     'menu.save': 'Projekt speichern',
     'menu.saveAs': 'Projekt speichern unter…',
@@ -41,6 +42,7 @@ const MAIN_MESSAGES = {
   },
   en: {
     'menu.file': 'File',
+    'menu.new': 'New project',
     'menu.open': 'Open project…',
     'menu.save': 'Save project',
     'menu.saveAs': 'Save project as…',

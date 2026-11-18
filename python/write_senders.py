@@ -228,6 +228,51 @@ async def _ensure_programmed_controller_profile(dev: Any, sender_id: str, channe
     return await _find_or_write_free_line(dev, expected_line, 12)
 
 
+async def _ensure_programmed_frgbw14(dev: Any, sender_id: str) -> Optional[bool]:
+    """Program FRGBW14 RGBW controller into Function Group 3 (function 81).
+
+    PCT14's four-channel mask is 0x0F: R, G, B and W share one sender.
+    Replace only the former function-32 (dimming-value) assignment for this
+    same sender in the writable group-3 area. Never alter an unrelated sensor.
+    """
+    sender = _sender_bytes_from_id(sender_id)
+    expected_line = sender + bytes((0, 81, 0x0F, 0))
+    start_line = 12
+    memory_size = int(getattr(dev, "memory_size", 0) or 0)
+    if memory_size <= start_line or not hasattr(dev, "read_mem_line") or not hasattr(dev, "write_mem_line"):
+        return None
+
+    exact_rows = []
+    legacy_rows = []
+    first_empty = None
+    for row in range(start_line, memory_size):
+        line = await dev.read_mem_line(row)
+        if line == expected_line:
+            exact_rows.append(row)
+        elif (line[:4] == sender and line[4:6] == bytes((0, 32))
+              and line[6] in (1, 2, 3, 4) and line[7] == 0):
+            # Only migrate EEDTOY's previous dimming-value assignment for
+            # this sender, not other programmable group-3 configurations.
+            legacy_rows.append(row)
+        elif not any(line) and first_empty is None:
+            first_empty = row
+
+    if exact_rows:
+        # The correct assignment already exists. Remove only identical legacy
+        # lines that EEDTOY used for this sender (not other learned controllers).
+        for row in legacy_rows:
+            await _write_mem_line_with_readback(dev, row, bytes(8))
+        return bool(legacy_rows)
+
+    target = legacy_rows[0] if legacy_rows else first_empty
+    if target is None:
+        raise RuntimeError("Kein freier Speicherplatz in FRGBW14 Funktionsgruppe 3")
+    await _write_mem_line_with_readback(dev, target, expected_line)
+    for row in legacy_rows[1:]:
+        await _write_mem_line_with_readback(dev, row, bytes(8))
+    return True
+
+
 async def _ensure_programmed_fsr14ssr(dev: Any, sender_id: str, channel: int = 0) -> Optional[bool]:
     """Use the standard FSR14 function-group-2 layout for FSR14SSR."""
     sender = _sender_bytes_from_id(sender_id)
@@ -667,6 +712,7 @@ async def ensure_programmed_for_device(fam14_base_id_int: int, dev: Any, sender_
             entry_type = _entry_device_type(entry)
             combined_label = f"{entry_type} {entry_name}"
             display_name = _device_display_name(entry, dev_type, device_ext_id)
+            is_frgbw14 = "FRGBW14" in combined_label.upper()
             is_frgbw = sender_eep == "07-37-F7" or device_eep == "07-37-F7" or "FRGBW" in combined_label.upper()
             is_fsr14ssr = "FSR14SSR" in combined_label.upper()
             is_fms14 = "FMS14" in combined_label.upper()
@@ -679,7 +725,9 @@ async def ensure_programmed_for_device(fam14_base_id_int: int, dev: Any, sender_
             update_result = None
             while retry > 0:
                 try:
-                    if is_frgbw:
+                    if is_frgbw14:
+                        update_result = await _ensure_programmed_frgbw14(dev, sender_id)
+                    elif is_frgbw:
                         update_result = await _ensure_programmed_controller_profile(dev, sender_id, channel)
                     elif is_fsr14ssr:
                         update_result = await _ensure_programmed_fsr14ssr(dev, sender_id, channel)

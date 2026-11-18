@@ -23,7 +23,7 @@ jobs:
 
     steps:
       - name: Repository auschecken
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -58,13 +58,13 @@ jobs:
           assert f"# Version: {version}" in tests
 
       - name: Node.js einrichten
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "22"
           cache: npm
 
       - name: Build-Python einrichten
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12.10"
 
@@ -106,7 +106,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Installed runtime validation failed." }
 
       - name: Installer als Artefakt sichern
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: EEDTOY-v${{ env.VERSION }}-Windows-Installer
           path: dist-exe/EEDTOY-Setup-${{ env.VERSION }}.exe

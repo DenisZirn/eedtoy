@@ -1657,6 +1657,7 @@ function parsePct14Xml(text, currentBaseId = "", options = {}, language = "de") 
     const senderByChannel = new Map();
     const controllerByChannel = new Map();
     const isHeatingController = /^(FHK14|F4HK14|FAE14LPR|FAE14SSR)/i.test(String(model || ""));
+    const isRgbw14Controller = /^FRGBW14/i.test(String(model || ""));
     for (const entry of Array.from(device.querySelectorAll("rangeofid > entry"))) {
       const raw = textOf(entry, "entry_id", "");
       const id = byteIdFromDecimal(raw);
@@ -1671,6 +1672,15 @@ function parsePct14Xml(text, currentBaseId = "", options = {}, language = "de") 
       // Function 65 is the actual controller entry shown by PCT14 for
       // FHK/FAE, unlike the computed 00-00-B0-xx fallback sender.
       // Accept a single-channel FHK without an explicit channel field.
+      // FRGBW14 uses the RGBW controller (function 81) with the four-channel
+      // mask 0x0F in function group 3, not the legacy dimming-value function 32.
+      if (isRgbw14Controller && id !== "00-00-00-00"
+          && Number(textOf(entry, "entry_function", "-1")) === 81
+          && ch === 15) {
+        const prior = controllerByChannel.get(1);
+        if (!prior) controllerByChannel.set(1, id);
+        else if (prior !== id) controllerByChannel.set(1, "");
+      }
       if (isHeatingController && id !== "00-00-00-00"
           && Number(textOf(entry, "entry_function", "-1")) === 65) {
         const channelIndex = ch > 0 ? ch : (channelCount === 1 ? 1 : 0);
@@ -1971,11 +1981,29 @@ export default function App() {
   const [language, setLanguage] = useState(getStoredLanguage);
   const t = (key, variables = {}) => translate(language, key, variables);
   const runtimeText = (value) => translateRuntimeText(language, value);
-  const projectActionsRef = useRef({ open: null, save: null, saveAs: null });
+  const projectActionsRef = useRef({ new: null, open: null, save: null, saveAs: null });
+  const savedProjectSignatureRef = useRef(null);
 
   const isElectron = typeof window !== "undefined" && window.electronAPI?.isElectron;
   const isDeviceDatabaseWindow = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("window") === "device-database";
   void deviceDbRevision;
+
+  // Ignore screen navigation and generated YAML when comparing edits.
+  // The actual source configuration, including an unfinished device form, is
+  // what matters for the "New Project" unsaved-changes prompt.
+  const projectContentSignature = (state) => JSON.stringify({
+    gateway: state.gateway, devices: state.devices, extraGateways: state.extraGateways,
+    form: state.form, editIdx: state.editIdx,
+    importFam14Gateway: state.importFam14Gateway,
+    importFgw14Gateway: state.importFgw14Gateway,
+    pct14DetectedFam14: state.pct14DetectedFam14,
+    pct14DetectedFgw14: state.pct14DetectedFgw14,
+    pct14GatewayBaseId: state.pct14GatewayBaseId,
+    multiBusEnabled: state.multiBusEnabled, busSystems: state.busSystems,
+    importBusId: state.importBusId, writeBusId: state.writeBusId,
+    writeBusPort: state.writeBusPort, writeBusPortManual: state.writeBusPortManual,
+    writeTargetGatewayKey: state.writeTargetGatewayKey,
+  });
 
   const buildProjectDocument = (projectDevices = devices) => {
     const gatewayBlocks = orderedGatewayBlocks(gateway, buildActiveExtraGateways()).map(item => ({ ...item }));
@@ -2047,6 +2075,7 @@ export default function App() {
       return;
     }
     setProjectFileName(result.fileName || projectFileName);
+    savedProjectSignatureRef.current = projectContentSignature(project.state);
     acceptSavedProject(project);
     showProjectMessage(t("project.saved", { file: result.fileName || result.path }));
   };
@@ -2073,8 +2102,84 @@ export default function App() {
     }
     setProjectFileName(result.fileName || `EEDTOY-${language === "en" ? "Project" : "Projekt"}.eedtoy`);
     setProjectFilePath(result.path || "");
+    savedProjectSignatureRef.current = projectContentSignature(project.state);
     acceptSavedProject(project);
     showProjectMessage(t("project.saved", { file: result.fileName || result.path }));
+  };
+
+  const handleNewProject = () => {
+    // Never abandon an active hardware transaction or a verified RS485
+    // connection when starting a new project.
+    if (writingSenders || writeGatewayConnection || connectingWriteGateway ||
+        disconnectingGateway || detecting || learningId || cancelingLearnId ||
+        learnRequestRef.current) {
+      showProjectMessage(t("project.newBusy"));
+      return false;
+    }
+    const savedSignature = savedProjectSignatureRef.current;
+    const hasUnsavedChanges = savedSignature !== null
+      ? projectContentSignature(buildProjectDocument().state) !== savedSignature
+      : Boolean(
+          devices.length || extraGateways.length || busSystems.length ||
+          gateway.type !== emptyGW.type || gateway.base_id ||
+          gateway.serial_path || gateway.lan_address || pct14GatewayBaseId ||
+          importFam14Gateway || importFgw14Gateway || multiBusEnabled ||
+          form.name || form.dev_id || form.room || editIdx !== null ||
+          miniSafeText.trim()
+        );
+    if (hasUnsavedChanges && !window.confirm(t("project.newConfirm"))) return false;
+
+    writeConnectRequestRef.current += 1;
+    clearTimeout(learnMessageTimerRef.current);
+    savedProjectSignatureRef.current = null;
+    setStep(1);
+    setGateway({ ...emptyGW });
+    setDevices([]);
+    setExtraGateways([]);
+    setForm(createEmptyForm());
+    setEditIdx(null);
+    setErrors({});
+    setYaml("");
+    setGeneratedGatewayBlocks([]);
+    setCopied(false);
+    setPorts([]);
+    setDetectMsg("");
+    setImportMsg("");
+    setMiniSafeImportMsg("");
+    setMiniSafeOpen(false);
+    setMiniSafeText("");
+    setMiniSafePreview([]);
+    setMiniSafeError("");
+    setMiniSafeFileName("");
+    setMiniSafeUseSenderIds(false);
+    setLearningId(false);
+    setLearningIdTarget("");
+    setCancelingLearnId(false);
+    setLearnMsg("");
+    setLearnMsgTarget("device");
+    setImportFam14Gateway(false);
+    setImportFgw14Gateway(false);
+    setPct14DetectedFam14(false);
+    setPct14DetectedFgw14(false);
+    setPct14GatewayBaseId("");
+    setMultiBusEnabled(false);
+    setBusSystems([]);
+    setImportBusId("");
+    setWriteBusId("");
+    setWriteBusPort("");
+    setWriteBusPortManual(false);
+    setWriteTargetGatewayKey("");
+    setWriteGatewayConnection(null);
+    setConnectingWriteGateway(false);
+    setWriteSenderMsg("");
+    setWriteSenderSummary(null);
+    setWriteSenderLog([]);
+    setWriteSenderProgress({ processed:0, total:0, phase:"idle", message:"" });
+    setProjectFileName("");
+    setProjectFilePath("");
+    // Keep the chosen UI language and the persistent user device database.
+    showProjectMessage(t("project.newCreated"));
+    return true;
   };
 
   const handleOpenProject = async () => {
@@ -2164,6 +2269,28 @@ export default function App() {
     setStep(loadedStep === 3 && !loadedYaml ? 2 : loadedStep);
     setProjectFileName(result.fileName || `EEDTOY-${language === "en" ? "Project" : "Projekt"}.eedtoy`);
     setProjectFilePath(result.path || "");
+    savedProjectSignatureRef.current = projectContentSignature({
+      ...state,
+      gateway: loadedGateway,
+      devices: loadedDevices,
+      extraGateways: loadedGateways,
+      form: loadedEditIdx !== null
+        ? normalizeLoadedDeviceProfile({ ...loadedDevices[loadedEditIdx], ...(state.form && typeof state.form === "object" && !Array.isArray(state.form) ? state.form : {}) })
+        : createEmptyForm(),
+      editIdx: loadedEditIdx,
+      importFam14Gateway: loadedImportFam14Gateway,
+      importFgw14Gateway: loadedImportFgw14Gateway,
+      pct14DetectedFam14: loadedPct14DetectedFam14,
+      pct14DetectedFgw14: loadedPct14DetectedFgw14,
+      pct14GatewayBaseId: loadedPct14GatewayBaseId,
+      multiBusEnabled: Boolean(state.multiBusEnabled),
+      busSystems: Array.isArray(state.busSystems) ? state.busSystems : [],
+      importBusId: typeof state.importBusId === "string" ? state.importBusId : "",
+      writeBusId: typeof state.writeBusId === "string" ? state.writeBusId : "",
+      writeBusPort: typeof state.writeBusPort === "string" ? state.writeBusPort : "",
+      writeBusPortManual: state.writeBusPortManual === true,
+      writeTargetGatewayKey: typeof state.writeTargetGatewayKey === "string" ? state.writeTargetGatewayKey : "",
+    });
 
     const sourceVersion = project.app_version && project.app_version !== APP_VERSION
       ? t("project.versionInfo", { source: project.app_version, current: APP_VERSION })
@@ -2172,6 +2299,7 @@ export default function App() {
   };
 
   projectActionsRef.current = {
+    new: handleNewProject,
     open: handleOpenProject,
     save: handleSaveProject,
     saveAs: handleSaveProjectAs,
@@ -2208,6 +2336,7 @@ export default function App() {
     }).catch(() => {});
 
     const cleanupMenu = window.electronAPI.onMenuAction((action) => {
+      if (action === "new-project") projectActionsRef.current.new?.();
       if (action === "open-project") projectActionsRef.current.open?.();
       if (action === "save-project") projectActionsRef.current.save?.();
       if (action === "save-project-as") projectActionsRef.current.saveAs?.();
@@ -2951,8 +3080,8 @@ export default function App() {
       setImportMsg(t("routing.invalidExportRoute", { count: missingRoutes.length }));
       return;
     }
-    const pending = pendingSenderDevices(normalized.devices, gatewayKey(gateway), pct14GatewayBaseId);
-    if (pending.length && !window.confirm(t("routing.beforeYaml", { count: pending.length }))) return;
+    // YAML preview is read-only. Pending controller IDs are explained in the
+    // next step; only an explicit write action may program actuators.
     setGeneratedGatewayBlocks(gatewaySnapshot);
     setYaml(generateYaml(snapshotPrimary || gateway, normalized.devices, snapshotExtras, pct14GatewayBaseId, language, gatewayKey(gateway)));
     setStep(3);
@@ -4115,8 +4244,8 @@ export default function App() {
         {step===3&&(
           <>
             {pendingSenderDevices(devices, gatewayKey(gateway), pct14GatewayBaseId).length>0&&(
-              <div style={{marginBottom:".85rem",padding:".85rem 1rem",border:"1px solid #fed7aa",borderRadius:8,background:"#fff7ed",color:"#92400e",fontSize:".75rem",lineHeight:1.6}}>
-                <strong>{t("routing.mustWrite")}</strong> · {t("routing.yamlWarning", { count:pendingSenderDevices(devices, gatewayKey(gateway), pct14GatewayBaseId).length })}
+              <div role="status" style={{marginBottom:".85rem",padding:".85rem 1rem",border:"1px solid #bfdbfe",borderRadius:8,background:"#eff6ff",color:"#1e40af",fontSize:".75rem",lineHeight:1.6}}>
+                <strong>{t("routing.yamlInfoTitle")}</strong> · {t("routing.yamlWarning", { count:pendingSenderDevices(devices, gatewayKey(gateway), pct14GatewayBaseId).length })}
               </div>
             )}
             <div className="card" style={{marginBottom:"1rem",padding:"1rem 1.1rem"}}>
