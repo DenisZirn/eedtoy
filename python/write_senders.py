@@ -221,48 +221,98 @@ async def _write_mem_line_with_readback(dev: Any, row: int, value: bytes) -> Non
 
 
 async def _ensure_programmed_controller_profile(dev: Any, sender_id: str, channel: int = 0) -> Optional[bool]:
-    """Program FRGBW14 controller in function group 3, function 81.
+    """Write the FRGBW14 controller exclusively to PCT14 function group 3.
 
-    PCT14 entry 5 is memory row 12. The controller uses all four RGBW
-    channels (bit mask 0x0f). Do not place it in function group 1 or 2.
+    Confirmed FRGBW14 PCT14 memory layout (04-A1, offset first block 8):
+      entry 1 / function group 1: memory row 8
+      entries 2..4 / group 2:    memory rows 9..11
+      entry 5+ / function group 3: memory rows 12..123
+    The PCT14 controller entry uses button 0, function 81, channel
+    bitmap 00001111 (all RGBW channels), value 0.
+
+    Older EEDTOY builds sometimes left the same sender in group 1.
+    Migrate ONLY that same sender ID, never erase unrelated group-1 IDs.
+    Require a fresh device read-back after every write; a bus ACK alone
+    is not sufficient evidence of successful programming.
     """
     sender = _sender_bytes_from_id(sender_id)
     expected_line = sender + bytes((0, 81, 0x0F, 0))
     memory_size = int(getattr(dev, "memory_size", 0) or 0)
-    if memory_size <= 12 or not hasattr(dev, "read_mem_line") or not hasattr(dev, "write_mem_line"):
-        return None
+    group3_end = min(memory_size, 124)  # 116 PCT14 ID entries, starting at row 8
+    if group3_end <= 12 or not hasattr(dev, "read_mem_line") or not hasattr(dev, "write_mem_line"):
+        raise RuntimeError("FRGBW14: kein Zugriff auf die PCT14-ID-Tabelle (Funktionsgruppe 3)")
 
-    # Keep unrelated group-3 entries intact. Reuse an existing matching entry
-    # or its sender slot; otherwise select the first empty group-3 line.
+    async def read_verified(row: int) -> bytes:
+        actual = await _read_back_mem_line(dev, row)
+        if not isinstance(actual, (bytes, bytearray)) or len(actual) != 8:
+            raise TimeoutError(
+                f"FRGBW14: Speicherzeile {row} konnte nicht sicher aus dem Aktor gelesen werden"
+            )
+        return bytes(actual)
+
+    async def write_verified(row: int, value: bytes) -> None:
+        await _write_mem_line_with_readback(dev, row, value)
+        if await read_verified(row) != value:
+            raise RuntimeError(
+                f"FRGBW14: Schreiben in Speicherzeile {row} nicht bestätigt; "
+                "Aktorinhalt weicht vom Sollwert ab"
+            )
+
+    # A stale BusObject cache must never hide a wrong group-1 assignment.
+    old_group1 = await read_verified(8)
+
     exact_row = None
     sender_row = None
     free_row = None
-    for row in range(12, memory_size):
+    for row in range(12, group3_end):
         line = await dev.read_mem_line(row)
+        if not isinstance(line, (bytes, bytearray)) or len(line) != 8:
+            raise TimeoutError(f"FRGBW14: ungültige Speicherantwort für Zeile {row}")
+        line = bytes(line)
         if line == expected_line:
-            exact_row = row
-            break
+            # Validate against the hardware, not just the library cache.
+            line = await read_verified(row)
+            if line == expected_line:
+                exact_row = row
+                break
         if line[:4] == sender and any(line) and sender_row is None:
             sender_row = row
         if not any(line) and free_row is None:
             free_row = row
 
     changed = False
-    if exact_row is None:
+    target_row = exact_row
+    if target_row is None:
         target_row = sender_row if sender_row is not None else free_row
         if target_row is None:
-            raise RuntimeError("Kein freier Eintrag in Funktionsgruppe 3 des FRGBW14")
-        await _write_mem_line_with_readback(dev, target_row, expected_line)
-        changed = True
+            raise RuntimeError("FRGBW14: Funktionsgruppe 3 hat keinen freien ID-Eintrag")
 
-    # An older build incorrectly installed this HA sender with function 81 in
-    # group 1. Remove only this exact sender/function/channel combination,
-    # never other controllers, pushbuttons or IDs.
-    legacy = expected_line
-    for row in range(8, 9):
-        if row < memory_size and await dev.read_mem_line(row) == legacy:
-            await _write_mem_line_with_readback(dev, row, bytes(8))
+        before = await read_verified(target_row)
+        if before == expected_line:
+            pass
+        elif not any(before) or before[:4] == sender:
+            await write_verified(target_row, expected_line)
             changed = True
+        else:
+            raise RuntimeError(
+                f"FRGBW14: Speicherzeile {target_row} wurde zwischen Lesen und Schreiben "
+                "durch einen anderen Eintrag belegt; es wurde nichts überschrieben"
+            )
+
+    # Only after successful group-3 programming may a legacy group-1 entry
+    # for the very same sender be removed. Ignore its other bytes: old
+    # builds did not all use the same key/function/channel encoding.
+    if old_group1[:4] == sender:
+        current_group1 = await read_verified(8)
+        if current_group1[:4] == sender:
+            await write_verified(8, bytes(8))
+            changed = True
+
+    # Final hardware verification prevents false "written" or "exists" output.
+    if await read_verified(target_row) != expected_line:
+        raise RuntimeError("FRGBW14: Controller-ID ist nicht in Funktionsgruppe 3 gespeichert")
+    if (await read_verified(8))[:4] == sender:
+        raise RuntimeError("FRGBW14: fehlerhafter Eintrag in Funktionsgruppe 1 ist noch vorhanden")
     return changed
 
 
