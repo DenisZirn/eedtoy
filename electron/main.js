@@ -3,6 +3,10 @@ const path = require('path');
 const fs = require('fs/promises');
 const { mainText, normalizeLanguage } = require('./i18n-main');
 const https = require('https');
+const fsSync = require('fs');
+const os = require('os');
+const crypto = require('crypto');
+const { pipeline } = require('stream/promises');
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
@@ -241,7 +245,77 @@ async function checkForApplicationUpdate({ silent = false } = {}) {
       icon: getAppIconPath(),
     });
     if (result.response !== 0) return true;
-    await shell.openExternal(asset.browser_download_url);
+
+    const expectedSize = Number(asset.size || 0);
+    if (!Number.isFinite(expectedSize) || expectedSize <= 0 || expectedSize > 350 * 1024 * 1024) {
+      throw new Error('Ungültige Installer-Größe.');
+    }
+    const targetDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eedtoy-update-'));
+    const safeName = String(asset.name || 'EEDTOY-Setup.exe').replace(/[^A-Za-z0-9_. -]/g, '_');
+    const targetPath = path.join(targetDir, safeName);
+    const hash = crypto.createHash('sha256');
+    let received = 0;
+
+    const download = await new Promise((resolve, reject) => {
+      const request = https.get(asset.browser_download_url, response => {
+        if ([301, 302, 303, 307, 308].includes(response.statusCode || 0)) {
+          response.resume();
+          const redirectUrl = response.headers.location;
+          if (!redirectUrl || !redirectUrl.startsWith('https://')) {
+            reject(new Error('Ungültige Download-Weiterleitung.'));
+            return;
+          }
+          https.get(redirectUrl, resolve).on('error', reject);
+          return;
+        }
+        resolve(response);
+      });
+      request.setTimeout(20000, () => request.destroy(new Error('Download-Zeitüberschreitung')));
+      request.on('error', reject);
+    });
+
+    if ((download.statusCode || 0) !== 200) {
+      download.resume();
+      throw new Error('Installer-Download fehlgeschlagen (HTTP ' + download.statusCode + ').');
+    }
+
+    const { Transform } = require('stream');
+    const verifier = new Transform({
+      transform(chunk, _encoding, callback) {
+        received += chunk.length;
+        if (received > expectedSize || received > 350 * 1024 * 1024) {
+          callback(new Error('Installer größer als erwartet.'));
+          return;
+        }
+        hash.update(chunk);
+        callback(null, chunk);
+      },
+    });
+    await pipeline(download, verifier, fsSync.createWriteStream(targetPath, { flags: 'wx' }));
+    if (received !== expectedSize) throw new Error('Installer unvollständig heruntergeladen.');
+
+    const digest = hash.digest('hex').toLowerCase();
+    if (asset.digest) {
+      const expectedDigest = String(asset.digest).toLowerCase();
+      if (!/^sha256:[a-f0-9]{64}$/.test(expectedDigest) || expectedDigest.slice(7) !== digest) {
+        throw new Error('Prüfsumme des Installers stimmt nicht.');
+      }
+    }
+
+    const installResult = await dialog.showMessageBox(mainWindow || undefined, {
+      type: 'question',
+      title: t('update.installTitle'),
+      message: t('update.downloaded'),
+      detail: t('update.installQuestion'),
+      buttons: [t('update.install'), t('update.later')],
+      defaultId: 0,
+      cancelId: 1,
+      icon: getAppIconPath(),
+    });
+    if (installResult.response !== 0) return true;
+
+    const launchError = await shell.openPath(targetPath);
+    if (launchError) throw new Error(launchError);
     return true;
   } catch (error) {
     console.error('[update-check]', error);
