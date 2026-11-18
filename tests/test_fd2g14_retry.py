@@ -82,6 +82,33 @@ async def run():
     assert calls==[('discover',41),('discover',41),('write',0,'00-00-B0-29')]
     assert await writer.ensure_fd2g14_from_yaml(None,0xFFBF5C80,target,processed)==[]
 
+    transient=FD2G14([])
+    transient_calls=[]
+    async def transient_program(channel,sender,profile):
+        transient_calls.append(channel)
+        if len(transient_calls)==1:
+            raise TimeoutError('transient FD2G14 memory read timeout')
+        return True
+    transient.ensure_programmed=transient_program
+    async def transient_discover(**kwargs): return transient
+    devices.create_busobject=transient_discover
+    events=await writer.ensure_fd2g14_from_yaml(None,0xFFBF5C80,target,set())
+    assert events[0]['status']=='updated'
+    assert transient_calls==[0,0]
+
+    # Repeated failure still gets an error and must not be treated as success.
+    failed=FD2G14([])
+    failed_calls=[]
+    async def failed_program(channel,sender,profile):
+        failed_calls.append(channel)
+        raise TimeoutError('permanent memory read timeout')
+    failed.ensure_programmed=failed_program
+    async def failed_discover(**kwargs): return failed
+    devices.create_busobject=failed_discover
+    events=await writer.ensure_fd2g14_from_yaml(None,0xFFBF5C80,target,set())
+    assert events[0]['status']=='error'
+    assert failed_calls==[0,0,0]
+
     wrong=FD2G14([]);wrong.address=57
     wrong.ensure_programmed=lambda *args: (_ for _ in ()).throw(AssertionError('wrong actor'))
     async def wrong_discover(**kwargs):return wrong
