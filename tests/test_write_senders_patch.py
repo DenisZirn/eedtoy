@@ -42,6 +42,81 @@ async def test_fhk_single_function_group_3_sender():
     assert await module._ensure_programmed_fhk_controller(dev, "FF-A6-07-01", 0, "FHK14") is False
 
 
+async def test_frgbw14_function_group_3_function_81():
+    sender = bytes.fromhex("FFA604A3")
+    expected = sender + bytes((0, 81, 15, 0))
+    dev = FakeDevice(memory_size=32)
+
+    # PCT14 FRGBW14 layout: entries 1..4 occupy rows 8..11.
+    # Function group 3 begins at entry 5, physical memory row 12.
+    assert await module._ensure_programmed_frgbw14_controller(dev, "FF-A6-04-A3") is True
+    assert dev.memory[12] == expected
+    assert all(not any(dev.memory[row]) for row in range(8, 12))
+    assert await module._ensure_programmed_frgbw14_controller(dev, "FF-A6-04-A3") is False
+
+
+async def test_frgbw14_migrates_wrong_group_1_and_preserves_other_senders():
+    sender = bytes.fromhex("FFA604A3")
+    expected = sender + bytes((0, 81, 15, 0))
+    dev = FakeDevice(memory_size=32)
+    dev.memory[8] = expected  # Observed incorrect EEDTOY assignment in FG1
+    other_sender = bytes.fromhex("FFA604A4") + bytes((0, 81, 15, 0))
+    physical_button = bytes.fromhex("0011223301380100")
+    dev.memory[9] = physical_button
+    dev.memory[13] = other_sender
+
+    assert await module._ensure_programmed_frgbw14_controller(dev, "FF-A6-04-A3") is True
+    assert dev.memory[12] == expected
+    assert dev.memory[8] == bytes(8)
+    assert dev.memory[9] == physical_button
+    assert dev.memory[13] == other_sender
+
+
+async def test_frgbw14_replaces_old_group_3_profile_and_legacy_group_2():
+    sender = bytes.fromhex("FFA604A3")
+    expected = sender + bytes((0, 81, 15, 0))
+    dev = FakeDevice(memory_size=32)
+    dev.memory[10] = sender + bytes((0, 31, 15, 0))
+    dev.memory[12] = sender + bytes((0, 32, 1, 0))
+    assert await module._ensure_programmed_frgbw14_controller(dev, "FF-A6-04-A3") is True
+    assert dev.memory[12] == expected
+    assert dev.memory[10] == bytes(8)
+    assert await module._ensure_programmed_frgbw14_controller(dev, "FF-A6-04-A3") is False
+
+
+async def test_frgbw14_refuses_to_overwrite_occupied_group_3():
+    sender = bytes.fromhex("FFA604A3")
+    dev = FakeDevice(memory_size=13)
+    dev.memory[12] = bytes.fromhex("1122334401510F00")
+    try:
+        await module._ensure_programmed_frgbw14_controller(dev, "FF-A6-04-A3")
+        raise AssertionError("Occupied group-3 slot must not be overwritten")
+    except RuntimeError as exc:
+        assert "keinen freien" in str(exc)
+    assert dev.memory[12] == bytes.fromhex("1122334401510F00")
+
+
+async def test_frgbw14_never_removes_old_entry_when_write_fails():
+    sender = bytes.fromhex("FFA604A3")
+    old = sender + bytes((0, 81, 15, 0))
+
+    class FailingDevice(FakeDevice):
+        async def write_mem_line(self, line, value):
+            if line == 12:
+                raise RuntimeError("simulated bus failure")
+            await super().write_mem_line(line, value)
+
+    dev = FailingDevice(memory_size=24)
+    dev.memory[8] = old
+    try:
+        await module._ensure_programmed_frgbw14_controller(dev, "FF-A6-04-A3")
+        raise AssertionError("Expected a write failure")
+    except RuntimeError as exc:
+        assert "simulated bus failure" in str(exc)
+    assert dev.memory[8] == old
+    assert dev.memory[12] == bytes(8)
+
+
 async def test_f2l14_confirmed_pct14_additive_double_rocker_entry():
     dev = FakeDevice(memory_size=127)
     assert await module._ensure_programmed_f2l14(dev, "00-00-B0-3C", "additive") is True
@@ -309,6 +384,11 @@ if __name__ == "__main__":
     test_target_addresses()
     test_fd2g14_uses_grimm_scan()
     test_multiple_senders_per_device_are_preserved()
+    asyncio.run(test_frgbw14_function_group_3_function_81())
+    asyncio.run(test_frgbw14_migrates_wrong_group_1_and_preserves_other_senders())
+    asyncio.run(test_frgbw14_replaces_old_group_3_profile_and_legacy_group_2())
+    asyncio.run(test_frgbw14_refuses_to_overwrite_occupied_group_3())
+    asyncio.run(test_frgbw14_never_removes_old_entry_when_write_fails())
     asyncio.run(test_fhk_single_function_group_3_sender())
     asyncio.run(test_f2l14_confirmed_pct14_additive_double_rocker_entry())
     asyncio.run(test_f2l14_mode_change_replaces_existing_sender_and_cleans_duplicates())
