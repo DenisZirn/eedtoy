@@ -220,12 +220,88 @@ async def _write_mem_line_with_readback(dev: Any, row: int, value: bytes) -> Non
         raise
 
 
-async def _ensure_programmed_controller_profile(dev: Any, sender_id: str, channel: int = 0) -> Optional[bool]:
-    """Program the FRGBW controller profile in a free controller slot."""
+async def _ensure_programmed_frgbw14_controller(dev: Any, sender_id: str, channel: int = 0) -> Optional[bool]:
+    """Program PCT14 FRGBW14 function group 3 (function 81, channels RGBW).
+
+    Verified PCT14 layout: entries 1..4 belong to function groups 1/2;
+    function group 3 starts at entry 5. With the FRGBW14 first-block
+    offset of 8, entry 5 is memory row 12. The eight-byte entry is
+    sender ID + button 0 + function 81 + channel mask 0x0F + value 0.
+
+    Repair only *this sender's* known old FRGBW entries. Existing physical
+    button mappings and controller IDs are never displaced.
+    """
     sender = _sender_bytes_from_id(sender_id)
-    subchannel = max(1, int(channel or 0) + 1)
-    expected_line = sender + bytes((0, 32, subchannel, 0))
-    return await _find_or_write_free_line(dev, expected_line, 12)
+    first_row = 8
+    group3_start_row = 12
+    memory_size = int(getattr(dev, "memory_size", 0) or 0)
+    if memory_size <= group3_start_row or not hasattr(dev, "read_mem_line") or not hasattr(dev, "write_mem_line"):
+        return None
+
+    expected_line = sender + bytes((0, 81, 0x0F, 0))
+    # Previous EEDTOY builds used function 32 with a one-channel mask.
+    # Other affected builds stored a function-31 controller in group 2,
+    # or function 81 in group 1. Only those exact signatures are migrated.
+    old_layouts = {
+        sender + bytes((0, 32, mask, 0))
+        for mask in (1, 2, 3, 4, 5, 6, 0x0F)
+    }
+    old_layouts.add(sender + bytes((0, 31, 0x0F, 0)))
+
+    rows: dict[int, bytes] = {}
+    for row in range(first_row, memory_size):
+        value = await dev.read_mem_line(row)
+        if not isinstance(value, (bytes, bytearray)) or len(value) != 8:
+            raise RuntimeError(f"FRGBW14 Speicherzeile {row} konnte nicht sicher gelesen werden")
+        rows[row] = bytes(value)
+
+    existing_group3 = [
+        row for row in range(group3_start_row, memory_size)
+        if rows[row] == expected_line
+    ]
+    previous_group3 = [
+        row for row in range(group3_start_row, memory_size)
+        if rows[row] in old_layouts
+    ]
+    empty_group3 = next(
+        (row for row in range(group3_start_row, memory_size) if not any(rows[row])),
+        None,
+    )
+    target_row = (
+        existing_group3[0] if existing_group3 else
+        previous_group3[0] if previous_group3 else
+        empty_group3
+    )
+    if target_row is None:
+        raise RuntimeError("FRGBW14: Funktionsgruppe 3 hat keinen freien Controller-Eintrag")
+
+    changed = False
+    if rows[target_row] != expected_line:
+        await _write_mem_line_with_readback(dev, target_row, expected_line)
+        # Never delete a misplaced legacy mapping until the correct group-3
+        # entry has been verified on the device, not just in the local cache.
+        if await _read_back_mem_line(dev, target_row) != expected_line:
+            raise RuntimeError("FRGBW14: Controller-ID in Funktionsgruppe 3 nicht verifiziert")
+        changed = True
+
+    for row in range(first_row, memory_size):
+        if row == target_row:
+            continue
+        previous = rows[row]
+        known_wrong_group = row < group3_start_row and (
+            previous == expected_line or previous == sender + bytes((0, 31, 0x0F, 0))
+        )
+        previous_controller = row >= group3_start_row and (
+            previous == expected_line or previous in old_layouts
+        )
+        if not known_wrong_group and not previous_controller:
+            continue
+        await _write_mem_line_with_readback(dev, row, bytes(8))
+        if await _read_back_mem_line(dev, row) != bytes(8):
+            raise RuntimeError(f"FRGBW14: Veraltete Zuordnung in Speicherzeile {row} konnte nicht entfernt werden")
+        changed = True
+
+    return changed
 
 
 async def _ensure_programmed_fsr14ssr(dev: Any, sender_id: str, channel: int = 0) -> Optional[bool]:
@@ -667,7 +743,7 @@ async def ensure_programmed_for_device(fam14_base_id_int: int, dev: Any, sender_
             entry_type = _entry_device_type(entry)
             combined_label = f"{entry_type} {entry_name}"
             display_name = _device_display_name(entry, dev_type, device_ext_id)
-            is_frgbw = sender_eep == "07-37-F7" or device_eep == "07-37-F7" or "FRGBW" in combined_label.upper()
+            is_frgbw14 = "FRGBW14" in combined_label.upper() or "FRGBW14" in dev_type.upper()
             is_fsr14ssr = "FSR14SSR" in combined_label.upper()
             is_fms14 = "FMS14" in combined_label.upper()
             is_f2l14 = "F2L14" in combined_label.upper()
@@ -679,8 +755,8 @@ async def ensure_programmed_for_device(fam14_base_id_int: int, dev: Any, sender_
             update_result = None
             while retry > 0:
                 try:
-                    if is_frgbw:
-                        update_result = await _ensure_programmed_controller_profile(dev, sender_id, channel)
+                    if is_frgbw14:
+                        update_result = await _ensure_programmed_frgbw14_controller(dev, sender_id, channel)
                     elif is_fsr14ssr:
                         update_result = await _ensure_programmed_fsr14ssr(dev, sender_id, channel)
                     elif is_fms14 and sender_eep == "A5-38-08":
