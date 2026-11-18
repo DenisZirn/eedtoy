@@ -2208,6 +2208,7 @@ export default function App() {
     }).catch(() => {});
 
     const cleanupMenu = window.electronAPI.onMenuAction((action) => {
+      if (action === "new-project") window.location.reload();
       if (action === "open-project") projectActionsRef.current.open?.();
       if (action === "save-project") projectActionsRef.current.save?.();
       if (action === "save-project-as") projectActionsRef.current.saveAs?.();
