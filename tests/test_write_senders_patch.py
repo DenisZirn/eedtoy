@@ -108,20 +108,83 @@ async def test_frgbw14_group_3_function_81():
         raise AssertionError("FRGBW14 must reject unconfirmed writes")
 
 
-async def test_fhk_single_function_group_3_sender():
-    dev = FakeDevice(memory_size=24)
-    first = module._sender_bytes_from_id("00-00-B0-01") + bytes((0, 65, 1, 0))
-    replacement = module._sender_bytes_from_id("FF-A6-07-01") + bytes((0, 65, 1, 0))
-    dev.memory[10] = first
-    dev.memory[13] = replacement
+class HeatingDevice(FakeDevice):
+    """Keep actuator contents independent from the eltakobus read cache."""
 
-    assert await module._ensure_programmed_fhk_controller(dev, "00-00-B0-01", 0, "FHK14") is True
-    assert not any(dev.memory[13])
-    assert await module._ensure_programmed_fhk_controller(dev, "FF-A6-07-01", 0, "FHK14") is True
-    assert dev.memory[10] == replacement
-    assert not any(dev.memory[12])
-    assert not any(dev.memory[13])
-    assert await module._ensure_programmed_fhk_controller(dev, "FF-A6-07-01", 0, "FHK14") is False
+    def __init__(self, device_type, memory_size=32):
+        super().__init__(memory_size)
+        self.device_type = device_type
+        self.size = 4 if device_type == "F4HK14" else (
+            1 if device_type == "FHK14" else 2
+        )
+        self.hardware = list(self.memory)
+
+    def seed(self, row, data):
+        self.hardware[row] = data
+        self.memory[row] = data
+
+    async def read_mem_line(self, row):
+        self.memory[row] = self.hardware[row]
+        return self.hardware[row]
+
+    async def write_mem_line(self, row, data):
+        self.hardware[row] = data
+        self.memory[row] = data
+
+
+async def test_heating_group_1_function_64_only():
+    cases = [
+        ("FHK14", 1),
+        ("F4HK14", 4),
+        ("FAE14LPR", 2),
+        ("FAE14SSR", 2),
+    ]
+    for model, channels in cases:
+        dev = HeatingDevice(model)
+        group3_base = 10 if model == "FHK14" else (16 if model == "F4HK14" else 12)
+        unrelated = bytes.fromhex("AABBCCDD00410100")
+        for channel in range(channels):
+            sender = f"FF-A6-04-{0xC0 + channel:02X}"
+            mask = 1 << channel
+            old_row = group3_base + channel
+            old_entry = module._sender_bytes_from_id(sender) + bytes((0, 65, mask, 0))
+            dev.seed(old_row, old_entry)
+        # Unrelated learned IDs cannot be touched.
+        if model == "F4HK14":
+            dev.seed(20, unrelated)
+        for channel in range(channels):
+            sender = f"FF-A6-04-{0xC0 + channel:02X}"
+            expected = module._sender_bytes_from_id(sender) + bytes((0, 64, 1 << channel, 0))
+            assert await module._ensure_programmed_fhk_controller(dev, sender, channel, model) is True
+            assert dev.hardware[8 + channel] == expected
+            assert not any(dev.hardware[group3_base + channel])
+            assert await module._ensure_programmed_fhk_controller(dev, sender, channel, model) is False
+        if model == "F4HK14":
+            assert dev.hardware[20] == unrelated
+
+    # Refuse to replace a controller belonging to another sender.
+    blocked = HeatingDevice("F4HK14")
+    occupied = bytes.fromhex("0102030400400100")
+    blocked.seed(8, occupied)
+    try:
+        await module._ensure_programmed_fhk_controller(blocked, "FF-A6-04-C0", 0, "F4HK14")
+    except RuntimeError as exc:
+        assert "anderen Sender-ID" in str(exc)
+    else:
+        raise AssertionError("A foreign controller in function group 1 must be protected")
+    assert blocked.hardware[8] == occupied
+    assert not any(blocked.hardware[16])
+
+    # Remove function 65 for the same ID even if found in a different
+    # slot of the old function-group section, but leave other IDs intact.
+    migrated = HeatingDevice("FHK14")
+    old = bytes.fromhex("FFA604C000410100")
+    migrated.seed(13, old)
+    migrated.seed(10, unrelated)
+    assert await module._ensure_programmed_fhk_controller(migrated, "FF-A6-04-C0", 0, "FHK14") is True
+    assert migrated.hardware[8] == bytes.fromhex("FFA604C000400100")
+    assert migrated.hardware[13] == bytes(8)
+    assert migrated.hardware[10] == unrelated
 
 
 async def test_f2l14_confirmed_pct14_additive_double_rocker_entry():
@@ -283,23 +346,18 @@ async def test_memory_layouts():
     except ValueError:
         pass
 
-    fhk = FakeDevice(20)
-    assert await module._ensure_programmed_fhk_controller(fhk, "00-00-B0-06", 0, "FHK14") is True
-    assert fhk.memory[10] == bytes.fromhex("0000B00600410100")
-    assert await module._ensure_programmed_fhk_controller(fhk, "00-00-B0-06", 0, "FHK14") is False
+    # The three heating device families now learn only function 64 in FG1.
+    for model, count in (("FHK14", 1), ("F4HK14", 4), ("FAE14LPR", 2), ("FAE14SSR", 2)):
+        heater = HeatingDevice(model)
+        for channel in range(count):
+            sender = f"00-00-B0-{0x06 + channel:02X}"
+            assert await module._ensure_programmed_fhk_controller(
+                heater, sender, channel, model
+            ) is True
+            expected = module._sender_bytes_from_id(sender) + bytes((0, 64, 1 << channel, 0))
+            assert heater.hardware[8 + channel] == expected
 
-    class NullExchangeBus:
-        async def exchange(self, request, response_type=None):
-            return None
-
-    fae = FakeDevice(20)
-    fae.bus = NullExchangeBus()
-    assert await module._ensure_programmed_fhk_controller(fae, "FF-A6-04-B9", 0, "FAE14LPR") is True
-    assert fae.memory[12] == bytes.fromhex("FFA604B900410100")
-
-    f4hk = FakeDevice(24)
-    assert await module._ensure_programmed_fhk_controller(f4hk, "00-00-B0-20", 2, "F4HK14") is True
-    assert f4hk.memory[18] == bytes.fromhex("0000B02000410400")
+    # Unchanged FHK14 low-level F2/F4 handshake is tested independently below.
 
 
 async def test_fms14_writer_dispatch():
@@ -392,7 +450,7 @@ if __name__ == "__main__":
     test_fd2g14_uses_grimm_scan()
     test_multiple_senders_per_device_are_preserved()
     asyncio.run(test_frgbw14_group_3_function_81())
-    asyncio.run(test_fhk_single_function_group_3_sender())
+    asyncio.run(test_heating_group_1_function_64_only())
     asyncio.run(test_f2l14_confirmed_pct14_additive_double_rocker_entry())
     asyncio.run(test_f2l14_mode_change_replaces_existing_sender_and_cleans_duplicates())
     asyncio.run(test_fhk_writer_ignores_duplicate_f2_before_f4())
