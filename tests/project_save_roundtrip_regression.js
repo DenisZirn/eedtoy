@@ -9,6 +9,9 @@ const root = path.join(__dirname, '..');
 const source = fs.readFileSync(process.env.EEDTOY_TEST_APP_SOURCE || path.join(root, 'src/App.jsx'), 'utf8');
 const main = fs.readFileSync(path.join(root, 'electron/main.js'), 'utf8');
 const toolbar = source.slice(source.indexOf('<div className="topMeta projectActions">'), source.indexOf('</header>', source.indexOf('<div className="topMeta projectActions">')));
+assert(main.includes("label: t('menu.new')") && main.includes("sendMenuAction('new-project')"), 'File menu exposes New Project action');
+assert(main.includes("accelerator: 'CmdOrCtrl+N'"), 'New Project has Ctrl+N shortcut');
+assert(source.includes('if (action === "new-project") projectActionsRef.current.new?.();'), 'Electron menu routes to New Project handler');
 assert.match(toolbar, /onClick=\{handleSaveProject\}/, 'toolbar Save must use the existing save handler');
 assert.match(toolbar, /onClick=\{handleSaveProjectAs\}/, 'toolbar Save As must use the existing Save As handler');
 assert.match(toolbar, /t\("common\.saveProjectAs"\)/, 'toolbar Save As must be localized');
@@ -41,8 +44,10 @@ function renderer(initial = {}) {
     pct14DetectedFgw14: false, pct14GatewayBaseId: '', writeBusPort: '', writeTargetGatewayKey: '',
     writeBusPortManual:false, multiBusEnabled:false, busSystems:[], importBusId:"", writeBusId:"", writeConnectRequestRef:{current:0},
     language: 'de', projectFilePath: '', projectFileName: '', projectActionsRef: { current: {} },
-    isElectron: true, t: key => key, runtimeText: value => value, setTimeout: () => 0,
-    window: { electronAPI: {
+    savedProjectSignatureRef: {current:null},
+    learnRequestRef: {current:null}, learnMessageTimerRef:{current:null},
+    isElectron: true, t: key => key, runtimeText: value => value, setTimeout: () => 0, clearTimeout: () => {},
+    window: { confirm: () => true, electronAPI: {
       saveProject: payload => handlers.get('save-project')(null, payload),
       saveProjectAs: payload => handlers.get('save-project-as')(null, payload),
       openProject: () => handlers.get('open-project')(null),
@@ -52,7 +57,11 @@ function renderer(initial = {}) {
   for (const name of ['Step', 'Gateway', 'Devices', 'ExtraGateways', 'Form', 'EditIdx', 'Yaml', 'GeneratedGatewayBlocks',
     'ImportFam14Gateway', 'ImportFgw14Gateway', 'Pct14DetectedFam14', 'Pct14DetectedFgw14', 'Pct14GatewayBaseId',
     'WriteBusPortManual', 'WriteGatewayConnection', 'ConnectingWriteGateway', 'MultiBusEnabled', 'BusSystems', 'ImportBusId', 'WriteBusId', 'WriteBusPort', 'WriteTargetGatewayKey', 'Errors', 'Copied', 'ImportMsg', 'MiniSafeImportMsg', 'DetectMsg',
-    'LearnMsg', 'WriteSenderMsg', 'WriteSenderSummary', 'WriteSenderLog', 'ProjectFileName', 'ProjectFilePath', 'ProjectMsg']) {
+    'LearnMsg', 'WriteSenderMsg', 'WriteSenderSummary', 'WriteSenderLog', 'WriteSenderProgress',
+    'MiniSafeOpen','MiniSafeText','MiniSafePreview','MiniSafeError','MiniSafeFileName','MiniSafeUseSenderIds',
+    'LearningId','LearningIdTarget','CancelingLearnId','LearnMsgTarget',
+    'Ports','Detecting','DisconnectingGateway','WritingSenders','ConnectingWriteGateway',
+    'ProjectFileName', 'ProjectFilePath', 'ProjectMsg']) {
     const key = name[0].toLowerCase() + name.slice(1);
     context['set' + name] = value => { context[key] = typeof value === 'function' ? value(context[key]) : value; };
   }
@@ -68,7 +77,7 @@ function renderer(initial = {}) {
   const gatewayEnd = source.indexOf('  // Keep an already generated YAML', gatewayStart);
   vm.runInContext(source.slice(projectStart, projectEnd) + source.slice(formStart, formEnd)
     + source.slice(gatewayStart, gatewayEnd)
-    + '\nthis.actions = { handleSaveProject, handleSaveProjectAs, handleOpenProject, handleAdd, changeEep };', context);
+    + '\nthis.actions = { handleNewProject, handleSaveProject, handleSaveProjectAs, handleOpenProject, handleAdd, changeEep };', context);
   return context;
 }
 
@@ -188,5 +197,68 @@ const plain = value => JSON.parse(JSON.stringify(value));
   assert(routedProject.yaml.includes('device_type: fam-usb'));
   assert(!routedProject.yaml.includes('device_type: fgw14usb'));
   console.log('PASS: actual project save/open retains gateway route and pending sender-ID warning.');
+  // The New Project command must clear the active session without restarting
+  // Electron, leaving user-defined device profiles and language untouched.
+  let prompted = 0;
+  const fresh = renderer({
+    devices:[fws], projectFilePath:'', projectFileName:'',
+    gateway:{type:'fam-usb',base_id:'FF-A6-04-80',serial_path:'COM16'},
+    miniSafeText:'draft',
+    language:'en',
+    window:{confirm:()=>{prompted++;return false;}},
+    writingSenders:false,connectingWriteGateway:false,disconnectingGateway:false,
+    detecting:false,learningId:false,cancelingLearnId:false,writeGatewayConnection:null,
+  });
+  assert.equal(fresh.actions.handleNewProject(),false,'canceling discard preserves current project');
+  assert.equal(fresh.devices.length,1);
+  assert.equal(prompted,1);
+  fresh.window.confirm=()=>{prompted++;return true;};
+  assert.equal(fresh.actions.handleNewProject(),true);
+  assert.equal(fresh.devices.length,0);
+  assert.equal(fresh.gateway.type,'fam-usb');
+  assert.equal(fresh.gateway.base_id,'');
+  assert.equal(fresh.step,1);
+  assert.equal(fresh.projectFileName,'');
+  assert.equal(fresh.projectFilePath,'');
+  assert.equal(fresh.miniSafeText,'');
+  assert.equal(fresh.language,'en');
+  assert.equal(fresh.savedProjectSignatureRef.current,null);
+  assert.equal(fresh.actions.handleNewProject(),true);
+  assert.equal(prompted,2,'already clean new project does not prompt again');
+  console.log('PASS: New Project discards only after confirmation and resets active session.');
+
+  // A project that has been saved and left unchanged must not ask whether to
+  // discard unsaved changes; changing a device afterwards must prompt.
+  const savedNew = renderer({devices:[fws],form:{...fws},editIdx:null,
+    projectFilePath:path.join(temp,'saved-new.eedtoy'),gateway:{type:'fam-usb',base_id:'FF-A6-04-80',serial_path:'COM16'},
+    writingSenders:false,connectingWriteGateway:false,disconnectingGateway:false,
+    detecting:false,learningId:false,cancelingLearnId:false,writeGatewayConnection:null,
+  });
+  await savedNew.actions.handleSaveProject();
+  let askSaved = 0;
+  savedNew.window.confirm=()=>{askSaved++;return false;};
+  assert.equal(savedNew.actions.handleNewProject(),true,'unchanged saved project starts fresh without warning');
+  assert.equal(askSaved,0);
+  const changed = renderer({devices:[fws],form:{...fws},editIdx:null,
+    projectFilePath:path.join(temp,'changed.eedtoy'),gateway:{type:'fam-usb',base_id:'FF-A6-04-80',serial_path:'COM16'},
+    writingSenders:false,connectingWriteGateway:false,disconnectingGateway:false,
+    detecting:false,learningId:false,cancelingLearnId:false,writeGatewayConnection:null,
+  });
+  await changed.actions.handleSaveProject();
+  changed.devices=[{...fws,name:'Changed after save'}];
+  changed.window.confirm=()=>{askSaved++;return false;};
+  assert.equal(changed.actions.handleNewProject(),false);
+  assert.equal(askSaved,1);
+  assert.equal(changed.devices[0].name,'Changed after save');
+
+  const connected = renderer({devices:[fws],writeGatewayConnection:{key:'COM4|FF-AA-BB-80|single'},
+    writingSenders:false,connectingWriteGateway:false,disconnectingGateway:false,
+    detecting:false,learningId:false,cancelingLearnId:false,
+    window:{confirm:()=>{throw new Error('must not confirm while connected');}},
+  });
+  assert.equal(connected.actions.handleNewProject(),false);
+  assert.equal(connected.devices.length,1);
+  assert.equal(connected.projectMsg,'project.newBusy');
+  console.log('PASS: New Project only warns for unsaved edits and refuses active RS485 connections.');
   console.log('All project save/open roundtrip regressions passed.');
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(() => fs.rmSync(temp, { recursive: true, force: true }));
