@@ -220,6 +220,19 @@ async def _write_mem_line_with_readback(dev: Any, row: int, value: bytes) -> Non
         raise
 
 
+def _is_real_frgbw14(dev: Any) -> bool:
+    """Recognize the physical FRGBW14 (PCT14 model 04-A1, six bus addresses).
+
+    The Eltako bus library exposes this model as a generic BusObject.
+    Checking only a YAML name/EEP is insufficient and could otherwise route
+    the sender into another actuator's function group.
+    """
+    response = getattr(dev, "discovery_response", None)
+    model = bytes(getattr(response, "model", b"") or b"")
+    size = int(getattr(dev, "size", 0) or 0)
+    return model[:2] == bytes((0x04, 0xA1)) and size == 6
+
+
 async def _ensure_programmed_controller_profile(dev: Any, sender_id: str, channel: int = 0) -> Optional[bool]:
     """Write the FRGBW14 controller exclusively to PCT14 function group 3.
 
@@ -313,6 +326,11 @@ async def _ensure_programmed_controller_profile(dev: Any, sender_id: str, channe
         raise RuntimeError("FRGBW14: Controller-ID ist nicht in Funktionsgruppe 3 gespeichert")
     if (await read_verified(8))[:4] == sender:
         raise RuntimeError("FRGBW14: fehlerhafter Eintrag in Funktionsgruppe 1 ist noch vorhanden")
+    dev._eedtoy_frgbw14_row = target_row
+    log("FRGBW14 verified", "bus_address", getattr(dev, "address", "?"),
+        "sender", norm_id(sender_id), "function_group", 3,
+        "pct14_entry", target_row - 7, "memory_row", target_row,
+        "function", 81, "channel_mask", "00001111")
     return changed
 
 
@@ -780,7 +798,8 @@ async def ensure_programmed_for_device(fam14_base_id_int: int, dev: Any, sender_
             entry_type = _entry_device_type(entry)
             combined_label = f"{entry_type} {entry_name}"
             display_name = _device_display_name(entry, dev_type, device_ext_id)
-            is_frgbw = sender_eep == "07-37-F7" or device_eep == "07-37-F7" or "FRGBW" in combined_label.upper()
+            is_frgbw14_entry = "FRGBW14" in combined_label.upper()
+            is_frgbw14_hardware = _is_real_frgbw14(dev)
             is_fsr14ssr = "FSR14SSR" in combined_label.upper()
             is_fms14 = "FMS14" in combined_label.upper()
             is_f2l14 = "F2L14" in combined_label.upper()
@@ -792,7 +811,16 @@ async def ensure_programmed_for_device(fam14_base_id_int: int, dev: Any, sender_
             update_result = None
             while retry > 0:
                 try:
-                    if is_frgbw:
+                    if is_frgbw14_entry and not is_frgbw14_hardware:
+                        raise RuntimeError(
+                            "FRGBW14-Schreiben gesperrt: physische Gerätekennung 04-A1 "
+                            "mit sechs Busadressen wurde nicht bestätigt"
+                        )
+                    if is_frgbw14_hardware:
+                        if sender_eep not in {"07-3F-7F", "07-37-F7", "07-3F-F7"}:
+                            raise ValueError(
+                                f"FRGBW14: Sender-EEP {sender_eep} ist kein freies RGBW-Profil 07-3F-7F"
+                            )
                         update_result = await _ensure_programmed_controller_profile(dev, sender_id, channel)
                     elif is_fsr14ssr:
                         update_result = await _ensure_programmed_fsr14ssr(dev, sender_id, channel)
@@ -828,6 +856,13 @@ async def ensure_programmed_for_device(fam14_base_id_int: int, dev: Any, sender_
             else:
                 status = "exists"
                 message = f"Sender-ID {sender_id} für EEP {sender_eep} in {display_name} existiert bereits."
+            if is_frgbw14_hardware and update_result is not None:
+                slot = getattr(dev, "_eedtoy_frgbw14_row", None)
+                if slot is not None:
+                    message += (
+                        f" Bestätigt: Funktionsgruppe 3, PCT14-Eintrag {slot - 7}, "
+                        "Funktion 81, Kanal 00001111."
+                    )
             events.append({"status": status, "device_id": device_ext_id, "device_type": entry_type, "sender_id": sender_id, "sender_eep": sender_eep, "message": message})
             log(message)
     return events
