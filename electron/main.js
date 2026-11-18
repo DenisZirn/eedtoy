@@ -2,6 +2,7 @@ const { app, BrowserWindow, shell, ipcMain, Menu, dialog } = require('electron')
 const path = require('path');
 const fs = require('fs/promises');
 const { mainText, normalizeLanguage } = require('./i18n-main');
+const https = require('https');
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
@@ -140,6 +141,8 @@ function buildApplicationMenu() {
     {
       label: t('menu.help'),
       submenu: [
+        { label: t('menu.checkUpdates'), click: () => checkForApplicationUpdate({ silent: false }) },
+        { type: 'separator' },
         { label: t('menu.about'), click: () => showAboutDialog() },
       ],
     },
@@ -153,6 +156,107 @@ async function changeLanguage(language) {
   else buildApplicationMenu();
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('language-changed', currentLanguage);
   if (deviceDatabaseWindow && !deviceDatabaseWindow.isDestroyed()) deviceDatabaseWindow.webContents.send('language-changed', currentLanguage);
+}
+
+const UPDATE_RELEASE_API = 'https://api.github.com/repos/DenisZirn/eedtoy/releases/latest';
+
+function _versionParts(value) {
+  const match = String(value || '').trim().match(/^v?(\\d+(?:\\.\\d+)*)(?:[-+].*)?$/i);
+  return match ? match[1].split('.').map(Number) : null;
+}
+
+function _isNewerVersion(candidate, installed) {
+  const a = _versionParts(candidate);
+  const b = _versionParts(installed);
+  if (!a || !b) return false;
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+    if ((a[i] || 0) > (b[i] || 0)) return true;
+    if ((a[i] || 0) < (b[i] || 0)) return false;
+  }
+  return false;
+}
+
+function _getJsonHttps(url) {
+  return new Promise((resolve, reject) => {
+    const request = https.get(url, {
+      headers: {
+        'User-Agent': 'EEDTOY-UpdateChecker',
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    }, response => {
+      if (response.statusCode !== 200) {
+        response.resume();
+        reject(new Error('HTTP ' + response.statusCode));
+        return;
+      }
+      let data = '';
+      response.on('data', chunk => {
+        data += chunk.toString('utf8');
+        if (data.length > 1024 * 1024) request.destroy(new Error('Response too large'));
+      });
+      response.on('end', () => {
+        try { resolve(JSON.parse(data)); } catch (error) { reject(error); }
+      });
+    });
+    request.setTimeout(10000, () => request.destroy(new Error('Network timeout')));
+    request.on('error', reject);
+  });
+}
+
+async function checkForApplicationUpdate({ silent = false } = {}) {
+  try {
+    const release = await _getJsonHttps(UPDATE_RELEASE_API);
+    if (!release || release.draft || release.prerelease) return false;
+    const latestVersion = String(release.tag_name || '').replace(/^v/i, '');
+    if (!_isNewerVersion(latestVersion, app.getVersion())) {
+      if (!silent) {
+        await dialog.showMessageBox(mainWindow || undefined, {
+          type: 'info',
+          title: t('update.title'),
+          message: t('update.current'),
+          detail: t('update.currentDetail', { version: app.getVersion() }),
+          buttons: ['OK'],
+          icon: getAppIconPath(),
+        });
+      }
+      return false;
+    }
+
+    const asset = (release.assets || []).find(item =>
+      /\\.exe$/i.test(item.name || '') &&
+      /setup|installer/i.test(item.name || '') &&
+      /^https:\\/\\/github\\.com\\/DenisZirn\\/eedtoy\\/releases\\/download\\//i.test(item.browser_download_url || '')
+    );
+    if (!asset) throw new Error('Kein Windows-Installer im neuesten Release gefunden.');
+
+    const result = await dialog.showMessageBox(mainWindow || undefined, {
+      type: 'info',
+      title: t('update.availableTitle'),
+      message: t('update.available', { version: latestVersion }),
+      detail: t('update.question'),
+      buttons: [t('update.download'), t('update.later')],
+      defaultId: 0,
+      cancelId: 1,
+      icon: getAppIconPath(),
+    });
+    if (result.response !== 0) return true;
+    await shell.openExternal(asset.browser_download_url);
+    return true;
+  } catch (error) {
+    console.error('[update-check]', error);
+    if (!silent) {
+      await dialog.showMessageBox(mainWindow || undefined, {
+        type: 'warning',
+        title: t('update.errorTitle'),
+        message: t('update.error'),
+        detail: String(error && error.message ? error.message : error),
+        buttons: ['OK'],
+        icon: getAppIconPath(),
+      });
+    }
+    return false;
+  }
 }
 
 function showAboutDialog() {
@@ -2062,6 +2166,7 @@ app.whenReady().then(async () => {
   currentLanguage = await loadLanguage();
   buildApplicationMenu();
   createWindow();
+  setTimeout(() => checkForApplicationUpdate({ silent: true }), 2500);
 });
 app.on('before-quit', () => {
   if (lastBusDisconnectInfo) {
