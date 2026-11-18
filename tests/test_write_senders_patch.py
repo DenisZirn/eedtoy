@@ -50,7 +50,11 @@ class FrgbwFakeDevice(FakeDevice):
 
     async def read_mem_line(self, line):
         cached = self.memory[line]
-        return self._written.get(line, bytes(8)) if cached is None else cached
+        if cached is None:
+            # A hardware read refreshes the eltakobus in-memory line cache.
+            cached = self._written.get(line, bytes(8))
+            self.memory[line] = cached
+        return cached
 
     async def write_mem_line(self, line, value):
         await super().write_mem_line(line, value)
