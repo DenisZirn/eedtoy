@@ -57,6 +57,31 @@ async def test_frgbw14_group_3_function_81():
     assert dev.hardware[8] == bytes(8)
     assert await module._ensure_programmed_controller_profile(dev, "FF-A6-04-A3") is False
 
+    # PCT14 group 3 begins at ID entry 5, but a busy entry 5 is NEVER
+    # overwritten. The writer may use entries 6, 7, 8, ... instead.
+    first_three_taken = ReadbackDevice()
+    existing_rows = {
+        12: bytes.fromhex("0000B00500510F00"),  # PCT14 entry 5
+        13: bytes.fromhex("0000B00600510F00"),  # PCT14 entry 6
+        14: bytes.fromhex("0000B00700510F00"),  # PCT14 entry 7
+    }
+    for row, line in existing_rows.items():
+        first_three_taken.seed(row, line)
+    assert await module._ensure_programmed_controller_profile(first_three_taken, "FF-A6-04-A3") is True
+    assert first_three_taken.hardware[15] == expected  # PCT14 entry 8
+    assert first_three_taken._eedtoy_frgbw14_row == 15
+    assert all(first_three_taken.hardware[row] == line for row, line in existing_rows.items())
+    assert first_three_taken.hardware[8] == bytes(8)
+    assert await module._ensure_programmed_controller_profile(first_three_taken, "FF-A6-04-A3") is False
+
+    # If this exact sender ID already exists later in group 3, reuse it
+    # without creating a duplicate in the first available lower entry.
+    already_later = ReadbackDevice()
+    already_later.seed(16, expected)  # PCT14 entry 9
+    assert await module._ensure_programmed_controller_profile(already_later, "FF-A6-04-A3") is False
+    assert already_later._eedtoy_frgbw14_row == 16
+    assert all(already_later.hardware[row] == bytes(8) for row in range(12, 16))
+
     legacy = ReadbackDevice()
     legacy.seed(8, bytes.fromhex("FFA604A300200100"))
     assert await module._ensure_programmed_controller_profile(legacy, "FF-A6-04-A3") is True
