@@ -152,4 +152,46 @@ const deliberatelyRemoved = api.migrateCustomDeviceDatabase({
 });
 assert(!deliberatelyRemoved['F6-02-01-F2L14'], 'A later deliberate F2L14 deletion remains deleted');
 
+
+// FRGBW14 values from the user's actual Testwand PCT14 XML:
+// bus address 35, 6 bus addresses, entry 5 in group 3, function 81,
+// controller FF-AD-24-68, channel bitmap 00001111.
+const frgbwXml = `<?xml version="1.0"?>
+<exchange>
+  <rootdevice><rootdevicedata><baseid>
+    <baseid_byte_0>255</baseid_byte_0><baseid_byte_1>191</baseid_byte_1>
+    <baseid_byte_2>92</baseid_byte_2><baseid_byte_3>128</baseid_byte_3>
+  </baseid></rootdevicedata></rootdevice>
+  <devices><device>
+    <name>FRGBW14</name>
+    <header><address>35</address><addressrange>6</addressrange>
+      <numberofblocks>127</numberofblocks><offsetfirstblock>8</offsetfirstblock>
+      <devicetype>161</devicetype></header>
+    <channels numberofchannels="6">
+      <channel channelnumber="1"/><channel channelnumber="2"/>
+      <channel channelnumber="3"/><channel channelnumber="4"/>
+      <channel channelnumber="5"/><channel channelnumber="6"/>
+    </channels>
+    <data><rangeofid numberofentries="1"><entry>
+      <entry_number>5</entry_number><entry_id>1747234303</entry_id>
+      <entry_function>81</entry_function><entry_button>0</entry_button>
+      <entry_channel>15</entry_channel><entry_value>0</entry_value>
+    </entry></rangeofid></data>
+  </device></devices>
+</exchange>`;
+const frgbw = api.parsePct14Xml(frgbwXml, '', {}, 'de');
+assert(frgbw.devices.length === 1, 'FRGBW14 is one logical RGBW light');
+assert(frgbw.devices[0].dev_id === '00-00-00-23', 'FRGBW14 uses the real PCT14 base address 35');
+assert(frgbw.devices[0].programmed_sender_id === 'FF-AD-24-68',
+  'FRGBW14 function group 3 entry 5 is recognized as its learned controller');
+const frgbwProgramming = api.buildSenderProgrammingEntries(
+  frgbw.devices,
+  [{ type: 'fam14', base_id: 'FF-BF-5C-80' }],
+  frgbw.baseId
+);
+assert(frgbwProgramming.length === 1, 'FRGBW14 generates one controller programming operation');
+assert(frgbwProgramming[0].device_type === 'FRGBW14', 'FRGBW14 model type reaches the writer');
+assert(frgbwProgramming[0].device_id === 'FF-BF-5C-A3', 'FRGBW14 writer targets physical base address 35');
+assert(frgbwProgramming[0].sender_eep === '07-3F-7F', 'FRGBW14 writer uses the RGBW free profile');
+
 console.log('All F2L14 PCT14/XML regression tests passed.');
