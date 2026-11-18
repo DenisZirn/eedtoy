@@ -221,11 +221,49 @@ async def _write_mem_line_with_readback(dev: Any, row: int, value: bytes) -> Non
 
 
 async def _ensure_programmed_controller_profile(dev: Any, sender_id: str, channel: int = 0) -> Optional[bool]:
-    """Program the FRGBW controller profile in a free controller slot."""
+    """Program FRGBW14 controller in function group 3, function 81.
+
+    PCT14 entry 5 is memory row 12. The controller uses all four RGBW
+    channels (bit mask 0x0f). Do not place it in function group 1 or 2.
+    """
     sender = _sender_bytes_from_id(sender_id)
-    subchannel = max(1, int(channel or 0) + 1)
-    expected_line = sender + bytes((0, 32, subchannel, 0))
-    return await _find_or_write_free_line(dev, expected_line, 12)
+    expected_line = sender + bytes((0, 81, 0x0F, 0))
+    memory_size = int(getattr(dev, "memory_size", 0) or 0)
+    if memory_size <= 12 or not hasattr(dev, "read_mem_line") or not hasattr(dev, "write_mem_line"):
+        return None
+
+    # Keep unrelated group-3 entries intact. Reuse an existing matching entry
+    # or its sender slot; otherwise select the first empty group-3 line.
+    exact_row = None
+    sender_row = None
+    free_row = None
+    for row in range(12, memory_size):
+        line = await dev.read_mem_line(row)
+        if line == expected_line:
+            exact_row = row
+            break
+        if line[:4] == sender and any(line) and sender_row is None:
+            sender_row = row
+        if not any(line) and free_row is None:
+            free_row = row
+
+    changed = False
+    if exact_row is None:
+        target_row = sender_row if sender_row is not None else free_row
+        if target_row is None:
+            raise RuntimeError("Kein freier Eintrag in Funktionsgruppe 3 des FRGBW14")
+        await _write_mem_line_with_readback(dev, target_row, expected_line)
+        changed = True
+
+    # An older build incorrectly installed this HA sender with function 81 in
+    # group 1. Remove only this exact sender/function/channel combination,
+    # never other controllers, pushbuttons or IDs.
+    legacy = expected_line
+    for row in range(8, 9):
+        if row < memory_size and await dev.read_mem_line(row) == legacy:
+            await _write_mem_line_with_readback(dev, row, bytes(8))
+            changed = True
+    return changed
 
 
 async def _ensure_programmed_fsr14ssr(dev: Any, sender_id: str, channel: int = 0) -> Optional[bool]:
