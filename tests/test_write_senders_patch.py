@@ -26,6 +26,20 @@ class FakeDevice:
         self.memory[line] = value
 
 
+async def test_frgbw14_group_3_function_81():
+    dev = FakeDevice(memory_size=40)
+    expected = bytes.fromhex("FFA604A300510F00")
+    other = bytes.fromhex("0000B00100330100")
+    dev.memory[8] = expected  # Legacy incorrect group-1 entry.
+    dev.memory[12] = other   # Do not overwrite unrelated group-3 entries.
+    assert await module._ensure_programmed_controller_profile(dev, "FF-A6-04-A3") is True
+    assert dev.memory[12] == other
+    assert dev.memory[13] == expected
+    assert not any(dev.memory[8])
+    assert await module._ensure_programmed_controller_profile(dev, "FF-A6-04-A3") is False
+    assert not any(dev.memory[9:12][0])
+
+
 async def test_fhk_single_function_group_3_sender():
     dev = FakeDevice(memory_size=24)
     first = module._sender_bytes_from_id("00-00-B0-01") + bytes((0, 65, 1, 0))
@@ -309,6 +323,7 @@ if __name__ == "__main__":
     test_target_addresses()
     test_fd2g14_uses_grimm_scan()
     test_multiple_senders_per_device_are_preserved()
+    asyncio.run(test_frgbw14_group_3_function_81())
     asyncio.run(test_fhk_single_function_group_3_sender())
     asyncio.run(test_f2l14_confirmed_pct14_additive_double_rocker_entry())
     asyncio.run(test_f2l14_mode_change_replaces_existing_sender_and_cleans_duplicates())
