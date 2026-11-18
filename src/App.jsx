@@ -2107,6 +2107,81 @@ export default function App() {
     showProjectMessage(t("project.saved", { file: result.fileName || result.path }));
   };
 
+  const handleNewProject = () => {
+    // Never abandon an active hardware transaction or a verified RS485
+    // connection when starting a new project.
+    if (writingSenders || writeGatewayConnection || connectingWriteGateway ||
+        disconnectingGateway || detecting || learningId || cancelingLearnId ||
+        learnRequestRef.current) {
+      showProjectMessage(t("project.newBusy"));
+      return false;
+    }
+    const savedSignature = savedProjectSignatureRef.current;
+    const hasUnsavedChanges = savedSignature !== null
+      ? projectContentSignature(buildProjectDocument().state) !== savedSignature
+      : Boolean(
+          devices.length || extraGateways.length || busSystems.length ||
+          gateway.type !== emptyGW.type || gateway.base_id ||
+          gateway.serial_path || gateway.lan_address || pct14GatewayBaseId ||
+          importFam14Gateway || importFgw14Gateway || multiBusEnabled ||
+          form.name || form.dev_id || form.room || editIdx !== null ||
+          miniSafeText.trim()
+        );
+    if (hasUnsavedChanges && !window.confirm(t("project.newConfirm"))) return false;
+
+    writeConnectRequestRef.current += 1;
+    clearTimeout(learnMessageTimerRef.current);
+    savedProjectSignatureRef.current = null;
+    setStep(1);
+    setGateway({ ...emptyGW });
+    setDevices([]);
+    setExtraGateways([]);
+    setForm(createEmptyForm());
+    setEditIdx(null);
+    setErrors({});
+    setYaml("");
+    setGeneratedGatewayBlocks([]);
+    setCopied(false);
+    setPorts([]);
+    setDetectMsg("");
+    setImportMsg("");
+    setMiniSafeImportMsg("");
+    setMiniSafeOpen(false);
+    setMiniSafeText("");
+    setMiniSafePreview([]);
+    setMiniSafeError("");
+    setMiniSafeFileName("");
+    setMiniSafeUseSenderIds(false);
+    setLearningId(false);
+    setLearningIdTarget("");
+    setCancelingLearnId(false);
+    setLearnMsg("");
+    setLearnMsgTarget("device");
+    setImportFam14Gateway(false);
+    setImportFgw14Gateway(false);
+    setPct14DetectedFam14(false);
+    setPct14DetectedFgw14(false);
+    setPct14GatewayBaseId("");
+    setMultiBusEnabled(false);
+    setBusSystems([]);
+    setImportBusId("");
+    setWriteBusId("");
+    setWriteBusPort("");
+    setWriteBusPortManual(false);
+    setWriteTargetGatewayKey("");
+    setWriteGatewayConnection(null);
+    setConnectingWriteGateway(false);
+    setWriteSenderMsg("");
+    setWriteSenderSummary(null);
+    setWriteSenderLog([]);
+    setWriteSenderProgress({ processed:0, total:0, phase:"idle", message:"" });
+    setProjectFileName("");
+    setProjectFilePath("");
+    // Keep the chosen UI language and the persistent user device database.
+    showProjectMessage(t("project.newCreated"));
+    return true;
+  };
+
   const handleOpenProject = async () => {
     if (!isElectron) {
       showProjectMessage(t("project.desktopOpenOnly"));
@@ -2224,6 +2299,7 @@ export default function App() {
   };
 
   projectActionsRef.current = {
+    new: handleNewProject,
     open: handleOpenProject,
     save: handleSaveProject,
     saveAs: handleSaveProjectAs,
@@ -2260,6 +2336,7 @@ export default function App() {
     }).catch(() => {});
 
     const cleanupMenu = window.electronAPI.onMenuAction((action) => {
+      if (action === "new-project") projectActionsRef.current.new?.();
       if (action === "open-project") projectActionsRef.current.open?.();
       if (action === "save-project") projectActionsRef.current.save?.();
       if (action === "save-project-as") projectActionsRef.current.saveAs?.();
