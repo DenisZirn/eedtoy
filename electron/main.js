@@ -114,6 +114,8 @@ function buildApplicationMenu() {
     {
       label: t('menu.file'),
       submenu: [
+        { label: t('menu.new'), accelerator: 'CmdOrCtrl+N', click: () => sendMenuAction('new-project') },
+        { type: 'separator' },
         { label: t('menu.open'), accelerator: 'CmdOrCtrl+O', click: () => sendMenuAction('open-project') },
         { label: t('menu.save'), accelerator: 'CmdOrCtrl+S', click: () => sendMenuAction('save-project') },
         { label: t('menu.saveAs'), accelerator: 'CmdOrCtrl+Shift+S', click: () => sendMenuAction('save-project-as') },
