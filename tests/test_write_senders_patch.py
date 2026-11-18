@@ -27,19 +27,43 @@ class FakeDevice:
 
 
 async def test_frgbw14_group_3_function_81():
-    dev = FakeDevice(memory_size=40)
+    dev = FakeDevice(memory_size=127)
     expected = bytes.fromhex("FFA604A300510F00")
-    other = bytes.fromhex("0000B00100330100")
-    dev.memory[8] = expected  # Legacy incorrect group-1 entry.
-    dev.memory[12] = other   # Do not overwrite unrelated group-3 entries.
+    unrelated = bytes.fromhex("0000B00100330100")
+    # Real report: old incorrect function-81 entry in PCT14 group 1.
+    dev.memory[8] = bytes.fromhex("FFA604A300510F00")
+    dev.memory[12] = unrelated
     assert await module._ensure_programmed_controller_profile(dev, "FF-A6-04-A3") is True
-    assert dev.memory[12] == other
+    assert dev.memory[12] == unrelated
     assert dev.memory[13] == expected
-    assert not any(dev.memory[8])
+    assert dev.memory[8] == bytes(8)
     assert await module._ensure_programmed_controller_profile(dev, "FF-A6-04-A3") is False
-    assert not any(dev.memory[9])
-    assert not any(dev.memory[10])
-    assert not any(dev.memory[11])
+
+    # Incorrect legacy variants must also be removed, by sender ID only.
+    legacy = FakeDevice(memory_size=127)
+    legacy.memory[8] = bytes.fromhex("FFA604A300200100")
+    assert await module._ensure_programmed_controller_profile(legacy, "FF-A6-04-A3") is True
+    assert legacy.memory[8] == bytes(8)
+    assert legacy.memory[12] == expected
+
+    # Group-1 entries belonging to other senders are never deleted.
+    unrelated_group1 = FakeDevice(memory_size=127)
+    unrelated_group1.memory[8] = unrelated
+    assert await module._ensure_programmed_controller_profile(unrelated_group1, "FF-A6-04-A3") is True
+    assert unrelated_group1.memory[8] == unrelated
+    assert unrelated_group1.memory[12] == expected
+
+    # A write ACK without persistent data must be reported as failure.
+    class BrokenWrite(FakeDevice):
+        async def write_mem_line(self, row, value):
+            pass
+    broken = BrokenWrite(memory_size=127)
+    try:
+        await module._ensure_programmed_controller_profile(broken, "FF-A6-04-A3")
+    except RuntimeError as exc:
+        assert "nicht bestätigt" in str(exc)
+    else:
+        raise AssertionError("FRGBW14 must reject unconfirmed writes")
 
 
 async def test_fhk_single_function_group_3_sender():
