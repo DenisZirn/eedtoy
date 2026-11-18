@@ -37,7 +37,9 @@ async def test_frgbw14_group_3_function_81():
     assert dev.memory[13] == expected
     assert not any(dev.memory[8])
     assert await module._ensure_programmed_controller_profile(dev, "FF-A6-04-A3") is False
-    assert not any(dev.memory[9:12][0])
+    assert not any(dev.memory[9])
+    assert not any(dev.memory[10])
+    assert not any(dev.memory[11])
 
 
 async def test_fhk_single_function_group_3_sender():
