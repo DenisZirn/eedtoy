@@ -2961,8 +2961,8 @@ export default function App() {
       setImportMsg(t("routing.invalidExportRoute", { count: missingRoutes.length }));
       return;
     }
-    const pending = pendingSenderDevices(normalized.devices, gatewayKey(gateway), pct14GatewayBaseId);
-    if (pending.length && !window.confirm(t("routing.beforeYaml", { count: pending.length }))) return;
+    // YAML preview is read-only. Pending controller IDs are explained in the
+    // next step; only an explicit write action may program actuators.
     setGeneratedGatewayBlocks(gatewaySnapshot);
     setYaml(generateYaml(snapshotPrimary || gateway, normalized.devices, snapshotExtras, pct14GatewayBaseId, language, gatewayKey(gateway)));
     setStep(3);
@@ -4125,8 +4125,8 @@ export default function App() {
         {step===3&&(
           <>
             {pendingSenderDevices(devices, gatewayKey(gateway), pct14GatewayBaseId).length>0&&(
-              <div style={{marginBottom:".85rem",padding:".85rem 1rem",border:"1px solid #fed7aa",borderRadius:8,background:"#fff7ed",color:"#92400e",fontSize:".75rem",lineHeight:1.6}}>
-                <strong>{t("routing.mustWrite")}</strong> · {t("routing.yamlWarning", { count:pendingSenderDevices(devices, gatewayKey(gateway), pct14GatewayBaseId).length })}
+              <div role="status" style={{marginBottom:".85rem",padding:".85rem 1rem",border:"1px solid #bfdbfe",borderRadius:8,background:"#eff6ff",color:"#1e40af",fontSize:".75rem",lineHeight:1.6}}>
+                <strong>{t("routing.yamlInfoTitle")}</strong> · {t("routing.yamlWarning", { count:pendingSenderDevices(devices, gatewayKey(gateway), pct14GatewayBaseId).length })}
               </div>
             )}
             <div className="card" style={{marginBottom:"1rem",padding:"1rem 1.1rem"}}>
