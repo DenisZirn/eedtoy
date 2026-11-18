@@ -119,6 +119,8 @@ function buildApplicationMenu() {
     {
       label: t('menu.file'),
       submenu: [
+        { label: t('menu.new'), accelerator: 'CmdOrCtrl+N', click: () => confirmNewProject() },
+        { type: 'separator' },
         { label: t('menu.open'), accelerator: 'CmdOrCtrl+O', click: () => sendMenuAction('open-project') },
         { label: t('menu.save'), accelerator: 'CmdOrCtrl+S', click: () => sendMenuAction('save-project') },
         { label: t('menu.saveAs'), accelerator: 'CmdOrCtrl+Shift+S', click: () => sendMenuAction('save-project-as') },
@@ -340,6 +342,21 @@ async function checkForApplicationUpdate({ silent = false } = {}) {
     }
     return false;
   }
+}
+
+async function confirmNewProject() {
+  const result = await dialog.showMessageBox(mainWindow || undefined, {
+    type: 'question',
+    title: t('project.newTitle'),
+    message: t('project.newQuestion'),
+    detail: t('project.newDetail'),
+    buttons: [t('project.newConfirm'), t('project.newCancel')],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+    icon: getAppIconPath(),
+  });
+  if (result.response === 0) sendMenuAction('new-project');
 }
 
 function showAboutDialog() {
