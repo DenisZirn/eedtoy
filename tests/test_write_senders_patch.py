@@ -27,37 +27,54 @@ class FakeDevice:
 
 
 async def test_frgbw14_group_3_function_81():
-    dev = FakeDevice(memory_size=127)
+    class ReadbackDevice(FakeDevice):
+        """Simulate a real actuator separately from the BusObject memory cache."""
+        def __init__(self, memory_size=127):
+            super().__init__(memory_size)
+            self.hardware = list(self.memory)
+
+        def seed(self, row, value):
+            self.hardware[row] = value
+            self.memory[row] = value
+
+        async def read_mem_line(self, row):
+            self.memory[row] = self.hardware[row]
+            return self.hardware[row]
+
+        async def write_mem_line(self, row, value):
+            self.hardware[row] = value
+            self.memory[row] = value
+
     expected = bytes.fromhex("FFA604A300510F00")
     unrelated = bytes.fromhex("0000B00100330100")
-    # Real report: old incorrect function-81 entry in PCT14 group 1.
-    dev.memory[8] = bytes.fromhex("FFA604A300510F00")
-    dev.memory[12] = unrelated
+
+    dev = ReadbackDevice()
+    dev.seed(8, expected)
+    dev.seed(12, unrelated)
     assert await module._ensure_programmed_controller_profile(dev, "FF-A6-04-A3") is True
-    assert dev.memory[12] == unrelated
-    assert dev.memory[13] == expected
-    assert dev.memory[8] == bytes(8)
+    assert dev.hardware[12] == unrelated
+    assert dev.hardware[13] == expected
+    assert dev.hardware[8] == bytes(8)
     assert await module._ensure_programmed_controller_profile(dev, "FF-A6-04-A3") is False
 
-    # Incorrect legacy variants must also be removed, by sender ID only.
-    legacy = FakeDevice(memory_size=127)
-    legacy.memory[8] = bytes.fromhex("FFA604A300200100")
+    legacy = ReadbackDevice()
+    legacy.seed(8, bytes.fromhex("FFA604A300200100"))
     assert await module._ensure_programmed_controller_profile(legacy, "FF-A6-04-A3") is True
-    assert legacy.memory[8] == bytes(8)
-    assert legacy.memory[12] == expected
+    assert legacy.hardware[8] == bytes(8)
+    assert legacy.hardware[12] == expected
 
-    # Group-1 entries belonging to other senders are never deleted.
-    unrelated_group1 = FakeDevice(memory_size=127)
-    unrelated_group1.memory[8] = unrelated
-    assert await module._ensure_programmed_controller_profile(unrelated_group1, "FF-A6-04-A3") is True
-    assert unrelated_group1.memory[8] == unrelated
-    assert unrelated_group1.memory[12] == expected
+    other_sender = ReadbackDevice()
+    other_sender.seed(8, unrelated)
+    assert await module._ensure_programmed_controller_profile(other_sender, "FF-A6-04-A3") is True
+    assert other_sender.hardware[8] == unrelated
+    assert other_sender.hardware[12] == expected
 
-    # A write ACK without persistent data must be reported as failure.
-    class BrokenWrite(FakeDevice):
+    class BrokenWrite(ReadbackDevice):
         async def write_mem_line(self, row, value):
-            pass
-    broken = BrokenWrite(memory_size=127)
+            # ACK is simulated but hardware memory never changes.
+            self.memory[row] = value
+
+    broken = BrokenWrite()
     try:
         await module._ensure_programmed_controller_profile(broken, "FF-A6-04-A3")
     except RuntimeError as exc:
