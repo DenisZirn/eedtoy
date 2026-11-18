@@ -169,7 +169,7 @@ async def test_heating_group_1_function_64_only():
     try:
         await module._ensure_programmed_fhk_controller(blocked, "FF-A6-04-C0", 0, "F4HK14")
     except RuntimeError as exc:
-        assert "anderen Sender-ID" in str(exc)
+        assert "andere Sender-ID" in str(exc)
     else:
         raise AssertionError("A foreign controller in function group 1 must be protected")
     assert blocked.hardware[8] == occupied
