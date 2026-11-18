@@ -433,45 +433,123 @@ async def _ensure_programmed_f2l14(dev: Any, sender_id: str, mode: str = "exclus
     return True
 
 
+def _heating_group_1_layout(device_type: str, size: int) -> tuple[int, int, int, tuple[int, ...]]:
+    """Return channels, group-1 row, former group-3 row, expected model bytes.
+
+    Physical PCT14 rows: FHK14 1-channel (8 / 10), FHK14 2-channel
+    (8..9 / 12..13), F4HK14 (8..11 / 16..19),
+    FAE14LPR / FAE14SSR (8..9 / 12..13).
+    """
+    name = str(device_type or "").upper()
+    if "F4HK14" in name and size == 4:
+        return 4, 8, 16, (0x18,)
+    if "FHK14" in name and size == 1:
+        return 1, 8, 10, (0x0F,)
+    if "FHK14" in name and size == 2:
+        return 2, 8, 12, (0x18,)
+    if "FAE14LPR" in name and size == 2:
+        return 2, 8, 12, (0x10,)
+    if "FAE14SSR" in name and size == 2:
+        return 2, 8, 12, (0x16,)
+    raise ValueError(
+        f"{device_type}: nicht unterstützte Geräte-/Kanalzuordnung ({size} Kanäle)"
+    )
+
+
 async def _ensure_programmed_fhk_controller(
     dev: Any,
     sender_id: str,
     channel: int,
     device_type: str,
-) -> Optional[bool]:
-    """Program the single Function Group 3 controller sender for FHK devices."""
-    sender = _sender_bytes_from_id(sender_id)
-    upper_type = str(device_type or "").upper()
-    is_single_channel_fhk14 = "FHK14" in upper_type and "F4HK14" not in upper_type
-    start_line = 10 if is_single_channel_fhk14 else (16 if "F4HK14" in upper_type else 12)
-    preferred_line = start_line + int(channel or 0)
+) -> bool:
+    """Teach the HA A5-10-06 room controller in FG1, function 64, only.
+
+    This also migrates a matching old function-65 entry from FG3.  Unrelated
+    learned temperature sensors and other channels are never overwritten.
+    """
+    count, group1_start, group3_start, model_codes = _heating_group_1_layout(
+        device_type, int(getattr(dev, "size", 0) or 0)
+    )
+    if not isinstance(channel, int) or not 0 <= channel < count:
+        raise ValueError(f"{device_type}: ungültiger Kanal {channel!r}")
+    discovery = getattr(dev, "discovery_response", None)
+    model = bytes(getattr(discovery, "model", b"") or b"")
+    if len(model) >= 2 and (model[0] != 0x04 or model[1] not in model_codes):
+        raise RuntimeError(
+            f"{device_type}: physische Gerätekennung {model[:2].hex('-').upper()} "
+            "passt nicht zum ausgewählten Aktortyp"
+        )
+
     memory_size = int(getattr(dev, "memory_size", 0) or 0)
-    if preferred_line >= memory_size or not hasattr(dev, "read_mem_line") or not hasattr(dev, "write_mem_line"):
-        return None
+    if (memory_size < group3_start + count
+            or not hasattr(dev, "read_mem_line") or not hasattr(dev, "write_mem_line")):
+        raise RuntimeError(f"{device_type}: ID-Speicher nicht verfügbar")
 
-    expected_line = sender + bytes((0, 65, 1 << int(channel or 0), 0))
+    sender = _sender_bytes_from_id(sender_id)
+    mask = 1 << channel
+    expected = sender + bytes((0, 64, mask, 0))
+    former = sender + bytes((0, 65, mask, 0))
+    target_row = group1_start + channel
 
-    preferred_current = await dev.read_mem_line(preferred_line)
-    changed = preferred_current != expected_line
-    if changed:
-        # Function Group 3 has exactly one controller slot. A changed gateway ID
-        # therefore replaces that slot and must never spill into Function Group 4.
-        if is_single_channel_fhk14:
-            await _write_fhk_mem_line(dev, preferred_line, expected_line)
+    async def read_fresh(row: int) -> bytes:
+        line = await _read_back_mem_line(dev, row)
+        if not isinstance(line, (bytes, bytearray)) or len(line) != 8:
+            raise TimeoutError(f"{device_type}: keine gültige Speicherantwort für Zeile {row}")
+        return bytes(line)
+
+    async def write_checked(row: int, value: bytes) -> None:
+        if "FHK14" in str(device_type).upper() and "F4HK14" not in str(device_type).upper():
+            await _write_fhk_mem_line(dev, row, value)
         else:
-            await _write_mem_line_with_readback(dev, preferred_line, expected_line)
-    if is_single_channel_fhk14:
-        # Older v1.0.97 builds wrote Function 65 into Group 4 (entries 5/6).
-        # Remove only those invalid controller rows; preserve all other entries.
-        for legacy_line in (12, 13):
-            if legacy_line >= memory_size:
-                continue
-            legacy_value = await dev.read_mem_line(legacy_line)
-            if legacy_value[4:] == bytes((0, 65, 1, 0)):
-                await _write_fhk_mem_line(dev, legacy_line, bytes(8))
-                changed = True
-    return changed
+            await _write_mem_line_with_readback(dev, row, value)
+        if await read_fresh(row) != value:
+            raise RuntimeError(
+                f"{device_type}: Schreiben der Speicherzeile {row} nicht bestätigt"
+            )
 
+    # Validate everything before the first write. A physically learned
+    # thermostat in FG1 must not silently be replaced.
+    current = await read_fresh(target_row)
+    if (any(current) and current != expected
+            and not (current[:4] == sender and current[6] == mask)):
+        raise RuntimeError(
+            f"{device_type} Kanal {channel + 1}: Funktionsgruppe 1 ist durch "
+            "eine andere Sender-ID belegt; kein Eintrag wurde überschrieben"
+        )
+
+    # Only remove an old FG3 sender with the *identical* ID, function 65
+    # and channel bitmask. Never clear another learned sender or channel.
+    old_rows = list(range(group3_start, group3_start + count))
+    if "FHK14" in str(device_type).upper() and "F4HK14" not in str(device_type).upper() and count == 1:
+        # Older EEDTOY versions also misplaced FHK14 function 65 in rows 12/13.
+        old_rows += [12, 13]
+    clear_rows = []
+    for row in old_rows:
+        if row < memory_size and await read_fresh(row) == former:
+            clear_rows.append(row)
+
+    changed = False
+    if current != expected:
+        await write_checked(target_row, expected)
+        changed = True
+
+    # Migration is safe only after the new FG1 entry has been read back.
+    for row in clear_rows:
+        if await read_fresh(row) != former:
+            raise RuntimeError(f"{device_type}: Speicherzeile {row} zwischenzeitlich verändert")
+        await write_checked(row, bytes(8))
+        changed = True
+
+    if await read_fresh(target_row) != expected:
+        raise RuntimeError(f"{device_type}: Funktionsgruppe 1, Funktion 64 nicht bestätigt")
+    for row in old_rows:
+        if row < memory_size and await read_fresh(row) == former:
+            raise RuntimeError(f"{device_type}: alte Funktion 65 noch vorhanden")
+
+    log("Heating writer verified", device_type, "channel", channel + 1,
+        "sender", norm_id(sender_id), "function_group", 1,
+        "function", 64, "channel_mask", f"{mask:08b}", "memory_row", target_row)
+    return changed
 
 async def _write_fhk_mem_line(dev: Any, row: int, value: bytes) -> None:
     """Write an FHK14 row without mistaking a delayed F2 reply for the F4 ACK."""
@@ -856,6 +934,8 @@ async def ensure_programmed_for_device(fam14_base_id_int: int, dev: Any, sender_
             else:
                 status = "exists"
                 message = f"Sender-ID {sender_id} für EEP {sender_eep} in {display_name} existiert bereits."
+            if is_fhk and sender_eep == "A5-10-06" and update_result is not None:
+                message += f" Bestätigt: Funktionsgruppe 1, Funktion 64, Kanalmaske {1 << channel:08b}."
             if is_frgbw14_hardware and update_result is not None:
                 slot = getattr(dev, "_eedtoy_frgbw14_row", None)
                 if slot is not None:
