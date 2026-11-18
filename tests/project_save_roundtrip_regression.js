@@ -69,7 +69,7 @@ function renderer(initial = {}) {
   vm.runInContext(source.slice(source.indexOf('const APP_VERSION'), source.indexOf('export default function App()'))
     + '\nthis.helpers = { normalizeLoadedDeviceProfile, createEmptyForm, profileFor };', context);
   Object.defineProperty(context, 'profile', { get: () => context.helpers.profileFor(context.form.eep) });
-  const projectStart = source.indexOf('  const buildProjectDocument =');
+  const projectStart = source.indexOf('  const projectContentSignature =');
   const projectEnd = source.indexOf('  useEffect(() => {', source.indexOf('  projectActionsRef.current =', projectStart));
   const formStart = source.indexOf('  const changeEep =');
   const formEnd = source.indexOf('  const handleImportFam14GatewayToggle', formStart);
