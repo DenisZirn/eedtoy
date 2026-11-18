@@ -1981,11 +1981,29 @@ export default function App() {
   const [language, setLanguage] = useState(getStoredLanguage);
   const t = (key, variables = {}) => translate(language, key, variables);
   const runtimeText = (value) => translateRuntimeText(language, value);
-  const projectActionsRef = useRef({ open: null, save: null, saveAs: null });
+  const projectActionsRef = useRef({ new: null, open: null, save: null, saveAs: null });
+  const savedProjectSignatureRef = useRef(null);
 
   const isElectron = typeof window !== "undefined" && window.electronAPI?.isElectron;
   const isDeviceDatabaseWindow = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("window") === "device-database";
   void deviceDbRevision;
+
+  // Ignore screen navigation and generated YAML when comparing edits.
+  // The actual source configuration, including an unfinished device form, is
+  // what matters for the "New Project" unsaved-changes prompt.
+  const projectContentSignature = (state) => JSON.stringify({
+    gateway: state.gateway, devices: state.devices, extraGateways: state.extraGateways,
+    form: state.form, editIdx: state.editIdx,
+    importFam14Gateway: state.importFam14Gateway,
+    importFgw14Gateway: state.importFgw14Gateway,
+    pct14DetectedFam14: state.pct14DetectedFam14,
+    pct14DetectedFgw14: state.pct14DetectedFgw14,
+    pct14GatewayBaseId: state.pct14GatewayBaseId,
+    multiBusEnabled: state.multiBusEnabled, busSystems: state.busSystems,
+    importBusId: state.importBusId, writeBusId: state.writeBusId,
+    writeBusPort: state.writeBusPort, writeBusPortManual: state.writeBusPortManual,
+    writeTargetGatewayKey: state.writeTargetGatewayKey,
+  });
 
   const buildProjectDocument = (projectDevices = devices) => {
     const gatewayBlocks = orderedGatewayBlocks(gateway, buildActiveExtraGateways()).map(item => ({ ...item }));
@@ -2057,6 +2075,7 @@ export default function App() {
       return;
     }
     setProjectFileName(result.fileName || projectFileName);
+    savedProjectSignatureRef.current = projectContentSignature(project.state);
     acceptSavedProject(project);
     showProjectMessage(t("project.saved", { file: result.fileName || result.path }));
   };
@@ -2083,6 +2102,7 @@ export default function App() {
     }
     setProjectFileName(result.fileName || `EEDTOY-${language === "en" ? "Project" : "Projekt"}.eedtoy`);
     setProjectFilePath(result.path || "");
+    savedProjectSignatureRef.current = projectContentSignature(project.state);
     acceptSavedProject(project);
     showProjectMessage(t("project.saved", { file: result.fileName || result.path }));
   };
@@ -2174,6 +2194,28 @@ export default function App() {
     setStep(loadedStep === 3 && !loadedYaml ? 2 : loadedStep);
     setProjectFileName(result.fileName || `EEDTOY-${language === "en" ? "Project" : "Projekt"}.eedtoy`);
     setProjectFilePath(result.path || "");
+    savedProjectSignatureRef.current = projectContentSignature({
+      ...state,
+      gateway: loadedGateway,
+      devices: loadedDevices,
+      extraGateways: loadedGateways,
+      form: loadedEditIdx !== null
+        ? normalizeLoadedDeviceProfile({ ...loadedDevices[loadedEditIdx], ...(state.form && typeof state.form === "object" && !Array.isArray(state.form) ? state.form : {}) })
+        : createEmptyForm(),
+      editIdx: loadedEditIdx,
+      importFam14Gateway: loadedImportFam14Gateway,
+      importFgw14Gateway: loadedImportFgw14Gateway,
+      pct14DetectedFam14: loadedPct14DetectedFam14,
+      pct14DetectedFgw14: loadedPct14DetectedFgw14,
+      pct14GatewayBaseId: loadedPct14GatewayBaseId,
+      multiBusEnabled: Boolean(state.multiBusEnabled),
+      busSystems: Array.isArray(state.busSystems) ? state.busSystems : [],
+      importBusId: typeof state.importBusId === "string" ? state.importBusId : "",
+      writeBusId: typeof state.writeBusId === "string" ? state.writeBusId : "",
+      writeBusPort: typeof state.writeBusPort === "string" ? state.writeBusPort : "",
+      writeBusPortManual: state.writeBusPortManual === true,
+      writeTargetGatewayKey: typeof state.writeTargetGatewayKey === "string" ? state.writeTargetGatewayKey : "",
+    });
 
     const sourceVersion = project.app_version && project.app_version !== APP_VERSION
       ? t("project.versionInfo", { source: project.app_version, current: APP_VERSION })
