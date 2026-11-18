@@ -1,6 +1,7 @@
 const MAIN_MESSAGES = {
   de: {
     'menu.file': 'Datei',
+    'menu.new': 'Neues Projekt',
     'menu.open': 'Projekt öffnen…',
     'menu.save': 'Projekt speichern',
     'menu.saveAs': 'Projekt speichern unter…',
@@ -38,6 +39,11 @@ const MAIN_MESSAGES = {
 
     'about.detail': 'Version {{version}}\n\nEntwickelt von D. Zirnbauer\nKein offizielles Produkt der ELTAKO GmbH\n\nLizenz: GPL-3.0-or-later',
 
+    'project.newTitle': 'Neues Projekt',
+    'project.newQuestion': 'Möchtest du ein neues Projekt erstellen?',
+    'project.newDetail': 'Nicht gespeicherte Änderungen im aktuellen Projekt gehen dabei verloren.',
+    'project.newConfirm': 'Neues Projekt',
+    'project.newCancel': 'Abbrechen',
     'project.defaultName': 'EEDTOY-Projekt',
     'project.saveDialogTitle': 'EEDTOY-Projekt speichern unter',
     'project.openDialogTitle': 'EEDTOY-Projekt öffnen',
@@ -56,6 +62,7 @@ const MAIN_MESSAGES = {
   },
   en: {
     'menu.file': 'File',
+    'menu.new': 'New project',
     'menu.open': 'Open project…',
     'menu.save': 'Save project',
     'menu.saveAs': 'Save project as…',
@@ -93,6 +100,11 @@ const MAIN_MESSAGES = {
 
     'about.detail': 'Version {{version}}\n\nDeveloped by D. Zirnbauer\nNot an official product of ELTAKO GmbH\n\nLicense: GPL-3.0-or-later',
 
+    'project.newTitle': 'New project',
+    'project.newQuestion': 'Do you want to create a new project?',
+    'project.newDetail': 'Unsaved changes in the current project will be lost.',
+    'project.newConfirm': 'New project',
+    'project.newCancel': 'Cancel',
     'project.defaultName': 'EEDTOY-Project',
     'project.saveDialogTitle': 'Save EEDTOY project as',
     'project.openDialogTitle': 'Open EEDTOY project',
