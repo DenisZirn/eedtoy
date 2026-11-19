@@ -1199,7 +1199,7 @@ async def _write_senders_session(
             try:
                 bus.stop()
                 bus.join(2.0)
-                if bus.is_alive():
+                if callable(getattr(bus, 'is_alive', None)) and bus.is_alive():
                     raise RuntimeError(
                         "RS485-Worker wurde nicht beendet; weiterer Schreibversuch "
                         "auf derselben seriellen Schnittstelle gesperrt."
