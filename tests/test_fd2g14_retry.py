@@ -133,5 +133,56 @@ async def run():
     writer.enumerate_bus_grimm=wrong_scan
     events=await writer.ensure_fd2g14_from_yaml(None,0xFFBF5C80,target,set())
     assert events[0]['status']=='error'
+
+    # One manual second run works because the bus is closed and reopened.
+    # Verify the top-level recovery genuinely starts a SECOND session and
+    # limits its channel set to failed FD2G14 IDs. Successful channels and
+    # other devices must not be programmed again.
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix='.json') as path:
+        original_session = writer._write_senders_session
+        sessions = []
+        async def sessions_stub(port, sender_map_path, baud_rate=57600,
+                                gateway_type='fam14', only_fd2g_ids=None):
+            sessions.append(None if only_fd2g_ids is None else set(only_fd2g_ids))
+            if only_fd2g_ids is None:
+                return {'ok': True, 'events': [
+                    {'status': 'exists', 'device_type': 'FSB14',
+                     'device_id': 'FF-BF-5C-82', 'message': 'Unchanged'},
+                    {'status': 'exists', 'device_type': 'FD2G14',
+                     'device_id': 'FF-BF-5C-A9', 'message': 'Already programmed'},
+                    {'status': 'error', 'device_type': 'FD2G14',
+                     'device_id': 'FF-BF-5C-AA',
+                     'message': 'FD2G14 Basisadresse 41: keine gültige Speicherantwort für Zeile 14 nach 6 Versuchen'},
+                    {'status': 'error', 'device_type': 'FHK14',
+                     'device_id': 'FF-BF-5C-C0', 'message': 'Unrelated problem'},
+                ]}
+            assert only_fd2g_ids == {'FF-BF-5C-AA'}
+            return {'ok': True, 'events': [
+                {'status': 'exists', 'device_type': 'FD2G14',
+                 'device_id': 'FF-BF-5C-AA', 'message': 'Sender-ID exists'},
+            ]}
+        writer._write_senders_session = sessions_stub
+        try:
+            result = await writer.write_senders('TEST',path.name)
+            assert sessions == [None, {'FF-BF-5C-AA'}]
+            assert result['fd2g14_recovered'] == 1
+            assert result['counts'] == {'exists': 3, 'error': 1}
+            assert 'neuer RS485-Verbindung' in result['events'][2]['message']
+            assert result['events'][3]['status'] == 'error'
+
+            # If the freshly reopened bus still fails, never report success.
+            async def still_broken(*args, **kwargs):
+                if kwargs.get('only_fd2g_ids') is None:
+                    return await sessions_stub(*args, **kwargs)
+                return {'ok': False, 'error': 'No bus lock', 'events': []}
+            writer._write_senders_session = still_broken
+            unsuccessful = await writer.write_senders('TEST',path.name)
+            assert unsuccessful['fd2g14_recovered'] == 0
+            assert unsuccessful['counts'] == {'exists': 2, 'error': 2}
+            assert 'No bus lock' in unsuccessful['events'][2]['message']
+        finally:
+            writer._write_senders_session = original_session
+
     print('FD2G14: transient/stale replies, exhausted reads, lost ACK readback, direct discovery retry, completed channels and wrong-address rejection passed.')
 asyncio.run(run())
