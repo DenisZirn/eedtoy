@@ -82,6 +82,7 @@ def load_sender_map(path: str) -> Dict[str, List[Dict[str, Any]]]:
             "source_gateway_type": str(item.get("source_gateway_type") or "").strip(),
             "source_gateway_base_id": norm_id(item.get("source_gateway_base_id") or ""),
             "f2l14_mode": str(item.get("f2l14_mode") or "exclusive").strip().lower(),
+            "heating_control_mode": str(item.get("heating_control_mode") or "ha_external").strip().lower(),
         })
     return result
 
@@ -530,10 +531,11 @@ async def _ensure_programmed_fhk_controller(
                 "Zuerst einen separaten Temperatursensor in FG1 einlernen; "
                 "kein Schreiben in FG3."
             )
-        if current_sensor[6] != mask:
+        if current_sensor[4:] != bytes((0, 64, mask, 0)):
             raise RuntimeError(
-                f"{device_type} Kanal {channel + 1}: Sensor in FG1 "
-                "gehört nicht zur gewählten Kanalmaske; Schreiben abgebrochen."
+                f"{device_type} Kanal {channel + 1}: Funktionsgruppe 1 "
+                "enthält keine verifizierbare Funktion-64-Zuordnung für "
+                "diesen Kanal; HA-Sollwert in FG3 wurde nicht geschrieben."
             )
 
         target_group3_row = group3_start + channel
