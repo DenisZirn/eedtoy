@@ -442,7 +442,9 @@ def _heating_group_1_layout(device_type: str, size: int) -> tuple[int, int, int,
     FAE14LPR / FAE14SSR (8..9 / 12..13).
     """
     name = str(device_type or "").upper()
-    if "F4HK14" in name and size == 4:
+    if size == 4 and ("F4HK14" in name or "FHK14" in name):
+        # Some PCT14 imports or BusObjects label four-channel F4HK14 as FHK14.
+        # Use physical size; discovery model 04-18 is checked by the caller.
         return 4, 8, 16, (0x18,)
     if "FHK14" in name and size == 1:
         return 1, 8, 10, (0x0F,)
@@ -473,6 +475,9 @@ async def _ensure_programmed_fhk_controller(
     count, group1_start, group3_start, model_codes = _heating_group_1_layout(
         device_type, int(getattr(dev, "size", 0) or 0)
     )
+    if count == 4 and "F4HK14" not in str(device_type).upper():
+        log("F4HK14 recognized despite legacy FHK14 label",
+            "label", device_type, "address", getattr(dev, "address", "?"))
     if not isinstance(channel, int) or not 0 <= channel < count:
         raise ValueError(f"{device_type}: ungültiger Kanal {channel!r}")
     discovery = getattr(dev, "discovery_response", None)
@@ -504,7 +509,7 @@ async def _ensure_programmed_fhk_controller(
         return bytes(line)
 
     async def write_checked(row: int, value: bytes) -> None:
-        if "FHK14" in str(device_type).upper() and "F4HK14" not in str(device_type).upper():
+        if count <= 2 and "FHK14" in str(device_type).upper() and "F4HK14" not in str(device_type).upper():
             await _write_fhk_mem_line(dev, row, value)
         else:
             await _write_mem_line_with_readback(dev, row, value)
