@@ -1129,7 +1129,7 @@ function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", la
     // serial_path wird nicht exportiert; der Port wird im HA-Config-Flow gewählt.
     out += `    devices:\n`;
 
-    const ORDER = ["light","switch","cover","fan","sensor","binary_sensor","climate"];
+    const ORDER = ["light","switch","cover","fan","sensor","binary_sensor","climate","number"];
     for (const plat of ORDER) {
       const platformDevices = (byPlat[plat] || []).filter(d =>
         exportGatewayForDevice(d, primaryExportGatewayKey) === gatewayKey(gw) &&
