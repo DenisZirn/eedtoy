@@ -172,7 +172,7 @@ const DEVICE_DB_STORAGE_KEY = "eedtoy.customDeviceDatabase.v1";
 const DEVICE_DB_DELETED_KEYS = "__deleted_keys";
 const DEVICE_DB_MODE_KEY = "__eedtoy_database_mode";
 const DEVICE_DB_SCHEMA_KEY = "__eedtoy_database_schema";
-const DEVICE_DB_SCHEMA_VERSION = 61;
+const DEVICE_DB_SCHEMA_VERSION = 62;
 const DEVICE_DB_MODE_AUTHORITATIVE = "authoritative";
 const PROFILE_KEY_ALIASES = {
   "07-37-F7-FRGBW14": "07-3F-7F-FRGBW14",
@@ -375,6 +375,17 @@ function migrateCustomDeviceDatabase(input) {
       }
       if (schemaVersion < 61 && !database["F6-05-01-FWS81"]) {
         database["F6-05-01-FWS81"] = { ...DEFAULT_EEP_DB["F6-05-01-FWS81"] };
+      }
+      // Schema 62: add the independent FHK61 temperature and SSR direct-PWM
+      // profiles once, even when an older user database is authoritative.
+      // Preserve all existing edits and deliberate future deletions.
+      if (schemaVersion < 62) {
+        for (const key of [
+          "A5-10-06-FHK61", "A5-10-06-FHK61U",
+          "A5-10-06-FHK61SSR", "A5-38-08-FHK61SSR-PWM",
+        ]) {
+          if (!database[key]) database[key] = { ...DEFAULT_EEP_DB[key] };
+        }
       }
       database[DEVICE_DB_SCHEMA_KEY] = DEVICE_DB_SCHEMA_VERSION;
     }
