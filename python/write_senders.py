@@ -1050,7 +1050,19 @@ async def ensure_programmed_for_device(fam14_base_id_int: int, dev: Any, sender_
             log(message)
     return events
 
-async def write_senders(port: str, sender_map_path: str, baud_rate: int = 57600, gateway_type: str = "fam14") -> Dict[str, Any]:
+async def _write_senders_session(
+    port: str,
+    sender_map_path: str,
+    baud_rate: int = 57600,
+    gateway_type: str = "fam14",
+    only_fd2g_ids: Optional[Set[str]] = None,
+) -> Dict[str, Any]:
+    """One Series-14 connection and bus lock.
+
+    With only_fd2g_ids, keep the complete original sender map to preserve the
+    FD2G14 physical base + 16 logical channel offsets. Discover only the FD2G14
+    physical base addresses and skip every already-successful channel.
+    """
     from eltakobus import locking
     from eltakobus.device import FAM14, create_busobject
     from eltakobus.serial import RS485SerialInterfaceV2
@@ -1083,6 +1095,8 @@ async def write_senders(port: str, sender_map_path: str, baud_rate: int = 57600,
 
         locked = (await locking.lock_bus(bus)) == locking.LOCKED
         log("bus locked", locked)
+        if not locked:
+            return {"ok": False, "error": "Series-14-Bus konnte nicht gesperrt werden; Schreiben abgebrochen.", "events": []}
 
         fam14: FAM14 = await create_busobject(bus=bus, id=255)
         fam14_base_id_int = await fam14.get_base_id_in_int()
@@ -1095,10 +1109,33 @@ async def write_senders(port: str, sender_map_path: str, baud_rate: int = 57600,
             return {"ok": False, "events": [], "error":
                     f"Falsches Bussystem angeschlossen: FAM14 {fam14_base_id}; erwartet: {', '.join(sorted(expected_bases))}. Es wurde nichts geschrieben."}
 
-        target_addresses = target_bus_addresses(fam14_base_id_int, sender_map)
-        log("target bus addresses", ",".join(str(a) for a in target_addresses))
-        processed_ids: Set[str] = set()
         fd2g_targets = _fd2g14_targets(fam14_base_id_int, sender_map)
+        recovery_mode = only_fd2g_ids is not None
+        if recovery_mode:
+            requested = {norm_id(value) for value in only_fd2g_ids}
+            fd2g_ids = {
+                item["device_id"] for group in fd2g_targets.values()
+                for item in group.values()
+            }
+            if not requested or not requested.issubset(fd2g_ids):
+                return {
+                    "ok": False,
+                    "error": "FD2G14-Wiederanlauf: angeforderter Kanal gehört nicht zu einem erkannten FD2G14-Senderblock.",
+                    "events": [],
+                }
+            target_addresses = sorted(
+                base for base, group in fd2g_targets.items()
+                if any(item["device_id"] in requested for item in group.values())
+            )
+            # Prevent all other IDs, including the already successful FD2G14
+            # channels, from being sent through any programming routine again.
+            processed_ids: Set[str] = set(sender_map) - requested
+            log("FD2G14 fresh-session recovery", "physical bases", target_addresses,
+                "failed channel IDs", sorted(requested))
+        else:
+            target_addresses = target_bus_addresses(fam14_base_id_int, sender_map)
+            processed_ids: Set[str] = set()
+        log("target bus addresses", ",".join(str(a) for a in target_addresses))
         discovered_fd2g: Dict[int, Any] = {}
 
         async for dev in enumerate_target_devices(bus, target_addresses):
@@ -1108,6 +1145,10 @@ async def write_senders(port: str, sender_map_path: str, baud_rate: int = 57600,
                 # logical channel IDs belong to one physical base address.
                 discovered_fd2g[device_address] = dev
                 log("FD2G14 reserved for dedicated path", device_address)
+                continue
+            if recovery_mode:
+                log("FD2G14 recovery: ignoring non-FD2G14 response",
+                    device_address, type(dev).__name__)
                 continue
             device_events = await ensure_programmed_for_device(fam14_base_id_int, dev, sender_map)
             events.extend(device_events)
@@ -1157,9 +1198,123 @@ async def write_senders(port: str, sender_map_path: str, baud_rate: int = 57600,
                 log("unlock failed", repr(e))
             try:
                 bus.stop()
-                bus.join(0.8)
-            except Exception:
-                pass
+                bus.join(2.0)
+                if bus.is_alive():
+                    raise RuntimeError(
+                        "RS485-Worker wurde nicht beendet; weiterer Schreibversuch "
+                        "auf derselben seriellen Schnittstelle gesperrt."
+                    )
+            except Exception as exc:
+                log("Series-14 RS485 shutdown problem", repr(exc))
+                raise
+
+
+def _fd2g14_is_read_timeout(event: Dict[str, Any]) -> bool:
+    """Only the FD2G14 ID-table read timeout merits a new bus session."""
+    message = str(event.get("message") or "")
+    return (
+        event.get("status") == "error"
+        and str(event.get("device_type") or "").upper() == "FD2G14"
+        and "FD2G14 Basisadresse" in message
+        and "keine gültige Speicherantwort" in message
+    )
+
+
+def _update_sender_write_summary(result: Dict[str, Any]) -> Dict[str, Any]:
+    events = result.get("events") or []
+    counts: Dict[str, int] = {}
+    for event in events:
+        status = event.get("status", "unknown")
+        counts[status] = counts.get(status, 0) + 1
+    result["counts"] = counts
+    result["scanned_devices"] = len({e.get("device_id") for e in events if e.get("device_id")})
+    result["message"] = (
+        f"Sender-ID Schreiben beendet. Aktualisiert: {counts.get('updated', 0)}, "
+        f"bereits vorhanden: {counts.get('exists', 0)}, "
+        f"nicht unterstützt: {counts.get('unsupported', 0)}, "
+        f"Fehler: {counts.get('error', 0)}."
+    )
+    return result
+
+
+async def write_senders(
+    port: str, sender_map_path: str, baud_rate: int = 57600,
+    gateway_type: str = "fam14",
+) -> Dict[str, Any]:
+    """Recover intermittent FD2G14 ID-table read failures on a fresh RS485 bus.
+
+    The user's second *manual* run succeeds after closing the port, releasing
+    the bus and opening a new connection. Retrying the same memory row six times
+    in one connection cannot reproduce that reset. Reconnect only when the
+    first session reports this specific FD2G14 error, then retry only failed
+    logical channel IDs using the original physical 16-channel group layout.
+    """
+    first = await _write_senders_session(
+        port, sender_map_path, baud_rate, gateway_type
+    )
+    if not first.get("ok"):
+        return first
+
+    initial_events = first.get("events") or []
+    failed_ids = {
+        norm_id(event.get("device_id") or "")
+        for event in initial_events if _fd2g14_is_read_timeout(event)
+    }
+    if not failed_ids:
+        return first
+
+    log("FD2G14 retry: reopening serial port and re-locking bus", sorted(failed_ids))
+    await asyncio.sleep(0.5)
+    try:
+        second = await _write_senders_session(
+            port, sender_map_path, baud_rate, gateway_type,
+            only_fd2g_ids=failed_ids
+        )
+    except Exception as exc:
+        log("FD2G14 fresh-session recovery failed", repr(exc))
+        second = {"ok": False, "error": f"{type(exc).__name__}: {exc}", "events": []}
+
+    retry_events = {
+        norm_id(event.get("device_id") or ""): event
+        for event in second.get("events") or []
+    }
+    merged = []
+    recovered = 0
+    for original in initial_events:
+        original_id = norm_id(original.get("device_id") or "")
+        if original_id not in failed_ids or not _fd2g14_is_read_timeout(original):
+            merged.append(original)
+            continue
+
+        new_event = retry_events.get(original_id)
+        if (second.get("ok") and new_event
+                and new_event.get("status") in ("updated", "exists")):
+            successful = dict(new_event)
+            successful["message"] = (
+                str(new_event.get("message") or "")
+                + " (Automatisch nach neuer RS485-Verbindung bestätigt.)"
+            )
+            merged.append(successful)
+            recovered += 1
+        else:
+            failed = dict(original)
+            detail = (
+                str(new_event.get("message") or "")
+                if new_event else str(second.get("error") or "Keine bestätigte Antwort.")
+            )
+            failed["message"] = (
+                str(original.get("message") or "")
+                + " Auch nach vollständigem Neuaufbau der RS485-Verbindung "
+                "fehlgeschlagen: " + detail
+            )
+            merged.append(failed)
+
+    first["events"] = merged
+    first["fd2g14_recovery_attempted"] = True
+    first["fd2g14_recovered"] = recovered
+    log("FD2G14 fresh-session retry completed", "recovered", recovered,
+        "still failed", len(failed_ids) - recovered)
+    return _update_sender_write_summary(first)
 
 
 async def main() -> None:
