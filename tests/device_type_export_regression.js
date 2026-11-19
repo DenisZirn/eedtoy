@@ -243,4 +243,27 @@ assert.equal(waterMigrated['F6-05-01-FWS81'].device_type,'FWS81');
 assert.equal(waterMigrated['A5-06-01-FAH'].label,'Eigener Name');
 delete waterMigrated['F6-05-01-FWS81'];
 assert(!api.migrateCustomDeviceDatabase(waterMigrated)['F6-05-01-FWS81']);
+
+const fhk61ProfileKeys = [
+  'A5-10-06-FHK61-230V',
+  'A5-10-06-FHK61U-230V',
+  'A5-10-06-FHK61SSR-230V',
+  'A5-38-08-FHK61SSR-PWM',
+];
+const oldUserDatabase = {
+  __eedtoy_database_mode:'authoritative',
+  __eedtoy_database_schema:61,
+  'A5-10-06-FHK61-230V':{...api.DEFAULT_EEP_DB['A5-10-06-FHK61-230V'], label:'Benutzername FHK61'},
+  'A5-06-01-FAH':{...api.DEFAULT_EEP_DB['A5-06-01-FAH'], label:'Meine Helligkeit'},
+};
+const migratedFhk = api.migrateCustomDeviceDatabase(oldUserDatabase);
+assert.equal(migratedFhk.__eedtoy_database_schema,62);
+for(const key of fhk61ProfileKeys)assert(migratedFhk[key],key+' migrated into existing user database');
+assert.equal(migratedFhk['A5-10-06-FHK61-230V'].label,'Benutzername FHK61');
+assert.equal(migratedFhk['A5-06-01-FAH'].label,'Meine Helligkeit');
+delete migratedFhk['A5-38-08-FHK61SSR-PWM'];
+assert(!api.migrateCustomDeviceDatabase(migratedFhk)['A5-38-08-FHK61SSR-PWM'],
+  'Later deliberate PWM profile deletion must stay deleted');
+console.log('PASS: Existing saved EEDTOY device databases receive FHK61 models once, preserve edits and later deletion.');
+
 console.log('PASS: FWS81 exports stable type, F6-05-01, moisture and area; migration preserves user changes and later deletion.');
