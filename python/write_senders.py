@@ -1028,7 +1028,12 @@ async def ensure_programmed_for_device(fam14_base_id_int: int, dev: Any, sender_
                 status = "exists"
                 message = f"Sender-ID {sender_id} für EEP {sender_eep} in {display_name} existiert bereits."
             if is_fhk and sender_eep == "A5-10-06" and update_result is not None:
-                message += f" Bestätigt: Funktionsgruppe 1, Funktion 64, Kanalmaske {1 << channel:08b}."
+                learned = str(entry.get("heating_control_mode") or "ha_external") == "learned_sensor"
+                group, function = (3, 65) if learned else (1, 64)
+                message += (
+                    f" Bestätigt: Funktionsgruppe {group}, Funktion {function}, "
+                    f"Kanalmaske {1 << channel:08b}."
+                )
             if is_frgbw14_hardware and update_result is not None:
                 slot = getattr(dev, "_eedtoy_frgbw14_row", None)
                 if slot is not None:
