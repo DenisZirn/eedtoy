@@ -595,6 +595,7 @@ function applyCurrentDatabaseProfile(device) {
     stage_2_id: normalized.stage_2_id,
     f2l14_mode: normalized.f2l14_mode,
     pwm_period_seconds: normalized.pwm_period_seconds,
+    heating_control_mode: normalized.heating_control_mode,
   };
   return {
     ...normalized,
@@ -1158,6 +1159,9 @@ function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", la
         if (deviceFamily === "FRW-WS") {
           out += `        battery_low_data: "0x30"\n`;
         }
+        if (["FHK14","F4HK14","FAE14LPR","FAE14SSR"].some(model => String(deviceType || "").toUpperCase().includes(model))) {
+          out += `        heating_control_mode: "${String(d.heating_control_mode || "ha_external")}"\n`;
+        }
         if (p.pwm_mode === "direct") {
           out += `        pwm_mode: "direct"\n`;
           out += `        pwm_period_seconds: ${Number(d.pwm_period_seconds || p.pwm_period_seconds || 120)}\n`;
@@ -1357,6 +1361,7 @@ function buildSenderProgrammingEntries(devices, targetGateways, pct14BaseId, bus
         f2l14_mode: String(d.f2l14_mode || p.f2l14_mode || "exclusive").toLowerCase(),
         pwm_mode: String(d.pwm_mode || p.pwm_mode || ""),
         pwm_period_seconds: Number(d.pwm_period_seconds || p.pwm_period_seconds || 120),
+        heating_control_mode: String(d.heating_control_mode || "ha_external"),
       });
     }
   }
@@ -1767,7 +1772,7 @@ function firstAvailableProfileKey() {
 function createEmptyForm(preferredProfileKey = "") {
   const resolvedPreferred = PROFILE_KEY_ALIASES[String(preferredProfileKey || "").toUpperCase()] || String(preferredProfileKey || "");
   const profileKey = EEP_DB[resolvedPreferred] ? resolvedPreferred : firstAvailableProfileKey();
-  return { name:"", dev_id:"", physical_unique_id:"", eep:profileKey, room:"", device_class:"", sender_id:"", sender_eep:"", time_opens:"", time_closes:"", min_target_temperature:"", max_target_temperature:"", device_type:"", model:"", eltako:"", id_range:"1", fwg14ms_id_range:"1", bus_address:"", f2l14_mode:"exclusive", pwm_period_seconds:120 };
+  return { name:"", dev_id:"", physical_unique_id:"", eep:profileKey, room:"", device_class:"", sender_id:"", sender_eep:"", time_opens:"", time_closes:"", min_target_temperature:"", max_target_temperature:"", device_type:"", model:"", eltako:"", id_range:"1", fwg14ms_id_range:"1", bus_address:"", f2l14_mode:"exclusive", pwm_period_seconds:120, heating_control_mode:"ha_external" };
 }
 
 // MiniSafe2 configurations arrive either as plain JSON or embedded in the text
@@ -2573,6 +2578,7 @@ export default function App() {
       battery_eep: isF4usm ? String(p.battery_eep || "") : "",
       physical_unique_id: isF4usm && [1, 2, 4, 5, 7].includes(operatingMode) ? f.physical_unique_id : "",
       f2l14_mode: family === "F2L14" ? String(f.f2l14_mode || p.f2l14_mode || "exclusive") : "exclusive",
+      heating_control_mode: "ha_external",
     }));
     setErrors({});
   };
@@ -2638,6 +2644,7 @@ export default function App() {
       battery_status: isF4usmProfile ? Boolean(profile.battery_status) : Boolean(form.battery_status),
       battery_eep: isF4usmProfile ? String(profile.battery_eep || "") : String(form.battery_eep || ""),
       f2l14_mode: selectedFamily === "F2L14" ? String(form.f2l14_mode || profile.f2l14_mode || "exclusive") : String(form.f2l14_mode || "exclusive"),
+      heating_control_mode: String(form.heating_control_mode || "ha_external"),
     };
     const e = validate(entry);
     const duplicateIndex = devices.findIndex((existing, index) =>
@@ -4017,6 +4024,24 @@ export default function App() {
                   <select value={form.device_class} onChange={e=>setForm(f=>({...f,device_class:e.target.value}))}>
                     {profile.device_classes.map(dc=><option key={dc} value={dc}>{dc}</option>)}
                   </select>
+                </div>
+              )}
+
+              {["FHK14","F4HK14","FAE14LPR","FAE14SSR"].some(model => String(form.device_type || profile.device_type || "").toUpperCase().includes(model)) && (
+                <div style={{maxWidth:550,marginBottom:".7rem"}}>
+                  <label>{language === "en" ? "Temperature reference for this heating channel" : "Temperaturreferenz für diesen Heizkanal"}</label>
+                  <select
+                    value={form.heating_control_mode || "ha_external"}
+                    onChange={e=>setForm(current=>({...current,heating_control_mode:e.target.value}))}
+                  >
+                    <option value="ha_external">{language === "en" ? "External Home Assistant temperature – FG1 / function 64" : "Externer HA-Temperatursensor – Funktionsgruppe 1 / Funktion 64"}</option>
+                    <option value="learned_sensor">{language === "en" ? "Sensor already learned in actuator – HA setpoint FG3 / function 65" : "Im Aktor eingelernter Temperatursensor – HA-Sollwert Gruppe 3 / Funktion 65"}</option>
+                  </select>
+                  <div style={{fontSize:".68rem",color:"#53616f",lineHeight:1.5,marginTop:".35rem"}}>
+                    {(form.heating_control_mode || "ha_external") === "learned_sensor"
+                      ? (language === "en" ? "Requires a matching pre-learned sensor in FG1. The writer leaves that sensor unchanged and programs only the HA setpoint in FG3." : "Voraussetzung: Ein passender Temperatursensor ist bereits in Gruppe 1 eingelernt. Der Writer belässt diesen Sensor und schreibt den HA-Sollwert nur in Gruppe 3.")
+                      : (language === "en" ? "The HA sender occupies the FG1 thermostat slot and may replace an earlier function-64 sender for this channel." : "Die HA-Sender-ID belegt den Temperaturreglerplatz in Gruppe 1 und kann dort eine bisherige Funktion-64-Sender-ID dieses Kanals ersetzen.")}
+                  </div>
                 </div>
               )}
 
