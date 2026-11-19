@@ -144,6 +144,7 @@ async def run():
     class BrokenTable(FD2G14):
         def __init__(self):
             super().__init__([])
+            self.discovery_response = types.SimpleNamespace(model=bytes((0x04, 0x82)))
             self.operations = []
         async def ensure_programmed(self, channel, sender, profile):
             self.operations.append(channel)
