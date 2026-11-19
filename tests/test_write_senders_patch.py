@@ -162,6 +162,47 @@ async def test_heating_group_1_function_64_only():
         if model == "F4HK14":
             assert dev.hardware[20] == unrelated
 
+    # PCT14 exports sometimes label a physical four-channel F4HK14 as FHK14.
+    # The physical model (04-18) and size=4 must choose the F4HK14 layout:
+    # FG1 rows 8..11, FG3 rows 16..19. Both temperature source modes must
+    # work per-channel without overwriting siblings.
+    misnamed = HeatingDevice("FHK14")
+    misnamed.size = 4
+    misnamed.discovery_response = types.SimpleNamespace(model=bytes((0x04, 0x18)))
+    for channel in range(4):
+        sender = f"FF-A6-04-{0xC0 + channel:02X}"
+        old = bytes.fromhex(sender.replace("-", "")) + bytes((0, 65, 1 << channel, 0))
+        misnamed.seed(16 + channel, old)
+        assert await module._ensure_programmed_fhk_controller(
+            misnamed, sender, channel, "FHK14", "ha_external"
+        ) is True
+        assert misnamed.hardware[8 + channel] == (
+            bytes.fromhex(sender.replace("-", "")) + bytes((0, 64, 1 << channel, 0))
+        )
+        assert misnamed.hardware[16 + channel] == bytes(8)
+        assert await module._ensure_programmed_fhk_controller(
+            misnamed, sender, channel, "FHK14", "ha_external"
+        ) is False
+
+    misnamed_sensor = HeatingDevice("FHK14")
+    misnamed_sensor.size = 4
+    misnamed_sensor.discovery_response = types.SimpleNamespace(model=bytes((0x04, 0x18)))
+    for channel in range(4):
+        mask = 1 << channel
+        sensor = bytes.fromhex("12345678") + bytes((0, 64, mask, 0))
+        misnamed_sensor.seed(8 + channel, sensor)
+        sender = f"FF-A6-04-{0xC0 + channel:02X}"
+        assert await module._ensure_programmed_fhk_controller(
+            misnamed_sensor, sender, channel, "FHK14", "learned_sensor"
+        ) is True
+        assert misnamed_sensor.hardware[8 + channel] == sensor
+        assert misnamed_sensor.hardware[16 + channel] == (
+            bytes.fromhex(sender.replace("-", "")) + bytes((0, 65, mask, 0))
+        )
+        assert await module._ensure_programmed_fhk_controller(
+            misnamed_sensor, sender, channel, "FHK14", "learned_sensor"
+        ) is False
+
     # The sole FG1 function-64 thermostat of a channel can be deliberately
     # taken over by the new HA room controller, even if its sender ID differs.
     takeover = HeatingDevice("FHK14")
