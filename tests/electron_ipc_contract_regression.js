@@ -23,6 +23,10 @@ for (const method of appMethods) {
   assert(exposedMethods.has(method), `Renderer method is exposed by preload: ${method}`);
 }
 
+assert(main.includes("sendMenuAction('new-project')"), 'Main menu exposes New Project action');
+assert(app.includes('if (action === "new-project") window.location.reload();'), 'Renderer resets state for New Project');
+assert(main.includes("accelerator: 'CmdOrCtrl+N'"), 'New Project uses Ctrl/Cmd+N');
+
 for (const eventChannel of ['menu-action', 'language-changed']) {
   assert(preload.includes(`ipcRenderer.on('${eventChannel}'`), `Preload listens for ${eventChannel}`);
   assert(main.includes(`webContents.send('${eventChannel}'`), `Main process emits ${eventChannel}`);

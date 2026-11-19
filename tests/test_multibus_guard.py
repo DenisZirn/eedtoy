@@ -8,10 +8,10 @@ import types
 spec = importlib.util.spec_from_file_location('multi_writer', Path(__file__).resolve().parents[1] / 'python/write_senders.py')
 writer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(writer)
-state = {'scans': 0, 'stopped': False, 'unlocked': False}
+state = {'scans': 0, 'stopped': False, 'unlocked': False, 'delay': None}
 class Bus:
     is_serial_connected = types.SimpleNamespace(wait=lambda **kw: None)
-    def __init__(self,*a,**kw): pass
+    def __init__(self,*a,**kw): state['delay'] = kw.get('delay_message')
     def start(self): pass
     def is_active(self): return True
     def set_callback(self,*a): pass
@@ -46,5 +46,6 @@ async def run():
         path.write_text(json.dumps({'entries':[entry]}))
         await writer.write_senders('TEST',str(path))
         assert state['scans']==1
+        assert state['delay']==0.01, '57,600-baud Series-14 writes need >=10ms pacing'
     print('Multi-bus guard rejects wrong FAM14 before scanning/writing and releases the bus; matching FAM14 proceeds.')
 asyncio.run(run())

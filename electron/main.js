@@ -2,6 +2,11 @@ const { app, BrowserWindow, shell, ipcMain, Menu, dialog } = require('electron')
 const path = require('path');
 const fs = require('fs/promises');
 const { mainText, normalizeLanguage } = require('./i18n-main');
+const https = require('https');
+const fsSync = require('fs');
+const os = require('os');
+const crypto = require('crypto');
+const { pipeline } = require('stream/promises');
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
@@ -114,6 +119,8 @@ function buildApplicationMenu() {
     {
       label: t('menu.file'),
       submenu: [
+        { label: t('menu.new'), accelerator: 'CmdOrCtrl+N', click: () => confirmNewProject() },
+        { type: 'separator' },
         { label: t('menu.open'), accelerator: 'CmdOrCtrl+O', click: () => sendMenuAction('open-project') },
         { label: t('menu.save'), accelerator: 'CmdOrCtrl+S', click: () => sendMenuAction('save-project') },
         { label: t('menu.saveAs'), accelerator: 'CmdOrCtrl+Shift+S', click: () => sendMenuAction('save-project-as') },
@@ -140,6 +147,8 @@ function buildApplicationMenu() {
     {
       label: t('menu.help'),
       submenu: [
+        { label: t('menu.checkUpdates'), click: () => checkForApplicationUpdate({ silent: false }) },
+        { type: 'separator' },
         { label: t('menu.about'), click: () => showAboutDialog() },
       ],
     },
@@ -153,6 +162,201 @@ async function changeLanguage(language) {
   else buildApplicationMenu();
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('language-changed', currentLanguage);
   if (deviceDatabaseWindow && !deviceDatabaseWindow.isDestroyed()) deviceDatabaseWindow.webContents.send('language-changed', currentLanguage);
+}
+
+const UPDATE_RELEASE_API = 'https://api.github.com/repos/DenisZirn/eedtoy/releases/latest';
+
+function _versionParts(value) {
+  const match = String(value || '').trim().match(/^v?(\d+(?:\.\d+)*)(?:[-+].*)?$/i);
+  return match ? match[1].split('.').map(Number) : null;
+}
+
+function _isNewerVersion(candidate, installed) {
+  const a = _versionParts(candidate);
+  const b = _versionParts(installed);
+  if (!a || !b) return false;
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+    if ((a[i] || 0) > (b[i] || 0)) return true;
+    if ((a[i] || 0) < (b[i] || 0)) return false;
+  }
+  return false;
+}
+
+function _getJsonHttps(url) {
+  return new Promise((resolve, reject) => {
+    const request = https.get(url, {
+      headers: {
+        'User-Agent': 'EEDTOY-UpdateChecker',
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    }, response => {
+      if (response.statusCode !== 200) {
+        response.resume();
+        reject(new Error('HTTP ' + response.statusCode));
+        return;
+      }
+      let data = '';
+      response.on('data', chunk => {
+        data += chunk.toString('utf8');
+        if (data.length > 1024 * 1024) request.destroy(new Error('Response too large'));
+      });
+      response.on('end', () => {
+        try { resolve(JSON.parse(data)); } catch (error) { reject(error); }
+      });
+    });
+    request.setTimeout(10000, () => request.destroy(new Error('Network timeout')));
+    request.on('error', reject);
+  });
+}
+
+async function checkForApplicationUpdate({ silent = false } = {}) {
+  try {
+    const release = await _getJsonHttps(UPDATE_RELEASE_API);
+    if (!release || release.draft || release.prerelease) return false;
+    const latestVersion = String(release.tag_name || '').replace(/^v/i, '');
+    if (!_isNewerVersion(latestVersion, app.getVersion())) {
+      if (!silent) {
+        await dialog.showMessageBox(mainWindow || undefined, {
+          type: 'info',
+          title: t('update.title'),
+          message: t('update.current'),
+          detail: t('update.currentDetail', { version: app.getVersion() }),
+          buttons: ['OK'],
+          icon: getAppIconPath(),
+        });
+      }
+      return false;
+    }
+
+    const asset = (release.assets || []).find(item => {
+      const name = String(item.name || '');
+      let downloadUrl;
+      try {
+        downloadUrl = new URL(String(item.browser_download_url || ''));
+      } catch (_) {
+        return false;
+      }
+      return /\.exe$/i.test(name) &&
+        /setup|installer/i.test(name) &&
+        downloadUrl.protocol === 'https:' &&
+        downloadUrl.hostname === 'github.com' &&
+        downloadUrl.pathname.startsWith('/DenisZirn/eedtoy/releases/download/');
+    });
+    if (!asset) throw new Error('Kein Windows-Installer im neuesten Release gefunden.');
+
+    const result = await dialog.showMessageBox(mainWindow || undefined, {
+      type: 'info',
+      title: t('update.availableTitle'),
+      message: t('update.available', { version: latestVersion }),
+      detail: t('update.question'),
+      buttons: [t('update.download'), t('update.later')],
+      defaultId: 0,
+      cancelId: 1,
+      icon: getAppIconPath(),
+    });
+    if (result.response !== 0) return true;
+
+    const expectedSize = Number(asset.size || 0);
+    if (!Number.isFinite(expectedSize) || expectedSize <= 0 || expectedSize > 350 * 1024 * 1024) {
+      throw new Error('Ungültige Installer-Größe.');
+    }
+    const targetDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eedtoy-update-'));
+    const safeName = String(asset.name || 'EEDTOY-Setup.exe').replace(/[^A-Za-z0-9_. -]/g, '_');
+    const targetPath = path.join(targetDir, safeName);
+    const hash = crypto.createHash('sha256');
+    let received = 0;
+
+    const download = await new Promise((resolve, reject) => {
+      const request = https.get(asset.browser_download_url, response => {
+        if ([301, 302, 303, 307, 308].includes(response.statusCode || 0)) {
+          response.resume();
+          const redirectUrl = response.headers.location;
+          if (!redirectUrl || !redirectUrl.startsWith('https://')) {
+            reject(new Error('Ungültige Download-Weiterleitung.'));
+            return;
+          }
+          https.get(redirectUrl, resolve).on('error', reject);
+          return;
+        }
+        resolve(response);
+      });
+      request.setTimeout(20000, () => request.destroy(new Error('Download-Zeitüberschreitung')));
+      request.on('error', reject);
+    });
+
+    if ((download.statusCode || 0) !== 200) {
+      download.resume();
+      throw new Error('Installer-Download fehlgeschlagen (HTTP ' + download.statusCode + ').');
+    }
+
+    const { Transform } = require('stream');
+    const verifier = new Transform({
+      transform(chunk, _encoding, callback) {
+        received += chunk.length;
+        if (received > expectedSize || received > 350 * 1024 * 1024) {
+          callback(new Error('Installer größer als erwartet.'));
+          return;
+        }
+        hash.update(chunk);
+        callback(null, chunk);
+      },
+    });
+    await pipeline(download, verifier, fsSync.createWriteStream(targetPath, { flags: 'wx' }));
+    if (received !== expectedSize) throw new Error('Installer unvollständig heruntergeladen.');
+
+    const digest = hash.digest('hex').toLowerCase();
+    if (asset.digest) {
+      const expectedDigest = String(asset.digest).toLowerCase();
+      if (!/^sha256:[a-f0-9]{64}$/.test(expectedDigest) || expectedDigest.slice(7) !== digest) {
+        throw new Error('Prüfsumme des Installers stimmt nicht.');
+      }
+    }
+
+    const installResult = await dialog.showMessageBox(mainWindow || undefined, {
+      type: 'question',
+      title: t('update.installTitle'),
+      message: t('update.downloaded'),
+      detail: t('update.installQuestion'),
+      buttons: [t('update.install'), t('update.later')],
+      defaultId: 0,
+      cancelId: 1,
+      icon: getAppIconPath(),
+    });
+    if (installResult.response !== 0) return true;
+
+    const launchError = await shell.openPath(targetPath);
+    if (launchError) throw new Error(launchError);
+    return true;
+  } catch (error) {
+    console.error('[update-check]', error);
+    if (!silent) {
+      await dialog.showMessageBox(mainWindow || undefined, {
+        type: 'warning',
+        title: t('update.errorTitle'),
+        message: t('update.error'),
+        detail: String(error && error.message ? error.message : error),
+        buttons: ['OK'],
+        icon: getAppIconPath(),
+      });
+    }
+    return false;
+  }
+}
+
+async function confirmNewProject() {
+  const result = await dialog.showMessageBox(mainWindow || undefined, {
+    type: 'question',
+    title: t('project.newTitle'),
+    message: t('project.newQuestion'),
+    detail: t('project.newDetail'),
+    buttons: [t('project.newConfirm'), t('project.newCancel')],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+    icon: getAppIconPath(),
+  });
+  if (result.response === 0) sendMenuAction('new-project');
 }
 
 function showAboutDialog() {
@@ -1437,9 +1641,16 @@ async function runPythonWriteSenders({ portPath = '', gatewayType = 'fam14', bau
         return runOne(index + 1);
       }
 
+      // Writing dozens of Series-14 IDs can legitimately exceed 3 minutes.
+      // Never kill an active bus write after the old fixed 180 s watchdog.
+      // Keep a bounded safety timeout and report its actual cause.
+      let writeTimedOut = false;
+      let writeSettled = false;
+      const writeTimeoutMs = Math.min(900000, Math.max(600000, entries.length * 15000));
       const timer = setTimeout(() => {
+        writeTimedOut = true;
         try { child.kill(); } catch {}
-      }, 180000);
+      }, writeTimeoutMs);
 
       child.stdout.on('data', d => { stdout += d.toString('utf8'); });
       child.stderr.on('data', d => {
@@ -1466,17 +1677,22 @@ async function runPythonWriteSenders({ portPath = '', gatewayType = 'fam14', bau
         }
       });
       child.on('error', e => {
+        if (writeSettled) return;
+        writeSettled = true;
         clearTimeout(timer);
         if (activeWriteSenderProcess?.child === child) activeWriteSenderProcess = null;
+        cleanup();
         if (cancelRequested) {
-          cleanup();
           emitProgress({ phase: 'canceled' });
           return resolve({ ok: false, canceled: true, error: 'Schreibvorgang abgebrochen.', events: [], processed: processedCount, total: totalCount });
         }
-        attempts.push({ cmd: c.cmd, error: e.message || String(e) });
-        runOne(index + 1);
+        const error = 'Python-Sender-Schreiber konnte nicht gestartet werden: ' + (e.message || String(e));
+        attempts.push({ cmd: c.cmd, error });
+        return resolve({ ok: false, error, attempts, processed: processedCount, total: totalCount, bridge: 'python' });
       });
       child.on('close', code => {
+        if (writeSettled) return;
+        writeSettled = true;
         clearTimeout(timer);
         if (activeWriteSenderProcess?.child === child) activeWriteSenderProcess = null;
         if (cancelRequested) {
@@ -1484,7 +1700,7 @@ async function runPythonWriteSenders({ portPath = '', gatewayType = 'fam14', bau
           emitProgress({ phase: 'canceled' });
           return resolve({ ok: false, canceled: true, error: 'Schreibvorgang abgebrochen.', events: [], processed: processedCount, total: totalCount });
         }
-        attempts.push({ cmd: c.cmd, code, stderr: stderr.slice(-4000) });
+        attempts.push({ cmd: c.cmd, code, stderr: stderr.slice(-4000), writeTimedOut });
         const jsonLine = stdout.trim().split(/\r?\n/).filter(Boolean).pop();
         if (jsonLine) {
           try {
@@ -1502,7 +1718,21 @@ async function runPythonWriteSenders({ portPath = '', gatewayType = 'fam14', bau
             attempts[attempts.length - 1].stdout = stdout.slice(-4000);
           }
         }
-        runOne(index + 1);
+        // The writer already ran and may have programmed several actuators.
+        // Never run it again automatically and never label this as a Python
+        // runtime initialization error. Surface the real exit and partial work.
+        const detail = (stderr.trim().split(/\r?\n/).filter(Boolean).slice(-3).join(' ') || stdout.trim().slice(-500));
+        const error = writeTimedOut
+          ? 'Series-14-Schreibvorgang hat die Sicherheitszeit von ' + Math.round(writeTimeoutMs / 60000) + ' Minuten überschritten.'
+          : 'Python-Sender-Schreiber wurde vorzeitig beendet (Exit-Code ' + code + ').';
+        cleanup();
+        emitProgress({ phase: 'error', message: error });
+        return resolve({
+          ok: false,
+          error: detail ? error + ' ' + detail.slice(-850) : error,
+          attempts, processed: processedCount, total: totalCount,
+          pythonStderr: stderr.slice(-12000), bridge: 'python',
+        });
       });
     };
 
@@ -2062,6 +2292,7 @@ app.whenReady().then(async () => {
   currentLanguage = await loadLanguage();
   buildApplicationMenu();
   createWindow();
+  setTimeout(() => checkForApplicationUpdate({ silent: true }), 2500);
 });
 app.on('before-quit', () => {
   if (lastBusDisconnectInfo) {

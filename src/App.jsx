@@ -81,6 +81,10 @@ const DEFAULT_EEP_DB = {
 
   // ── Raumregler / Klima ────────────────────────────────────────
   "A5-10-06": { group:"Raumregler / Klima", label:"FHK14 / F4HK14 / FAE14SSR – Heizung/Klima Temperatur + Sollwert + Fan (A5-10-06)", platform:"climate", eep_out:"A5-10-06", needs_sender:true, teach_in_telegram:"40-30-0D-87", sender_eep:"A5-10-06", device_type:"FHK14", eltako:"FHK14, F4HK14, FAE14SSR" },
+  "A5-10-06-FHK61-230V": { group:"Raumregler / Klima", label:"FHK61-230V – Funk Heiz-/Kühlrelais (A5-10-06)", platform:"climate", eep_out:"A5-10-06", needs_sender:true, sender_eep:"A5-10-06", teach_in_telegram:"40-30-0D-87", device_family:"FHK61-230V", device_type:"FHK61-230V", eltako:"FHK61-230V", bidirectional:true },
+  "A5-10-06-FHK61U-230V": { group:"Raumregler / Klima", label:"FHK61U-230V – Funk Heiz-/Kühlrelais (A5-10-06)", platform:"climate", eep_out:"A5-10-06", needs_sender:true, sender_eep:"A5-10-06", teach_in_telegram:"40-30-0D-87", device_family:"FHK61U-230V", device_type:"FHK61U-230V", eltako:"FHK61U-230V", bidirectional:true },
+  "A5-10-06-FHK61SSR-230V": { group:"Raumregler / Klima", label:"FHK61SSR-230V – Temperaturregelung (A5-10-06)", platform:"climate", eep_out:"A5-10-06", needs_sender:true, sender_eep:"A5-10-06", teach_in_telegram:"40-30-0D-87", device_family:"FHK61SSR-230V", device_type:"FHK61SSR-230V", eltako:"FHK61SSR-230V", bidirectional:true },
+  "A5-38-08-FHK61SSR-PWM": { group:"Raumregler / Klima", label:"FHK61SSR-230V – direkte PWM-Stellwertvorgabe 0–100 %", platform:"number", eep_out:"A5-38-08", needs_sender:true, sender_eep:"A5-38-08", teach_in_telegram:"E0-40-00-80", pwm_mode:"direct", pwm_period_seconds:120, device_family:"FHK61SSR-230V", device_type:"FHK61SSR-230V", eltako:"FHK61SSR-230V" },
   "A5-10-06-FAE14LPR": { group:"Raumregler / Klima", label:"FAE14LPR – Heizung/Klima wie FAE14SSR (A5-10-06)", platform:"climate", eep_out:"A5-10-06", needs_sender:true, sender_eep:"A5-10-06", teach_in_telegram:"40-30-0D-87", device_family:"FAE14LPR", bidirectional:true, min_target_temperature:16, max_target_temperature:25, device_type:"FAE14LPR", eltako:"FAE14LPR" },
   "A5-10-06-FUTH55": { group:"Raumregler / Klima", label:"FUTH55 / FUTH55ED / FUTH65D – Temperaturregler + Sollwert (A5-10-06)", platform:"climate", eep_out:"A5-10-06", needs_sender:true, sender_eep:"A5-10-06", futh55ed_mode:"fhk", teach_in_telegram:"40-30-0D-87", min_target_temperature:12, max_target_temperature:28, device_type:"FUTH55", eltako:"FUTH55, FUTH55ED, FUTH65D", note:"Für die Sollwertsteuerung muss die Home-Assistant-Sender-ID im FUTH55 eingelernt werden." },
   "A5-10-12-FUTH55-HYGROSTAT": { group:"Raumregler / Klima", label:"FUTH55 / FUTH55ED / FUTH65D – Hygrostat: Temperatur + Feuchte + Sollwert (A5-10-12)", platform:"sensor", eep_out:"A5-10-12", futh55ed_mode:"hygrostat", teach_in_telegram:"40-90-0D-80", device_type:"FUTH55", eltako:"FUTH55, FUTH55ED, FUTH65D" },
@@ -167,7 +171,7 @@ const DEVICE_DB_STORAGE_KEY = "eedtoy.customDeviceDatabase.v1";
 const DEVICE_DB_DELETED_KEYS = "__deleted_keys";
 const DEVICE_DB_MODE_KEY = "__eedtoy_database_mode";
 const DEVICE_DB_SCHEMA_KEY = "__eedtoy_database_schema";
-const DEVICE_DB_SCHEMA_VERSION = 61;
+const DEVICE_DB_SCHEMA_VERSION = 62;
 const DEVICE_DB_MODE_AUTHORITATIVE = "authoritative";
 const PROFILE_KEY_ALIASES = {
   "07-37-F7-FRGBW14": "07-3F-7F-FRGBW14",
@@ -371,6 +375,20 @@ function migrateCustomDeviceDatabase(input) {
       if (schemaVersion < 61 && !database["F6-05-01-FWS81"]) {
         database["F6-05-01-FWS81"] = { ...DEFAULT_EEP_DB["F6-05-01-FWS81"] };
       }
+      // Schema 62: FHK61 family. Users with an authoritative saved device
+      // database will not see new DEFAULT_EEP_DB entries without an explicit
+      // one-time migration. Preserve existing edits; later user deletions must
+      // remain deleted once schema 62 has been stored.
+      if (schemaVersion < 62) {
+        for (const key of [
+          "A5-10-06-FHK61-230V",
+          "A5-10-06-FHK61U-230V",
+          "A5-10-06-FHK61SSR-230V",
+          "A5-38-08-FHK61SSR-PWM",
+        ]) {
+          if (!database[key]) database[key] = { ...DEFAULT_EEP_DB[key] };
+        }
+      }
       database[DEVICE_DB_SCHEMA_KEY] = DEVICE_DB_SCHEMA_VERSION;
     }
     return withTechnicalDeviceTypes(database);
@@ -426,8 +444,8 @@ function loadCustomDeviceDatabase() {
 let EEP_DB = mergeDeviceDatabase(DEFAULT_EEP_DB, loadCustomDeviceDatabase());
 
 
-const PC = { binary_sensor:"#22c55e", sensor:"#0ea5e9", light:"#f59e0b", switch:"#a78bfa", cover:"#fb923c", climate:"#f43f5e" };
-const PI = { binary_sensor:"🔔", sensor:"📊", light:"💡", switch:"🔌", cover:"🪟", climate:"🌡️" };
+const PC = { binary_sensor:"#22c55e", sensor:"#0ea5e9", light:"#f59e0b", switch:"#a78bfa", cover:"#fb923c", climate:"#f43f5e", number:"#a78bfa" };
+const PI = { binary_sensor:"🔔", sensor:"📊", light:"💡", switch:"🔌", cover:"🪟", climate:"🌡️", number:"🎚️" };
 
 const GENERIC_EEP_PROFILES = {
   "A5-38-08": { platform:"light", needs_sender:true, sender_eep:"A5-38-08", eep_out:"A5-38-08" },
@@ -590,6 +608,8 @@ function applyCurrentDatabaseProfile(device) {
     stage_1_id: normalized.stage_1_id,
     stage_2_id: normalized.stage_2_id,
     f2l14_mode: normalized.f2l14_mode,
+    pwm_period_seconds: normalized.pwm_period_seconds,
+    heating_control_mode: normalized.heating_control_mode,
   };
   return {
     ...normalized,
@@ -1113,7 +1133,7 @@ function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", la
     // serial_path wird nicht exportiert; der Port wird im HA-Config-Flow gewählt.
     out += `    devices:\n`;
 
-    const ORDER = ["light","switch","cover","fan","sensor","binary_sensor","climate"];
+    const ORDER = ["light","switch","cover","fan","sensor","binary_sensor","climate","number"];
     for (const plat of ORDER) {
       const platformDevices = (byPlat[plat] || []).filter(d =>
         exportGatewayForDevice(d, primaryExportGatewayKey) === gatewayKey(gw) &&
@@ -1152,6 +1172,13 @@ function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", la
         }
         if (deviceFamily === "FRW-WS") {
           out += `        battery_low_data: "0x30"\n`;
+        }
+        if (["FHK14","F4HK14","FAE14LPR","FAE14SSR"].some(model => String(deviceType || "").toUpperCase().includes(model))) {
+          out += `        heating_control_mode: "${String(d.heating_control_mode || "ha_external")}"\n`;
+        }
+        if (p.pwm_mode === "direct") {
+          out += `        pwm_mode: "direct"\n`;
+          out += `        pwm_period_seconds: ${Number(d.pwm_period_seconds || p.pwm_period_seconds || 120)}\n`;
         }
         if (deviceFamily === "F2L14") {
           const stage1Device = { ...d, dev_id: d.stage_1_id || d.dev_id };
@@ -1346,6 +1373,9 @@ function buildSenderProgrammingEntries(devices, targetGateways, pct14BaseId, bus
         source_gateway_type: targetGateway.type || "",
         source_gateway_base_id: targetGateway.base_id || "",
         f2l14_mode: String(d.f2l14_mode || p.f2l14_mode || "exclusive").toLowerCase(),
+        pwm_mode: String(d.pwm_mode || p.pwm_mode || ""),
+        pwm_period_seconds: Number(d.pwm_period_seconds || p.pwm_period_seconds || 120),
+        heating_control_mode: String(d.heating_control_mode || "ha_external"),
       });
     }
   }
@@ -1657,6 +1687,7 @@ function parsePct14Xml(text, currentBaseId = "", options = {}, language = "de") 
     const senderByChannel = new Map();
     const controllerByChannel = new Map();
     const isHeatingController = /^(FHK14|F4HK14|FAE14LPR|FAE14SSR)/i.test(String(model || ""));
+    const isFrgbw14 = /^FRGBW14/i.test(String(model || ""));
     for (const entry of Array.from(device.querySelectorAll("rangeofid > entry"))) {
       const raw = textOf(entry, "entry_id", "");
       const id = byteIdFromDecimal(raw);
@@ -1667,6 +1698,19 @@ function parsePct14Xml(text, currentBaseId = "", options = {}, language = "de") 
       }
       if (/^00-00-B0-[0-9A-F]{2}$/.test(id) && ch > 0 && !senderByChannel.has(ch)) {
         senderByChannel.set(ch, id);
+      }
+      // FRGBW14 uses its own free RGBW controller profile:
+      // PCT14 ID entry 5+ = function group 3; function 81; channel bitmask 15.
+      // Unlike heating actuators, this is one controller for all four RGBW
+      // channels, not six separate sender IDs for the six bus addresses.
+      if (isFrgbw14 && id !== "00-00-00-00"
+          && Number(textOf(entry, "entry_number", "0")) >= 5
+          && Number(textOf(entry, "entry_function", "-1")) === 81
+          && Number(textOf(entry, "entry_button", "-1")) === 0
+          && Number(textOf(entry, "entry_channel", "0")) === 15) {
+        const existing = controllerByChannel.get(1);
+        if (!existing) controllerByChannel.set(1, id);
+        else if (existing !== id) controllerByChannel.set(1, "");
       }
       // Function 65 is the actual controller entry shown by PCT14 for
       // FHK/FAE, unlike the computed 00-00-B0-xx fallback sender.
@@ -1742,7 +1786,7 @@ function firstAvailableProfileKey() {
 function createEmptyForm(preferredProfileKey = "") {
   const resolvedPreferred = PROFILE_KEY_ALIASES[String(preferredProfileKey || "").toUpperCase()] || String(preferredProfileKey || "");
   const profileKey = EEP_DB[resolvedPreferred] ? resolvedPreferred : firstAvailableProfileKey();
-  return { name:"", dev_id:"", physical_unique_id:"", eep:profileKey, room:"", device_class:"", sender_id:"", sender_eep:"", time_opens:"", time_closes:"", min_target_temperature:"", max_target_temperature:"", device_type:"", model:"", eltako:"", id_range:"1", fwg14ms_id_range:"1", bus_address:"", f2l14_mode:"exclusive" };
+  return { name:"", dev_id:"", physical_unique_id:"", eep:profileKey, room:"", device_class:"", sender_id:"", sender_eep:"", time_opens:"", time_closes:"", min_target_temperature:"", max_target_temperature:"", device_type:"", model:"", eltako:"", id_range:"1", fwg14ms_id_range:"1", bus_address:"", f2l14_mode:"exclusive", pwm_period_seconds:120, heating_control_mode:"ha_external" };
 }
 
 // MiniSafe2 configurations arrive either as plain JSON or embedded in the text
@@ -2208,6 +2252,7 @@ export default function App() {
     }).catch(() => {});
 
     const cleanupMenu = window.electronAPI.onMenuAction((action) => {
+      if (action === "new-project") window.location.reload();
       if (action === "open-project") projectActionsRef.current.open?.();
       if (action === "save-project") projectActionsRef.current.save?.();
       if (action === "save-project-as") projectActionsRef.current.saveAs?.();
@@ -2547,6 +2592,8 @@ export default function App() {
       battery_eep: isF4usm ? String(p.battery_eep || "") : "",
       physical_unique_id: isF4usm && [1, 2, 4, 5, 7].includes(operatingMode) ? f.physical_unique_id : "",
       f2l14_mode: family === "F2L14" ? String(f.f2l14_mode || p.f2l14_mode || "exclusive") : "exclusive",
+      heating_control_mode: "ha_external",
+      pwm_period_seconds: Number(p.pwm_period_seconds || 120),
     }));
     setErrors({});
   };
@@ -2570,6 +2617,14 @@ export default function App() {
     if (String(selectedProfile.device_family || "").toUpperCase() === "F4USM61B" && [1, 2, 4, 5, 7].includes(selectedMode)) {
       if (!String(f.physical_unique_id || "").trim()) e.physical_unique_id = language === "en" ? "Learn or enter the battery ID." : "Batterie-ID einlernen oder eingeben.";
       else if (!/^[0-9a-fA-F]{2}(-[0-9a-fA-F]{2}){3}$/.test(String(f.physical_unique_id).trim())) e.physical_unique_id = "Format: FF-AA-BB-CC";
+    }
+    if (selectedProfile.pwm_mode === "direct") {
+      const period = Number(f.pwm_period_seconds ?? selectedProfile.pwm_period_seconds ?? 120);
+      if (!Number.isInteger(period) || period < 10 || period > 1000 || period % 10 !== 0) {
+        e.pwm_period_seconds = language === "en"
+          ? "PWM period must be 10–1000 seconds, in steps of 10."
+          : "PWM-Basiszeit muss 10–1000 Sekunden in 10-Sekunden-Schritten betragen.";
+      }
     }
     if (profile.needs_sender) {
       if (!f.sender_id.trim()) {
@@ -2612,11 +2667,29 @@ export default function App() {
       battery_status: isF4usmProfile ? Boolean(profile.battery_status) : Boolean(form.battery_status),
       battery_eep: isF4usmProfile ? String(profile.battery_eep || "") : String(form.battery_eep || ""),
       f2l14_mode: selectedFamily === "F2L14" ? String(form.f2l14_mode || profile.f2l14_mode || "exclusive") : String(form.f2l14_mode || "exclusive"),
+      heating_control_mode: String(form.heating_control_mode || "ha_external"),
+      pwm_period_seconds: Number(form.pwm_period_seconds ?? profile.pwm_period_seconds ?? 120),
+      pwm_mode: String(profile.pwm_mode || ""),
     };
     const e = validate(entry);
     const duplicateIndex = devices.findIndex((existing, index) =>
       index !== editIdx && duplicateDeviceKey(existing) && duplicateDeviceKey(existing) === duplicateDeviceKey(entry)
     );
+    // The FHK61SSR PWM-learning mode disables its built-in temperature
+    // regulation. Prevent accidental simultaneous profiles for one physical
+    // actuator, even though their EEPs (A5-10-06 / A5-38-08) differ.
+    if (String(entry.device_type || "").toUpperCase().includes("FHK61SSR")) {
+      const conflict = devices.find((existing,index) => index !== editIdx
+        && normalizeId(existing.dev_id) === normalizeId(entry.dev_id)
+        && normalizeId(entry.dev_id)
+        && String(deviceTypeForDevice(existing) || "").toUpperCase().includes("FHK61SSR")
+        && String(existing.eep || "") !== String(entry.eep || ""));
+      if (conflict) {
+        e.dev_id = language === "en"
+          ? "FHK61SSR cannot use temperature and direct-PWM profiles at the same time."
+          : "FHK61SSR darf nicht gleichzeitig als Temperaturregler und Direkt-PWM-Aktor konfiguriert werden.";
+      }
+    }
     if (duplicateIndex >= 0) {
       e.dev_id = isFbhOperatingMode(entry)
         ? t("validation.duplicateFbh", { name: devices[duplicateIndex].name })
@@ -3991,6 +4064,41 @@ export default function App() {
                   <select value={form.device_class} onChange={e=>setForm(f=>({...f,device_class:e.target.value}))}>
                     {profile.device_classes.map(dc=><option key={dc} value={dc}>{dc}</option>)}
                   </select>
+                </div>
+              )}
+
+              {["FHK14","F4HK14","FAE14LPR","FAE14SSR"].some(model => String(form.device_type || profile.device_type || "").toUpperCase().includes(model)) && (
+                <div style={{maxWidth:550,marginBottom:".7rem"}}>
+                  <label>{language === "en" ? "Temperature reference for this heating channel" : "Temperaturreferenz für diesen Heizkanal"}</label>
+                  <select
+                    value={form.heating_control_mode || "ha_external"}
+                    onChange={e=>setForm(current=>({...current,heating_control_mode:e.target.value}))}
+                  >
+                    <option value="ha_external">{language === "en" ? "External Home Assistant temperature – FG1 / function 64" : "Externer HA-Temperatursensor – Funktionsgruppe 1 / Funktion 64"}</option>
+                    <option value="learned_sensor">{language === "en" ? "Sensor already learned in actuator – HA setpoint FG3 / function 65" : "Im Aktor eingelernter Temperatursensor – HA-Sollwert Gruppe 3 / Funktion 65"}</option>
+                  </select>
+                  <div style={{fontSize:".68rem",color:"#53616f",lineHeight:1.5,marginTop:".35rem"}}>
+                    {(form.heating_control_mode || "ha_external") === "learned_sensor"
+                      ? (language === "en" ? "Requires a matching pre-learned sensor in FG1. The writer leaves that sensor unchanged and programs only the HA setpoint in FG3." : "Voraussetzung: Ein passender Temperatursensor ist bereits in Gruppe 1 eingelernt. Der Writer belässt diesen Sensor und schreibt den HA-Sollwert nur in Gruppe 3.")
+                      : (language === "en" ? "The HA sender occupies the FG1 thermostat slot and may replace an earlier function-64 sender for this channel." : "Die HA-Sender-ID belegt den Temperaturreglerplatz in Gruppe 1 und kann dort eine bisherige Funktion-64-Sender-ID dieses Kanals ersetzen.")}
+                  </div>
+                </div>
+              )}
+
+              {profile.pwm_mode === "direct" && (
+                <div style={{maxWidth:550,marginBottom:".7rem"}}>
+                  <label>{language === "en" ? "PWM base period (seconds)" : "PWM-Basiszeit (Sekunden)"}</label>
+                  <input type="number" min="10" max="1000" step="10"
+                    className={errors.pwm_period_seconds ? "err" : ""}
+                    value={form.pwm_period_seconds ?? profile.pwm_period_seconds ?? 120}
+                    onChange={e=>{setForm(current=>({...current,pwm_period_seconds:Number(e.target.value)}));setErrors({});}}
+                  />
+                  {errors.pwm_period_seconds && <div className="em">{errors.pwm_period_seconds}</div>}
+                  <div style={{fontSize:".68rem",color:"#53616f",lineHeight:1.5,marginTop:".35rem"}}>
+                    {language === "en"
+                      ? "FHK61SSR direct PWM is a separate operating mode: teaching a PWM sender disables the thermostat's internal temperature regulation. Use either PWM or A5-10-06 temperature control for one physical actuator."
+                      : "FHK61SSR-Direkt-PWM ist eine eigene Betriebsart: Nach dem Einlernen eines PWM-Senders wird die interne Temperaturregelung des Aktors deaktiviert. Für denselben Aktor entweder PWM oder A5-10-06-Temperaturregelung verwenden."}
+                  </div>
                 </div>
               )}
 
