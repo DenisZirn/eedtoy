@@ -40,7 +40,7 @@ vm.runInContext(helperSource, context, { filename: 'src/App.helpers.jsx' });
 const api = context.__api;
 
 assert(api.APP_VERSION === '1.1.04', 'Application version is 1.1.04');
-assert(Object.keys(api.EEP_DB).length === 82, 'Approved device profile count is 82');
+assert(Object.keys(api.EEP_DB).length === 86, 'Approved device profile count is 86');
 
 const gateway = {
   type: 'fam14',
