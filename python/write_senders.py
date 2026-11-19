@@ -754,27 +754,35 @@ def _prepare_fd2g14_memory_access(dev: Any) -> None:
         cached = dev.memory[row]
         if cached is not None:
             return cached
-        # The first FD2G14 memory request is sometimes lost just after a
-        # large Series-14 scan. The library's V2 exchange is capped at 1 sec;
-        # retry the actual same-row request after a paced bus settling window.
-        # A separate 60 ms pause between failed replies avoids repeatedly
-        # hitting the same late-response window. Never invent a memory value.
+        # FD2G14 replies can arrive after the default 1-second exchange
+        # window. The V2 interface clears its receive queue on each new
+        # exchange; repeated 1-second calls can therefore discard delayed
+        # replies indefinitely. Allow a full 2.5 seconds for this actuator,
+        # without changing timeouts for any other Series-14 device.
+        # All accepted rows still require a real typed response and row match.
         for attempt in range(6):
+            started_at = asyncio.get_running_loop().time()
             try:
                 response = await dev.bus.exchange(
                     EltakoMemoryRequest(dev.address, row), EltakoMemoryResponse,
-                    retries=1, timeout=1.0)
+                    retries=1, timeout=2.5)
+                elapsed_ms = round((asyncio.get_running_loop().time() - started_at) * 1000)
                 if (isinstance(response, EltakoMemoryResponse)
                         and response.row == row
                         and isinstance(response.value, (bytes, bytearray))
                         and len(response.value) == 8):
                     dev.memory[row] = bytes(response.value)
+                    log("FD2G14 row read verified", "base", dev.address,
+                        "row", row, "attempt", attempt + 1, "elapsed_ms", elapsed_ms)
                     return dev.memory[row]
-                log("FD2G14 unexpected row response", dev.address, row,
-                    "attempt", attempt + 1, repr(response))
+                log("FD2G14 unexpected row response", "base", dev.address,
+                    "row", row, "attempt", attempt + 1,
+                    "elapsed_ms", elapsed_ms, "received", repr(response))
             except TimeoutError as exc:
-                log("FD2G14 row read timeout", dev.address, row,
-                    "attempt", attempt + 1, repr(exc))
+                elapsed_ms = round((asyncio.get_running_loop().time() - started_at) * 1000)
+                log("FD2G14 row read timeout", "base", dev.address,
+                    "row", row, "attempt", attempt + 1,
+                    "elapsed_ms", elapsed_ms, repr(exc))
             if attempt < 5:
                 await asyncio.sleep(min(0.2 * (attempt + 1), 0.8))
         raise TimeoutError(
@@ -893,6 +901,7 @@ async def ensure_fd2g14_from_yaml(
         await asyncio.sleep(0.3)
         log("FD2G14 matched", "yaml-base", yaml_base, "physical-base", real_address, "size", getattr(dev, "size", "?"))
 
+        memory_read_failed: Optional[TimeoutError] = None
         for channel in sorted(pending):
             item = pending[channel]
             device_id = item["device_id"]
@@ -901,6 +910,26 @@ async def ensure_fd2g14_from_yaml(
             sender_eep = str(entry.get("sender", {}).get("eep", "")).strip().upper()
             display_name = _device_display_name(entry, "FD2G14", device_id)
             if not sender_id or sender_eep != "A5-38-08":
+                continue
+
+            if memory_read_failed is not None:
+                # Each subchannel shares one physical memory table. Repeating
+                # the same unreadable row for fifteen more channels is futile
+                # and can keep the bus busy for minutes. Record each pending
+                # channel as unverified so the fresh-session retry covers them.
+                message = (
+                    f"Fehler beim Schreiben von {sender_id} ({sender_eep}) in "
+                    f"{display_name} über FD2G14-Basisadresse {real_address}: "
+                    f"TimeoutError: {memory_read_failed}; "
+                    "Speichertabelle für weiteren Kanal nicht erneut gelesen."
+                )
+                events.append({
+                    "status": "error", "device_id": device_id,
+                    "device_type": "FD2G14", "sender_id": sender_id,
+                    "sender_eep": sender_eep, "message": message
+                })
+                processed_ids.add(device_id)
+                log(message)
                 continue
 
             try:
@@ -936,6 +965,10 @@ async def ensure_fd2g14_from_yaml(
                     f"Fehler beim Schreiben von {sender_id} ({sender_eep}) in {display_name} "
                     f"über FD2G14-Basisadresse {real_address}: {type(exc).__name__}: {exc}"
                 )
+                if isinstance(exc, TimeoutError) and "keine gültige Speicherantwort" in str(exc):
+                    memory_read_failed = exc
+                    log("FD2G14 memory table unavailable, remaining channels postponed",
+                        "base", real_address, "from_channel", channel + 1)
 
             events.append({"status": status, "device_id": device_id, "device_type": "FD2G14", "sender_id": sender_id, "sender_eep": sender_eep, "message": message})
             processed_ids.add(device_id)
@@ -1133,10 +1166,23 @@ async def _write_senders_session(
             log("FD2G14 fresh-session recovery", "physical bases", target_addresses,
                 "failed channel IDs", sorted(requested))
         else:
-            target_addresses = target_bus_addresses(fam14_base_id_int, sender_map)
+            # The FD2G14 gets its own first access immediately after the bus
+            # has been locked and the FAM14 base ID verified. The remaining
+            # devices are scanned later; this prevents hundreds of prior
+            # Series-14 transactions from starving its first memory read.
+            all_targets = target_bus_addresses(fam14_base_id_int, sender_map)
+            target_addresses = [
+                addr for addr in all_targets
+                if not any(base <= addr < base + 16 for base in fd2g_targets)
+            ]
             processed_ids: Set[str] = set()
-        log("target bus addresses", ",".join(str(a) for a in target_addresses))
-        discovered_fd2g: Dict[int, Any] = {}
+        log("target bus addresses", ",".join(str(a) for a in target_addresses),
+            "FD2G14 physical bases", sorted(fd2g_targets))
+        log("FD2G14 dedicated programming before other device writes")
+        fd2g_events = await ensure_fd2g14_from_yaml(
+            bus, fam14_base_id_int, sender_map, processed_ids
+        )
+        events.extend(fd2g_events)
 
         async for dev in enumerate_target_devices(bus, target_addresses):
             device_address = int(getattr(dev, "address", 0) or 0)
@@ -1153,11 +1199,6 @@ async def _write_senders_session(
             device_events = await ensure_programmed_for_device(fam14_base_id_int, dev, sender_map)
             events.extend(device_events)
             processed_ids.update(e.get("device_id", "") for e in device_events)
-
-        fd2g_events = await ensure_fd2g14_from_yaml(
-            bus, fam14_base_id_int, sender_map, processed_ids, discovered_fd2g
-        )
-        events.extend(fd2g_events)
 
         for device_id, entries in sender_map.items():
             if device_id in processed_ids:
