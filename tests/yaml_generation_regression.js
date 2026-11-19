@@ -40,7 +40,26 @@ vm.runInContext(helperSource, context, { filename: 'src/App.helpers.jsx' });
 const api = context.__api;
 
 assert(api.APP_VERSION === '1.1.04', 'Application version is 1.1.04');
-assert(Object.keys(api.EEP_DB).length === 82, 'Approved device profile count is 82');
+assert(Object.keys(api.EEP_DB).length === 86, 'Approved device profile count is 86, including FHK61 variants');
+
+const fhk61Models = ['FHK61-230V','FHK61U-230V','FHK61SSR-230V'];
+for (const model of fhk61Models) {
+  const profile = Object.values(api.EEP_DB).find(x => x.device_type === model && x.platform === 'climate');
+  assert(profile && profile.sender_eep === 'A5-10-06', model + ' uses HA temperature-controller profile');
+}
+const pwmProfile = api.EEP_DB['A5-38-08-FHK61SSR-PWM'];
+assert(pwmProfile.platform === 'number' && pwmProfile.teach_in_telegram === 'E0-40-00-80',
+  'FHK61SSR direct PWM uses number entity and distinct learning telegram');
+const pwmYaml = api.generateYaml(
+  {type:'fam-usb',base_id:'FF-A6-04-80'},
+  [{name:'FHK61SSR PWM Test',eep:'A5-38-08-FHK61SSR-PWM',platform:'number',
+    dev_id:'05-00-00-01',sender_id:'FF-A6-04-B2',
+    sender_eep:'A5-38-08',device_type:'FHK61SSR-230V',pwm_mode:'direct',pwm_period_seconds:180}],
+  [], '', 'de'
+);
+assertIncludes(pwmYaml, '      number:', 'FHK61SSR PWM exported to HA number platform');
+assertIncludes(pwmYaml, 'pwm_mode: "direct"', 'FHK61SSR direct PWM mode exported');
+assertIncludes(pwmYaml, 'pwm_period_seconds: 180', 'FHK61SSR PWM period preserved');
 
 const gateway = {
   type: 'fam14',
