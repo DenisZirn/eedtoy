@@ -594,6 +594,7 @@ function applyCurrentDatabaseProfile(device) {
     stage_1_id: normalized.stage_1_id,
     stage_2_id: normalized.stage_2_id,
     f2l14_mode: normalized.f2l14_mode,
+    pwm_period_seconds: normalized.pwm_period_seconds,
   };
   return {
     ...normalized,
@@ -1117,7 +1118,7 @@ function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", la
     // serial_path wird nicht exportiert; der Port wird im HA-Config-Flow gewählt.
     out += `    devices:\n`;
 
-    const ORDER = ["light","switch","cover","fan","sensor","binary_sensor","climate"];
+    const ORDER = ["light","switch","cover","fan","sensor","binary_sensor","climate","number"];
     for (const plat of ORDER) {
       const platformDevices = (byPlat[plat] || []).filter(d =>
         exportGatewayForDevice(d, primaryExportGatewayKey) === gatewayKey(gw) &&
@@ -1766,7 +1767,7 @@ function firstAvailableProfileKey() {
 function createEmptyForm(preferredProfileKey = "") {
   const resolvedPreferred = PROFILE_KEY_ALIASES[String(preferredProfileKey || "").toUpperCase()] || String(preferredProfileKey || "");
   const profileKey = EEP_DB[resolvedPreferred] ? resolvedPreferred : firstAvailableProfileKey();
-  return { name:"", dev_id:"", physical_unique_id:"", eep:profileKey, room:"", device_class:"", sender_id:"", sender_eep:"", time_opens:"", time_closes:"", min_target_temperature:"", max_target_temperature:"", device_type:"", model:"", eltako:"", id_range:"1", fwg14ms_id_range:"1", bus_address:"", f2l14_mode:"exclusive" };
+  return { name:"", dev_id:"", physical_unique_id:"", eep:profileKey, room:"", device_class:"", sender_id:"", sender_eep:"", time_opens:"", time_closes:"", min_target_temperature:"", max_target_temperature:"", device_type:"", model:"", eltako:"", id_range:"1", fwg14ms_id_range:"1", bus_address:"", f2l14_mode:"exclusive", pwm_period_seconds:120 };
 }
 
 // MiniSafe2 configurations arrive either as plain JSON or embedded in the text
