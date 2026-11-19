@@ -171,7 +171,7 @@ const DEVICE_DB_STORAGE_KEY = "eedtoy.customDeviceDatabase.v1";
 const DEVICE_DB_DELETED_KEYS = "__deleted_keys";
 const DEVICE_DB_MODE_KEY = "__eedtoy_database_mode";
 const DEVICE_DB_SCHEMA_KEY = "__eedtoy_database_schema";
-const DEVICE_DB_SCHEMA_VERSION = 61;
+const DEVICE_DB_SCHEMA_VERSION = 62;
 const DEVICE_DB_MODE_AUTHORITATIVE = "authoritative";
 const PROFILE_KEY_ALIASES = {
   "07-37-F7-FRGBW14": "07-3F-7F-FRGBW14",
@@ -375,6 +375,20 @@ function migrateCustomDeviceDatabase(input) {
       if (schemaVersion < 61 && !database["F6-05-01-FWS81"]) {
         database["F6-05-01-FWS81"] = { ...DEFAULT_EEP_DB["F6-05-01-FWS81"] };
       }
+      // Schema 62: FHK61 family. Users with an authoritative saved device
+      // database will not see new DEFAULT_EEP_DB entries without an explicit
+      // one-time migration. Preserve existing edits; later user deletions must
+      // remain deleted once schema 62 has been stored.
+      if (schemaVersion < 62) {
+        for (const key of [
+          "A5-10-06-FHK61-230V",
+          "A5-10-06-FHK61U-230V",
+          "A5-10-06-FHK61SSR-230V",
+          "A5-38-08-FHK61SSR-PWM",
+        ]) {
+          if (!database[key]) database[key] = { ...DEFAULT_EEP_DB[key] };
+        }
+      }
       database[DEVICE_DB_SCHEMA_KEY] = DEVICE_DB_SCHEMA_VERSION;
     }
     return withTechnicalDeviceTypes(database);
@@ -430,8 +444,8 @@ function loadCustomDeviceDatabase() {
 let EEP_DB = mergeDeviceDatabase(DEFAULT_EEP_DB, loadCustomDeviceDatabase());
 
 
-const PC = { binary_sensor:"#22c55e", sensor:"#0ea5e9", light:"#f59e0b", switch:"#a78bfa", cover:"#fb923c", climate:"#f43f5e" };
-const PI = { binary_sensor:"🔔", sensor:"📊", light:"💡", switch:"🔌", cover:"🪟", climate:"🌡️" };
+const PC = { binary_sensor:"#22c55e", sensor:"#0ea5e9", light:"#f59e0b", switch:"#a78bfa", cover:"#fb923c", climate:"#f43f5e", number:"#a78bfa" };
+const PI = { binary_sensor:"🔔", sensor:"📊", light:"💡", switch:"🔌", cover:"🪟", climate:"🌡️", number:"🎚️" };
 
 const GENERIC_EEP_PROFILES = {
   "A5-38-08": { platform:"light", needs_sender:true, sender_eep:"A5-38-08", eep_out:"A5-38-08" },
@@ -2579,6 +2593,7 @@ export default function App() {
       physical_unique_id: isF4usm && [1, 2, 4, 5, 7].includes(operatingMode) ? f.physical_unique_id : "",
       f2l14_mode: family === "F2L14" ? String(f.f2l14_mode || p.f2l14_mode || "exclusive") : "exclusive",
       heating_control_mode: "ha_external",
+      pwm_period_seconds: Number(p.pwm_period_seconds || 120),
     }));
     setErrors({});
   };
@@ -2602,6 +2617,14 @@ export default function App() {
     if (String(selectedProfile.device_family || "").toUpperCase() === "F4USM61B" && [1, 2, 4, 5, 7].includes(selectedMode)) {
       if (!String(f.physical_unique_id || "").trim()) e.physical_unique_id = language === "en" ? "Learn or enter the battery ID." : "Batterie-ID einlernen oder eingeben.";
       else if (!/^[0-9a-fA-F]{2}(-[0-9a-fA-F]{2}){3}$/.test(String(f.physical_unique_id).trim())) e.physical_unique_id = "Format: FF-AA-BB-CC";
+    }
+    if (selectedProfile.pwm_mode === "direct") {
+      const period = Number(f.pwm_period_seconds ?? selectedProfile.pwm_period_seconds ?? 120);
+      if (!Number.isInteger(period) || period < 10 || period > 1000 || period % 10 !== 0) {
+        e.pwm_period_seconds = language === "en"
+          ? "PWM period must be 10–1000 seconds, in steps of 10."
+          : "PWM-Basiszeit muss 10–1000 Sekunden in 10-Sekunden-Schritten betragen.";
+      }
     }
     if (profile.needs_sender) {
       if (!f.sender_id.trim()) {
@@ -2645,11 +2668,28 @@ export default function App() {
       battery_eep: isF4usmProfile ? String(profile.battery_eep || "") : String(form.battery_eep || ""),
       f2l14_mode: selectedFamily === "F2L14" ? String(form.f2l14_mode || profile.f2l14_mode || "exclusive") : String(form.f2l14_mode || "exclusive"),
       heating_control_mode: String(form.heating_control_mode || "ha_external"),
+      pwm_period_seconds: Number(form.pwm_period_seconds ?? profile.pwm_period_seconds ?? 120),
+      pwm_mode: String(profile.pwm_mode || ""),
     };
     const e = validate(entry);
     const duplicateIndex = devices.findIndex((existing, index) =>
       index !== editIdx && duplicateDeviceKey(existing) && duplicateDeviceKey(existing) === duplicateDeviceKey(entry)
     );
+    // The FHK61SSR PWM-learning mode disables its built-in temperature
+    // regulation. Prevent accidental simultaneous profiles for one physical
+    // actuator, even though their EEPs (A5-10-06 / A5-38-08) differ.
+    if (String(entry.device_type || "").toUpperCase().includes("FHK61SSR")) {
+      const conflict = devices.find((existing,index) => index !== editIdx
+        && normalizeId(existing.dev_id) === normalizeId(entry.dev_id)
+        && normalizeId(entry.dev_id)
+        && String(deviceTypeForDevice(existing) || "").toUpperCase().includes("FHK61SSR")
+        && String(existing.eep || "") !== String(entry.eep || ""));
+      if (conflict) {
+        e.dev_id = language === "en"
+          ? "FHK61SSR cannot use temperature and direct-PWM profiles at the same time."
+          : "FHK61SSR darf nicht gleichzeitig als Temperaturregler und Direkt-PWM-Aktor konfiguriert werden.";
+      }
+    }
     if (duplicateIndex >= 0) {
       e.dev_id = isFbhOperatingMode(entry)
         ? t("validation.duplicateFbh", { name: devices[duplicateIndex].name })
@@ -4041,6 +4081,23 @@ export default function App() {
                     {(form.heating_control_mode || "ha_external") === "learned_sensor"
                       ? (language === "en" ? "Requires a matching pre-learned sensor in FG1. The writer leaves that sensor unchanged and programs only the HA setpoint in FG3." : "Voraussetzung: Ein passender Temperatursensor ist bereits in Gruppe 1 eingelernt. Der Writer belässt diesen Sensor und schreibt den HA-Sollwert nur in Gruppe 3.")
                       : (language === "en" ? "The HA sender occupies the FG1 thermostat slot and may replace an earlier function-64 sender for this channel." : "Die HA-Sender-ID belegt den Temperaturreglerplatz in Gruppe 1 und kann dort eine bisherige Funktion-64-Sender-ID dieses Kanals ersetzen.")}
+                  </div>
+                </div>
+              )}
+
+              {profile.pwm_mode === "direct" && (
+                <div style={{maxWidth:550,marginBottom:".7rem"}}>
+                  <label>{language === "en" ? "PWM base period (seconds)" : "PWM-Basiszeit (Sekunden)"}</label>
+                  <input type="number" min="10" max="1000" step="10"
+                    className={errors.pwm_period_seconds ? "err" : ""}
+                    value={form.pwm_period_seconds ?? profile.pwm_period_seconds ?? 120}
+                    onChange={e=>{setForm(current=>({...current,pwm_period_seconds:Number(e.target.value)}));setErrors({});}}
+                  />
+                  {errors.pwm_period_seconds && <div className="em">{errors.pwm_period_seconds}</div>}
+                  <div style={{fontSize:".68rem",color:"#53616f",lineHeight:1.5,marginTop:".35rem"}}>
+                    {language === "en"
+                      ? "FHK61SSR direct PWM is a separate operating mode: teaching a PWM sender disables the thermostat's internal temperature regulation. Use either PWM or A5-10-06 temperature control for one physical actuator."
+                      : "FHK61SSR-Direkt-PWM ist eine eigene Betriebsart: Nach dem Einlernen eines PWM-Senders wird die interne Temperaturregelung des Aktors deaktiviert. Für denselben Aktor entweder PWM oder A5-10-06-Temperaturregelung verwenden."}
                   </div>
                 </div>
               )}
