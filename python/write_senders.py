@@ -461,11 +461,13 @@ async def _ensure_programmed_fhk_controller(
     sender_id: str,
     channel: int,
     device_type: str,
+    control_mode: str = "ha_external",
 ) -> bool:
-    """Teach the HA A5-10-06 room controller in FG1, function 64, only.
+    """Program the HA A5-10-06 sender according to the sensor source.
 
-    This also migrates a matching old function-65 entry from FG3.  Unrelated
-    learned temperature sensors and other channels are never overwritten.
+    ha_external: FG1 function 64 provides the HA room temperature and setpoint.
+    learned_sensor: keep the real FG1 room sensor and add HA setpoint in FG3
+    function 65. Only matching HA-sender legacy entries are ever removed.
     """
     count, group1_start, group3_start, model_codes = _heating_group_1_layout(
         device_type, int(getattr(dev, "size", 0) or 0)
@@ -484,6 +486,9 @@ async def _ensure_programmed_fhk_controller(
     if (memory_size < group3_start + count
             or not hasattr(dev, "read_mem_line") or not hasattr(dev, "write_mem_line")):
         raise RuntimeError(f"{device_type}: ID-Speicher nicht verfügbar")
+
+    if control_mode not in {"ha_external", "learned_sensor"}:
+        raise ValueError(f"{device_type}: unbekannte Temperaturregelungsart {control_mode!r}")
 
     sender = _sender_bytes_from_id(sender_id)
     mask = 1 << channel
@@ -507,8 +512,68 @@ async def _ensure_programmed_fhk_controller(
                 f"{device_type}: Schreiben der Speicherzeile {row} nicht bestätigt"
             )
 
-    # Validate everything before the first write. A physically learned
-    # thermostat in FG1 must not silently be replaced.
+    if control_mode == "learned_sensor":
+        # PCT14: A separate, already learned sensor in FG1 provides the
+        # reference room temperature. HA may only contribute the GFVS
+        # A5-10-06 target setpoint via FG3 function 65.
+        current_sensor = await read_fresh(target_row)
+        if not any(current_sensor):
+            raise RuntimeError(
+                f"{device_type} Kanal {channel + 1}: kein Temperatursensor "
+                "in Funktionsgruppe 1 eingelernt. Zuerst den Sensor im Aktor "
+                "einlernen; Funktionsgruppe 3 wurde nicht verändert."
+            )
+        if current_sensor[:4] == sender and current_sensor[5:] == bytes((64, mask, 0)):
+            raise RuntimeError(
+                f"{device_type} Kanal {channel + 1}: Funktionsgruppe 1 "
+                "enthält noch die HA-Sender-ID mit Funktion 64. "
+                "Zuerst einen separaten Temperatursensor in FG1 einlernen; "
+                "kein Schreiben in FG3."
+            )
+        if current_sensor[6] != mask:
+            raise RuntimeError(
+                f"{device_type} Kanal {channel + 1}: Sensor in FG1 "
+                "gehört nicht zur gewählten Kanalmaske; Schreiben abgebrochen."
+            )
+
+        target_group3_row = group3_start + channel
+        current_setpoint = await read_fresh(target_group3_row)
+        if any(current_setpoint) and current_setpoint != former:
+            raise RuntimeError(
+                f"{device_type} Kanal {channel + 1}: Funktionsgruppe 3 "
+                "ist durch einen anderen Sender oder eine andere Funktion "
+                "belegt; kein Eintrag wurde überschrieben."
+            )
+
+        # Retire misplaced exact HA function-65 duplicates in old FHK14
+        # writer layouts, but never alter any other sender.
+        stale_rows = []
+        if "FHK14" in str(device_type).upper() and "F4HK14" not in str(device_type).upper() and count == 1:
+            for row in (12, 13):
+                if row < memory_size and await read_fresh(row) == former:
+                    stale_rows.append(row)
+
+        changed = False
+        if current_setpoint != former:
+            await write_checked(target_group3_row, former)
+            changed = True
+        for row in stale_rows:
+            if await read_fresh(row) != former:
+                raise RuntimeError(f"{device_type}: Speicherzeile {row} zwischenzeitlich verändert")
+            await write_checked(row, bytes(8))
+            changed = True
+
+        if await read_fresh(target_row) != current_sensor:
+            raise RuntimeError(f"{device_type}: vorhandener Temperatursensor in FG1 wurde verändert")
+        if await read_fresh(target_group3_row) != former:
+            raise RuntimeError(f"{device_type}: FG3, Funktion 65 nicht bestätigt")
+        log("Heating writer verified", device_type, "channel", channel + 1,
+            "sender", norm_id(sender_id), "function_group", 3,
+            "function", 65, "channel_mask", f"{mask:08b}", "memory_row", target_group3_row)
+        return changed
+
+    # HA provides both reference temperature and setpoint in FG1.
+    # Validate everything before the first write.
     current = await read_fresh(target_row)
     if (any(current) and current != expected
             and not (current[:4] == sender and current[6] == mask)):
@@ -930,7 +995,10 @@ async def ensure_programmed_for_device(fam14_base_id_int: int, dev: Any, sender_
                     elif is_f2l14 and sender_eep == "F6-02-01":
                         update_result = await _ensure_programmed_f2l14(dev, sender_id, entry.get("f2l14_mode", "exclusive"))
                     elif is_fhk and sender_eep == "A5-10-06":
-                        update_result = await _ensure_programmed_fhk_controller(dev, sender_id, channel, entry_type)
+                        update_result = await _ensure_programmed_fhk_controller(
+                            dev, sender_id, channel, entry_type,
+                            str(entry.get("heating_control_mode") or "ha_external"),
+                        )
                     elif isinstance(dev, HasProgrammableRPS) or isinstance(dev, DimmerStyle) or hasattr(dev, "ensure_programmed"):
                         sender_address = AddressExpression.parse(sender_id)
                         eep_profile = EEP.find(sender_eep)
