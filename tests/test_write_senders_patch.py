@@ -162,17 +162,29 @@ async def test_heating_group_1_function_64_only():
         if model == "F4HK14":
             assert dev.hardware[20] == unrelated
 
-    # Refuse to replace a controller belonging to another sender.
-    blocked = HeatingDevice("F4HK14")
+    # The sole FG1 function-64 thermostat of a channel can be deliberately
+    # taken over by the new HA room controller, even if its sender ID differs.
+    takeover = HeatingDevice("FHK14")
     occupied = bytes.fromhex("0102030400400100")
-    blocked.seed(8, occupied)
+    takeover.seed(8, occupied)
+    assert await module._ensure_programmed_fhk_controller(
+        takeover, "FF-A6-04-C0", 0, "FHK14"
+    ) is True
+    assert takeover.hardware[8] == bytes.fromhex("FFA604C000400100")
+    assert await module._ensure_programmed_fhk_controller(
+        takeover, "FF-A6-04-C0", 0, "FHK14"
+    ) is False
+
+    # No other function or channel may be replaced by this takeover.
+    blocked = HeatingDevice("F4HK14")
+    blocked.seed(8, bytes.fromhex("01020304001E0100"))
     try:
         await module._ensure_programmed_fhk_controller(blocked, "FF-A6-04-C0", 0, "F4HK14")
     except RuntimeError as exc:
-        assert "andere Sender-ID" in str(exc)
+        assert "fremde Funktion" in str(exc)
     else:
-        raise AssertionError("A foreign controller in function group 1 must be protected")
-    assert blocked.hardware[8] == occupied
+        raise AssertionError("A non-thermostat sensor in FG1 must be protected")
+    assert blocked.hardware[8] == bytes.fromhex("01020304001E0100")
     assert not any(blocked.hardware[16])
 
     # Remove function 65 for the same ID even if found in a different
