@@ -47,11 +47,12 @@ async def run():
     dev.bus.replies = [Response(14,value)]
     await dev.write_mem_line(14,value)
     assert len(dev.writes)==1 and len(dev.bus.calls)==4
-    dev = FD2G14([None,TimeoutError(),Response(14,b'bad')])
+    dev = FD2G14([None, TimeoutError(), Response(14,b'bad'), None, None, None])
     writer._prepare_fd2g14_memory_access(dev)
     try: await dev.read_mem_line(14)
     except TimeoutError as error: assert 'Zeile 14' in str(error)
     else: raise AssertionError('missing reply must fail')
+    assert len(dev.bus.calls) == 6
     assert dev.memory[14] is None and not dev.writes
     other = types.SimpleNamespace()
     writer._prepare_fd2g14_memory_access(other)
