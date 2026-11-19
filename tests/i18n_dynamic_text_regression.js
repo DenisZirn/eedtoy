@@ -143,8 +143,14 @@ const databaseSource = appSource
   .replace(/\r\n/g, '\n');
 const deviceRows = [...databaseSource.matchAll(/group:"([^"]+)"\s*,\s*label:"([^"]+)"/g)]
   .map((match) => ({ group: match[1], label: match[2] }));
-assertEqual(deviceRows.length, 82, 'Approved device profile count is 82');
-assertEqual(crypto.createHash('sha256').update(databaseSource).digest('hex'), '0418a5a75757ceb30e7d0f6e59f7f88d9c3670d68e851295893ccc7541ee8a80', 'Approved device database content unchanged');
+assertEqual(deviceRows.length, 86, 'Approved device profile count is 86');
+// The 82 previously approved profiles remain byte-for-byte unchanged.
+// Only the four independently tested FHK61 profiles may be added in this test.
+const priorDatabaseSource = databaseSource.split('\n').filter(line =>
+  !line.startsWith('  // FHK61 decentralized actuators:') &&
+  !/^(  "A5-10-06-FHK61"|  "A5-10-06-FHK61U"|  "A5-10-06-FHK61SSR"|  "A5-38-08-FHK61SSR-PWM")/.test(line)
+).join('\n');
+assertEqual(crypto.createHash('sha256').update(priorDatabaseSource).digest('hex'), '0418a5a75757ceb30e7d0f6e59f7f88d9c3670d68e851295893ccc7541ee8a80', 'Previously approved device database content unchanged');
 assert(Object.keys(api.deviceLabelTranslations).length > 0, 'Exact English device-label table is available');
 
 const remainingGerman = /(Taster|Näherung|Fenster|Türkontakt|Bewegung|Helligkeit|Rauch|Hitze|Temperatur\b|Feuchte|Datenübermittlung|Punkt-Regler|Heizkörper|Funk-|Wechselstrom|Drehstrom|Wetterstation|Regen|Dimmaktor|Relais|Farbsteuerung|freies Profil|Jalousie|Rollladen|Betriebsart|Raumregler|Sollwert|Belegung)/;
