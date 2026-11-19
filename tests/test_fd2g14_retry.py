@@ -134,6 +134,33 @@ async def run():
     events=await writer.ensure_fd2g14_from_yaml(None,0xFFBF5C80,target,set())
     assert events[0]['status']=='error'
 
+    # A permanent failure at the first FD2G14 ID-table row applies to the
+    # same physical memory for all 16 channels. Stop hammering row 14 for
+    # each channel; defer the other logical IDs to the fresh RS485 session.
+    first_two = {
+        'FF-BF-5C-A9': [{'device_type': 'FD2G14', 'sender': {'id': '00-00-B0-29', 'eep': 'A5-38-08'}}],
+        'FF-BF-5C-AA': [{'device_type': 'FD2G14', 'sender': {'id': '00-00-B0-2A', 'eep': 'A5-38-08'}}],
+    }
+    class BrokenTable(FD2G14):
+        def __init__(self):
+            super().__init__([])
+            self.operations = []
+        async def ensure_programmed(self, channel, sender, profile):
+            self.operations.append(channel)
+            raise TimeoutError(
+                'FD2G14 Basisadresse 41: keine gültige Speicherantwort für Zeile 14 nach 6 Versuchen'
+            )
+    broken_table = BrokenTable()
+    devices.create_busobject = lambda **kwargs: None
+    async def fixed_discovery(**kwargs): return broken_table
+    devices.create_busobject = fixed_discovery
+    errors = await writer.ensure_fd2g14_from_yaml(None, 0xFFBF5C80, first_two, set())
+    assert [e['status'] for e in errors] == ['error', 'error']
+    assert broken_table.operations == [0, 0, 0], (
+        'Only the first channel may retry the unreadable memory table in this session'
+    )
+    assert all(writer._fd2g14_is_read_timeout(e) for e in errors)
+
     # One manual second run works because the bus is closed and reopened.
     # Verify the top-level recovery genuinely starts a SECOND session and
     # limits its channel set to failed FD2G14 IDs. Successful channels and
