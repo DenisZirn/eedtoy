@@ -512,10 +512,18 @@ async def _ensure_programmed_fhk_controller(
     current = await read_fresh(target_row)
     if (any(current) and current != expected
             and not (current[:4] == sender and current[6] == mask)):
-        raise RuntimeError(
-            f"{device_type} Kanal {channel + 1}: Funktionsgruppe 1 ist durch "
-            "eine andere Sender-ID belegt; kein Eintrag wurde überschrieben"
-        )
+        # Writing a new HA room controller deliberately takes over the one
+        # physical thermostat-controller slot of this exact channel. PCT14
+        # Function 64 is the only replaceable legacy thermostat entry.
+        # Never overwrite other functions or a different channel mask.
+        if current[4:] != bytes((0, 64, mask, 0)):
+            raise RuntimeError(
+                f"{device_type} Kanal {channel + 1}: Funktionsgruppe 1 "
+                "enthält eine fremde Funktion oder Kanalzuordnung; "
+                "nicht überschrieben"
+            )
+        log("Heating FG1 takeover", device_type, "channel", channel + 1,
+            "old_sender", current[:4].hex("-").upper(), "new_sender", sender_id)
 
     # Only remove an old FG3 sender with the *identical* ID, function 65
     # and channel bitmask. Never clear another learned sender or channel.
@@ -674,7 +682,12 @@ def _prepare_fd2g14_memory_access(dev: Any) -> None:
         cached = dev.memory[row]
         if cached is not None:
             return cached
-        for attempt in range(3):
+        # The first FD2G14 memory request is sometimes lost just after a
+        # large Series-14 scan. The library's V2 exchange is capped at 1 sec;
+        # retry the actual same-row request after a paced bus settling window.
+        # A separate 60 ms pause between failed replies avoids repeatedly
+        # hitting the same late-response window. Never invent a memory value.
+        for attempt in range(6):
             try:
                 response = await dev.bus.exchange(
                     EltakoMemoryRequest(dev.address, row), EltakoMemoryResponse,
@@ -685,11 +698,18 @@ def _prepare_fd2g14_memory_access(dev: Any) -> None:
                         and len(response.value) == 8):
                     dev.memory[row] = bytes(response.value)
                     return dev.memory[row]
-            except TimeoutError:
-                pass
-            if attempt < 2:
-                await asyncio.sleep(0.1)
-        raise TimeoutError(f"FD2G14 Basisadresse {dev.address}: keine gültige Speicherantwort für Zeile {row} nach 3 Versuchen; Schreiben abgebrochen.")
+                log("FD2G14 unexpected row response", dev.address, row,
+                    "attempt", attempt + 1, repr(response))
+            except TimeoutError as exc:
+                log("FD2G14 row read timeout", dev.address, row,
+                    "attempt", attempt + 1, repr(exc))
+            if attempt < 5:
+                await asyncio.sleep(min(0.2 * (attempt + 1), 0.8))
+        raise TimeoutError(
+            f"FD2G14 Basisadresse {dev.address}: keine gültige Speicherantwort "
+            f"für Zeile {row} nach 6 Versuchen; Busantwort fehlt, "
+            "Schreiben wurde sicher abgebrochen."
+        )
 
     async def write_row(row, value):
         try:
@@ -796,6 +816,9 @@ async def ensure_fd2g14_from_yaml(
         _prepare_fd2g14_memory_access(dev)
         used_devices.add(id(dev))
         real_address = int(getattr(dev, "address", 0) or 0)
+        # Give the RS485 interface time to settle after discovery before
+        # the first FD2G14 ID-table read (usually memory row 14).
+        await asyncio.sleep(0.3)
         log("FD2G14 matched", "yaml-base", yaml_base, "physical-base", real_address, "size", getattr(dev, "size", "?"))
 
         for channel in sorted(pending):
