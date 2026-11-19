@@ -494,6 +494,31 @@ def test_fd2g14_uses_grimm_scan():
     assert "_ensure_programmed_fhk_controller" in source
 
 
+def test_heating_control_mode_survives_sender_map():
+    device_id = "FF-BF-5C-C0"
+    template = {
+        "device_id": device_id,
+        "sender_id": "FF-A6-04-C0",
+        "sender_eep": "A5-10-06",
+        "device_type": "F4HK14",
+    }
+    for mode in ("learned_sensor", "ha_external"):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "senders.json"
+            path.write_text(json.dumps({
+                "entries": [{**template, "heating_control_mode": mode}]
+            }), encoding="utf-8")
+            sender_map = module.load_sender_map(str(path))
+        assert sender_map[device_id][0]["heating_control_mode"] == mode
+
+    # Legacy projects retain the established HA external sensor mode.
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "senders.json"
+        path.write_text(json.dumps({"entries": [template]}), encoding="utf-8")
+        sender_map = module.load_sender_map(str(path))
+    assert sender_map[device_id][0]["heating_control_mode"] == "ha_external"
+
+
 def test_multiple_senders_per_device_are_preserved():
     payload = {"entries": [{"device_id":"FF-F2-6C-8B","sender_id":"00-00-B0-0B","sender_eep":"H5-3F-7F","name":"FSB14 Kanal 1"},{"device_id":"FF-F2-6C-8B","sender_id":"FF-A6-07-0B","sender_eep":"H5-3F-7F","name":"FSB14 Kanal 1"},{"device_id":"FF-F2-6C-8B","sender_id":"00-00-B0-0B","sender_eep":"H5-3F-7F","name":"duplicate"}]}
     with tempfile.TemporaryDirectory() as directory:
@@ -508,6 +533,7 @@ def test_multiple_senders_per_device_are_preserved():
 if __name__ == "__main__":
     test_target_addresses()
     test_fd2g14_uses_grimm_scan()
+    test_heating_control_mode_survives_sender_map()
     test_multiple_senders_per_device_are_preserved()
     asyncio.run(test_frgbw14_group_3_function_81())
     asyncio.run(test_heating_group_1_function_64_only())
