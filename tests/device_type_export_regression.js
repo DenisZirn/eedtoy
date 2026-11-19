@@ -238,7 +238,7 @@ for(const language of ['de','en']) {
   for(const key of ['sender','teach_in_telegram','battery_low_data'])assert(!Object.hasOwn(entry,key));
 }
 const waterMigrated=api.migrateCustomDeviceDatabase({__eedtoy_database_mode:'authoritative',__eedtoy_database_schema:60,'A5-06-01-FAH':{...api.DEFAULT_EEP_DB['A5-06-01-FAH'],label:'Eigener Name'}});
-assert.equal(waterMigrated.__eedtoy_database_schema,61);
+assert.equal(waterMigrated.__eedtoy_database_schema,62);
 assert.equal(waterMigrated['F6-05-01-FWS81'].device_type,'FWS81');
 assert.equal(waterMigrated['A5-06-01-FAH'].label,'Eigener Name');
 delete waterMigrated['F6-05-01-FWS81'];
