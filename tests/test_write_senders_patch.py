@@ -187,6 +187,54 @@ async def test_heating_group_1_function_64_only():
     assert blocked.hardware[8] == bytes.fromhex("01020304001E0100")
     assert not any(blocked.hardware[16])
 
+    # Native PCT14 thermostat in FG1 must remain completely unchanged while
+    # the HA controller writes the setpoint (function 65) in FG3.
+    for model, channels in cases:
+        native = HeatingDevice(model)
+        group3_base = 10 if model == "FHK14" else (16 if model == "F4HK14" else 12)
+        for channel in range(channels):
+            mask = 1 << channel
+            original_sensor = bytes.fromhex("12345678") + bytes((0, 64, mask, 0))
+            native.seed(8 + channel, original_sensor)
+            sender = f"FF-A6-04-{0xC0+channel:02X}"
+            assert await module._ensure_programmed_fhk_controller(
+                native, sender, channel, model, "learned_sensor"
+            ) is True
+            assert native.hardware[8 + channel] == original_sensor
+            assert native.hardware[group3_base + channel] == (
+                bytes.fromhex(sender.replace("-", "")) + bytes((0, 65, mask, 0))
+            )
+            assert await module._ensure_programmed_fhk_controller(
+                native, sender, channel, model, "learned_sensor"
+            ) is False
+
+    # The native mode never silently writes a setpoint without a real sensor.
+    no_sensor = HeatingDevice("FHK14")
+    try:
+        await module._ensure_programmed_fhk_controller(
+            no_sensor, "FF-A6-04-C0", 0, "FHK14", "learned_sensor"
+        )
+    except RuntimeError as exc:
+        assert "kein Temperatursensor" in str(exc)
+    else:
+        raise AssertionError("Native mode requires a physical FG1 sensor")
+    assert not any(no_sensor.hardware[10])
+
+    # Protect a different controller in the channel's FG3 slot.
+    occupied_fg3 = HeatingDevice("FHK14")
+    occupied_fg3.seed(8, bytes.fromhex("1234567800400100"))
+    occupied_fg3.seed(10, bytes.fromhex("ABCDEF0100410100"))
+    try:
+        await module._ensure_programmed_fhk_controller(
+            occupied_fg3, "FF-A6-04-C0", 0, "FHK14", "learned_sensor"
+        )
+    except RuntimeError as exc:
+        assert "anderen Sender" in str(exc)
+    else:
+        raise AssertionError("FG3 may not overwrite a foreign controller")
+    assert occupied_fg3.hardware[8] == bytes.fromhex("1234567800400100")
+    assert occupied_fg3.hardware[10] == bytes.fromhex("ABCDEF0100410100")
+
     # Remove function 65 for the same ID even if found in a different
     # slot of the old function-group section, but leave other IDs intact.
     migrated = HeatingDevice("FHK14")
