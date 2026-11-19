@@ -82,6 +82,11 @@ const DEFAULT_EEP_DB = {
   // ── Raumregler / Klima ────────────────────────────────────────
   "A5-10-06": { group:"Raumregler / Klima", label:"FHK14 / F4HK14 / FAE14SSR – Heizung/Klima Temperatur + Sollwert + Fan (A5-10-06)", platform:"climate", eep_out:"A5-10-06", needs_sender:true, teach_in_telegram:"40-30-0D-87", sender_eep:"A5-10-06", device_type:"FHK14", eltako:"FHK14, F4HK14, FAE14SSR" },
   "A5-10-06-FAE14LPR": { group:"Raumregler / Klima", label:"FAE14LPR – Heizung/Klima wie FAE14SSR (A5-10-06)", platform:"climate", eep_out:"A5-10-06", needs_sender:true, sender_eep:"A5-10-06", teach_in_telegram:"40-30-0D-87", device_family:"FAE14LPR", bidirectional:true, min_target_temperature:16, max_target_temperature:25, device_type:"FAE14LPR", eltako:"FAE14LPR" },
+  // FHK61 decentralized actuators: distinct temperature and direct PWM profiles.
+  "A5-10-06-FHK61": { group:"Raumregler / Klima", label:"FHK61-230V – Temperaturregelung (A5-10-06)", platform:"climate", eep_out:"A5-10-06", needs_sender:true, sender_eep:"A5-10-06", teach_in_telegram:"40-30-0D-87", min_target_temperature:16, max_target_temperature:25, device_type:"FHK61-230V", eltako:"FHK61-230V" },
+  "A5-10-06-FHK61U": { group:"Raumregler / Klima", label:"FHK61U-230V – Temperaturregelung mit Relaisrückmeldung (A5-10-06)", platform:"climate", eep_out:"A5-10-06", needs_sender:true, sender_eep:"A5-10-06", teach_in_telegram:"40-30-0D-87", min_target_temperature:16, max_target_temperature:25, bidirectional:true, device_type:"FHK61U-230V", eltako:"FHK61U-230V" },
+  "A5-10-06-FHK61SSR": { group:"Raumregler / Klima", label:"FHK61SSR-230V – Temperaturregelung (A5-10-06)", platform:"climate", eep_out:"A5-10-06", needs_sender:true, sender_eep:"A5-10-06", teach_in_telegram:"40-30-0D-87", min_target_temperature:16, max_target_temperature:25, device_type:"FHK61SSR-230V", eltako:"FHK61SSR-230V" },
+  "A5-38-08-FHK61SSR-PWM": { group:"Raumregler / Klima", label:"FHK61SSR-230V – direkte PWM-Steuerung 0–100 % (A5-38-08)", platform:"number", eep_out:"A5-38-08", needs_sender:true, sender_eep:"A5-38-08", teach_in_telegram:"E0-40-00-80", pwm_mode:"direct", pwm_period_seconds:120, pwm_repeater:false, device_type:"FHK61SSR-230V", eltako:"FHK61SSR-230V" },
   "A5-10-06-FUTH55": { group:"Raumregler / Klima", label:"FUTH55 / FUTH55ED / FUTH65D – Temperaturregler + Sollwert (A5-10-06)", platform:"climate", eep_out:"A5-10-06", needs_sender:true, sender_eep:"A5-10-06", futh55ed_mode:"fhk", teach_in_telegram:"40-30-0D-87", min_target_temperature:12, max_target_temperature:28, device_type:"FUTH55", eltako:"FUTH55, FUTH55ED, FUTH65D", note:"Für die Sollwertsteuerung muss die Home-Assistant-Sender-ID im FUTH55 eingelernt werden." },
   "A5-10-12-FUTH55-HYGROSTAT": { group:"Raumregler / Klima", label:"FUTH55 / FUTH55ED / FUTH65D – Hygrostat: Temperatur + Feuchte + Sollwert (A5-10-12)", platform:"sensor", eep_out:"A5-10-12", futh55ed_mode:"hygrostat", teach_in_telegram:"40-90-0D-80", device_type:"FUTH55", eltako:"FUTH55, FUTH55ED, FUTH65D" },
   "A5-10-06-FTR-FHK": { group:"Raumregler / Klima", label:"FTR55/65-Familie – Betriebsart FHK: Soll- und Isttemperatur (A5-10-06)", platform:"sensor", eep_out:"A5-10-06", room_controller_mode:"fhk", teach_in_telegram:"40-30-0D-87", min_target_temperature:12, max_target_temperature:28, frost_temperature:8, device_type:"FTR65DSB", eltako:"FTR65DSB, FTR55DSB, FTR55EHB, FTR55ESB, FTR65HB, FTRF65HB, FTR55HB, FTR65SB, FTRF65SB, FTR55SB" },
@@ -1165,6 +1170,12 @@ function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", la
         if (p.ffg7b_three_state) out += `        ffg7b_three_state: true\n`;
         if (p.futh55ed_mode) out += `        futh55ed_mode: "${p.futh55ed_mode}"\n`;
         if (p.room_controller_mode) out += `        room_controller_mode: "${p.room_controller_mode}"\n`;
+        if (d.heating_control_mode || p.heating_control_mode) out += `        heating_control_mode: "${d.heating_control_mode || p.heating_control_mode}"\n`;
+        if (d.pwm_mode || p.pwm_mode) {
+          out += `        pwm_mode: "${d.pwm_mode || p.pwm_mode}"\n`;
+          out += `        pwm_period_seconds: ${Number(d.pwm_period_seconds || p.pwm_period_seconds || 120)}\n`;
+          out += `        pwm_repeater: ${Boolean(d.pwm_repeater ?? p.pwm_repeater ?? false)}\n`;
+        }
         if (p.teach_in_telegram) out += `        teach_in_telegram: "${p.teach_in_telegram}"\n`;
         if (deviceFamily === "FWG14MS" && normalizeId(d.bus_address)) {
           out += `        bus_address: "${normalizeId(d.bus_address)}"\n`;
