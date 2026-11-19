@@ -1641,9 +1641,16 @@ async function runPythonWriteSenders({ portPath = '', gatewayType = 'fam14', bau
         return runOne(index + 1);
       }
 
+      // Writing dozens of Series-14 IDs can legitimately exceed 3 minutes.
+      // Never kill an active bus write after the old fixed 180 s watchdog.
+      // Keep a bounded safety timeout and report its actual cause.
+      let writeTimedOut = false;
+      let writeSettled = false;
+      const writeTimeoutMs = Math.min(900000, Math.max(600000, entries.length * 15000));
       const timer = setTimeout(() => {
+        writeTimedOut = true;
         try { child.kill(); } catch {}
-      }, 180000);
+      }, writeTimeoutMs);
 
       child.stdout.on('data', d => { stdout += d.toString('utf8'); });
       child.stderr.on('data', d => {
@@ -1670,17 +1677,22 @@ async function runPythonWriteSenders({ portPath = '', gatewayType = 'fam14', bau
         }
       });
       child.on('error', e => {
+        if (writeSettled) return;
+        writeSettled = true;
         clearTimeout(timer);
         if (activeWriteSenderProcess?.child === child) activeWriteSenderProcess = null;
+        cleanup();
         if (cancelRequested) {
-          cleanup();
           emitProgress({ phase: 'canceled' });
           return resolve({ ok: false, canceled: true, error: 'Schreibvorgang abgebrochen.', events: [], processed: processedCount, total: totalCount });
         }
-        attempts.push({ cmd: c.cmd, error: e.message || String(e) });
-        runOne(index + 1);
+        const error = 'Python-Sender-Schreiber konnte nicht gestartet werden: ' + (e.message || String(e));
+        attempts.push({ cmd: c.cmd, error });
+        return resolve({ ok: false, error, attempts, processed: processedCount, total: totalCount, bridge: 'python' });
       });
       child.on('close', code => {
+        if (writeSettled) return;
+        writeSettled = true;
         clearTimeout(timer);
         if (activeWriteSenderProcess?.child === child) activeWriteSenderProcess = null;
         if (cancelRequested) {
@@ -1688,7 +1700,7 @@ async function runPythonWriteSenders({ portPath = '', gatewayType = 'fam14', bau
           emitProgress({ phase: 'canceled' });
           return resolve({ ok: false, canceled: true, error: 'Schreibvorgang abgebrochen.', events: [], processed: processedCount, total: totalCount });
         }
-        attempts.push({ cmd: c.cmd, code, stderr: stderr.slice(-4000) });
+        attempts.push({ cmd: c.cmd, code, stderr: stderr.slice(-4000), writeTimedOut });
         const jsonLine = stdout.trim().split(/\r?\n/).filter(Boolean).pop();
         if (jsonLine) {
           try {
@@ -1706,7 +1718,21 @@ async function runPythonWriteSenders({ portPath = '', gatewayType = 'fam14', bau
             attempts[attempts.length - 1].stdout = stdout.slice(-4000);
           }
         }
-        runOne(index + 1);
+        // The writer already ran and may have programmed several actuators.
+        // Never run it again automatically and never label this as a Python
+        // runtime initialization error. Surface the real exit and partial work.
+        const detail = (stderr.trim().split(/\r?\n/).filter(Boolean).slice(-3).join(' ') || stdout.trim().slice(-500));
+        const error = writeTimedOut
+          ? 'Series-14-Schreibvorgang hat die Sicherheitszeit von ' + Math.round(writeTimeoutMs / 60000) + ' Minuten überschritten.'
+          : 'Python-Sender-Schreiber wurde vorzeitig beendet (Exit-Code ' + code + ').';
+        cleanup();
+        emitProgress({ phase: 'error', message: error });
+        return resolve({
+          ok: false,
+          error: detail ? error + ' ' + detail.slice(-850) : error,
+          attempts, processed: processedCount, total: totalCount,
+          pythonStderr: stderr.slice(-12000), bridge: 'python',
+        });
       });
     };
 
