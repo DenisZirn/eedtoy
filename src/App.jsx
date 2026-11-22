@@ -2001,6 +2001,8 @@ export default function App() {
   const [writeSenderMsg, setWriteSenderMsg] = useState("");
   const [writeSenderSummary, setWriteSenderSummary] = useState(null);
   const [writeSenderLog, setWriteSenderLog] = useState([]);
+  const [writeSenderDiagnosticPath, setWriteSenderDiagnosticPath] = useState("");
+  const [writeSenderDiagnosticError, setWriteSenderDiagnosticError] = useState("");
   const [writeSenderProgress, setWriteSenderProgress] = useState({ processed:0, total:0, phase:"idle", message:"" });
   const [projectMsg, setProjectMsg] = useState("");
   const [projectFileName, setProjectFileName] = useState("");
@@ -3183,6 +3185,8 @@ export default function App() {
 
     setWritingSenders(true);
     setWriteSenderLog([]);
+    setWriteSenderDiagnosticPath("");
+    setWriteSenderDiagnosticError("");
     setWriteSenderProgress({ processed:0, total:senderProgrammingEntries.length, phase:"starting", message:"" });
     setWriteSenderMsg("");
     const result = await window.electronAPI.writeSenderIdsToDevices({
@@ -3194,6 +3198,8 @@ export default function App() {
     });
     setWritingSenders(false);
     setWriteSenderLog(result.events || []);
+    setWriteSenderDiagnosticPath(String(result?.writeLogPath || ""));
+    setWriteSenderDiagnosticError(String(result?.writeLogError || ""));
     if (result?.canceled) {
       setWriteSenderProgress(previous => ({ ...previous, phase:"canceled" }));
       setWriteSenderMsg(t("senderWrite.canceled", { processed: result.processed || 0, total: result.total || senderProgrammingEntries.length }));
@@ -4300,6 +4306,16 @@ export default function App() {
                   : runtimeText(writeSenderMsg);
                 return <div style={{fontSize:".72rem",marginTop:".75rem",padding:".5rem .7rem",borderRadius:5,background:message.startsWith("✓")?"#14532d22":message.startsWith("✗")?"#450a0a22":"#eef5f8",color:message.startsWith("✓")?"#166534":message.startsWith("✗")?"#b42318":"#2f6f8f",border:"1px solid #c6d9e4"}}>{message}</div>;
               })()}
+              {(writeSenderDiagnosticPath || writeSenderDiagnosticError) && (
+                <div style={{fontSize:".68rem",lineHeight:1.5,color:"#53616f",marginTop:".65rem",overflowWrap:"anywhere"}}>
+                  {writeSenderDiagnosticPath && (
+                    <div>{language === "en" ? "Python write diagnostic (saved automatically): " : "Python-Schreibdiagnose (automatisch gespeichert): "}<strong>{writeSenderDiagnosticPath}</strong></div>
+                  )}
+                  {writeSenderDiagnosticError && (
+                    <div style={{color:"#b42318"}}>{language === "en" ? "Log write warning: " : "Warnung beim Schreiben des Logs: "}{writeSenderDiagnosticError}</div>
+                  )}
+                </div>
+              )}
               {writeSenderLog.length>0&&(
                 <div style={{marginTop:".75rem",maxHeight:170,overflowY:"auto",fontSize:".66rem",lineHeight:1.5,color:"#53616f",background:"#f7f9fb",border:"1px solid #d9e0e7",borderRadius:6,padding:".55rem .7rem"}}>
                   {writeSenderLog.slice(-80).map((e,i)=><div key={i}>{runtimeText(e.message || `${e.status}: ${e.device_id}`)}</div>)}
