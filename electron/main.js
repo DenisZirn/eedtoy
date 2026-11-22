@@ -1774,6 +1774,9 @@ async function runPythonWriteSenders({ portPath = '', gatewayType = 'fam14', bau
         stderrLineBuffer = '';
         diagnostics.write('PYTHON EXIT code=' + String(code) +
           ' cancel=' + String(cancelRequested) + ' watchdog=' + String(writeTimedOut));
+        if (stdout.trim()) {
+          diagnostics.write('PYTHON STDOUT ' + stdout.slice(-65536).trim());
+        }
         clearTimeout(timer);
         if (activeWriteSenderProcess?.child === child) activeWriteSenderProcess = null;
         if (cancelRequested) {
@@ -1835,7 +1838,12 @@ async function runPythonWriteSenders({ portPath = '', gatewayType = 'fam14', bau
     }));
   } catch (error) {
     diagnostics.write('FATAL ' + String(error.stack || error));
-    throw error;
+    writeResult = {
+      ok: false,
+      error: 'Python-Sender-Schreiber fehlgeschlagen: ' + String(error.message || error),
+      events: [],
+      bridge: 'python',
+    };
   } finally {
     diagnostics.close();
   }
