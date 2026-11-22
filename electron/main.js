@@ -1267,8 +1267,14 @@ async function runPythonDetector(preferredPath = '', mode = 'auto', writeConnect
   const { spawn } = require('child_process');
   const detectorScript = getPythonDetectorScriptPath();
   const script = writeConnection ? path.join(path.dirname(detectorScript), 'detect_write_gateway.py') : detectorScript;
-  const commandInfo = await getPythonCommands(script);
-  return new Promise((resolve) => {
+  const diagnostics = createSenderWriteDiagnosticsLog();
+  diagnostics.write('START sender-write port=' + String(portPath) +
+    ' gateway=' + String(gatewayType) + ' baud=' + String(baudRate) +
+    ' sender_entries=' + (Array.isArray(entries) ? entries.length : 'invalid'));
+  let writeResult;
+  try {
+    const commandInfo = await getPythonCommands(script);
+    writeResult = await new Promise((resolve) => {
     const attempts = commandInfo.setup?.attempts ? [...commandInfo.setup.attempts] : [];
     const commands = commandInfo.commands;
 
@@ -1541,6 +1547,68 @@ async function runPythonLearnDeviceId(portPath = '', gatewayType = 'auto', timeo
 }
 
 
+
+const SENDER_WRITE_LOG_NAME = 'EEDTOY-Schreibdiagnose.log';
+const SENDER_WRITE_LOG_LIMIT = 5 * 1024 * 1024;
+
+/**
+ * Write sender-ID diagnostics continuously, including unexpected Python exit
+ * and user cancellation. Prefer the folder containing the installed EEDTOY.exe.
+ * Windows may deny writes under Program Files; use Electron's per-user
+ * application directory then and always report the actual path in the UI.
+ */
+function createSenderWriteDiagnosticsLog() {
+  const locations = [
+    isDev ? path.join(__dirname, '..') : path.dirname(app.getPath('exe')),
+    app.getPath('userData'),
+  ];
+  let lastError = '';
+  for (const location of [...new Set(locations)]) {
+    const filePath = path.join(location, SENDER_WRITE_LOG_NAME);
+    try {
+      fsSync.mkdirSync(location, { recursive: true });
+      try {
+        if (fsSync.existsSync(filePath) &&
+            fsSync.statSync(filePath).size >= SENDER_WRITE_LOG_LIMIT) {
+          const previous = filePath + '.1';
+          if (fsSync.existsSync(previous)) fsSync.unlinkSync(previous);
+          fsSync.renameSync(filePath, previous);
+        }
+      } catch (rotationError) {
+        console.warn('[python-write-senders] log rotation skipped:', String(rotationError));
+      }
+      const fd = fsSync.openSync(filePath, 'a');
+      let closed = false;
+      return {
+        filePath,
+        get error() { return lastError; },
+        write(line) {
+          if (closed) return;
+          try {
+            fsSync.writeSync(fd, '[' + new Date().toISOString() + '] ' +
+              String(line).replace(/\r?\n$/, '') + '\n', undefined, 'utf8');
+          } catch (error) {
+            lastError = 'Schreibdiagnose nicht mehr beschreibbar: ' + String(error.message || error);
+            console.error(lastError);
+          }
+        },
+        close() {
+          if (closed) return;
+          closed = true;
+          try { fsSync.closeSync(fd); } catch (error) {
+            lastError = 'Schreibdiagnose konnte nicht geschlossen werden: ' + String(error.message || error);
+          }
+        },
+      };
+    } catch (error) {
+      lastError = 'Logdatei konnte unter ' + filePath + ' nicht geöffnet werden: ' +
+        String(error.message || error);
+      console.warn('[python-write-senders] ' + lastError);
+    }
+  }
+  return { filePath: '', error: lastError, write() {}, close() {} };
+}
+
 let activeWriteSenderProcess = null;
 
 function getPythonWriteSendersScriptPath() {
@@ -1590,6 +1658,7 @@ async function runPythonWriteSenders({ portPath = '', gatewayType = 'fam14', bau
 
     const runOne = (index) => {
       if (index >= commands.length) {
+        diagnostics.write('PYTHON SETUP FAILED: no more viable Python commands');
         cleanup();
         return resolve({
           ok: false,
@@ -1608,6 +1677,7 @@ async function runPythonWriteSenders({ portPath = '', gatewayType = 'fam14', bau
         '--sender-map', senderMapPath,
       ];
       console.log('[python-write-senders] START', c.cmd, args.join(' '));
+      diagnostics.write('PYTHON START command=' + c.cmd + ' arguments=' + args.join(' '));
 
       let stdout = '';
       let stderr = '';
@@ -1630,6 +1700,7 @@ async function runPythonWriteSenders({ portPath = '', gatewayType = 'fam14', bau
         activeWriteSenderProcess = {
           child,
           requestCancel: () => {
+            diagnostics.write('CANCEL requested by user');
             cancelRequested = true;
             emitProgress({ phase: 'canceling' });
             try { child.kill(); } catch (_) {}
@@ -1637,6 +1708,7 @@ async function runPythonWriteSenders({ portPath = '', gatewayType = 'fam14', bau
         };
         emitProgress({ phase: 'starting' });
       } catch (e) {
+        diagnostics.write('PYTHON SPAWN ERROR ' + String(e.stack || e));
         attempts.push({ cmd: c.cmd, error: e.message || String(e) });
         return runOne(index + 1);
       }
@@ -1649,6 +1721,7 @@ async function runPythonWriteSenders({ portPath = '', gatewayType = 'fam14', bau
       const writeTimeoutMs = Math.min(900000, Math.max(600000, entries.length * 15000));
       const timer = setTimeout(() => {
         writeTimedOut = true;
+        diagnostics.write('WATCHDOG timeout_ms=' + writeTimeoutMs + '; terminating Python process');
         try { child.kill(); } catch {}
       }, writeTimeoutMs);
 
@@ -1660,6 +1733,7 @@ async function runPythonWriteSenders({ portPath = '', gatewayType = 'fam14', bau
         const lines = stderrLineBuffer.split(/\r?\n/);
         stderrLineBuffer = lines.pop() || '';
         for (const line of lines.filter(Boolean)) {
+          diagnostics.write('PYTHON ' + line);
           console.log(line);
           if (!line.startsWith('[python-write-senders] ')) continue;
           const message = line.slice('[python-write-senders] '.length).trim();
@@ -1679,6 +1753,9 @@ async function runPythonWriteSenders({ portPath = '', gatewayType = 'fam14', bau
       child.on('error', e => {
         if (writeSettled) return;
         writeSettled = true;
+        if (stderrLineBuffer) diagnostics.write('PYTHON ' + stderrLineBuffer);
+        stderrLineBuffer = '';
+        diagnostics.write('PYTHON PROCESS ERROR ' + String(e.stack || e));
         clearTimeout(timer);
         if (activeWriteSenderProcess?.child === child) activeWriteSenderProcess = null;
         cleanup();
@@ -1693,6 +1770,10 @@ async function runPythonWriteSenders({ portPath = '', gatewayType = 'fam14', bau
       child.on('close', code => {
         if (writeSettled) return;
         writeSettled = true;
+        if (stderrLineBuffer) diagnostics.write('PYTHON ' + stderrLineBuffer);
+        stderrLineBuffer = '';
+        diagnostics.write('PYTHON EXIT code=' + String(code) +
+          ' cancel=' + String(cancelRequested) + ' watchdog=' + String(writeTimedOut));
         clearTimeout(timer);
         if (activeWriteSenderProcess?.child === child) activeWriteSenderProcess = null;
         if (cancelRequested) {
@@ -1708,6 +1789,16 @@ async function runPythonWriteSenders({ portPath = '', gatewayType = 'fam14', bau
             result.bridge = 'python';
             result.pythonCommand = c.cmd;
             result.pythonStderr = stderr.slice(-12000);
+            diagnostics.write('PYTHON RESULT ' + JSON.stringify({
+              ok: result.ok, counts: result.counts, error: result.error,
+              fd2g14_recovery_attempted: result.fd2g14_recovery_attempted,
+              fd2g14_recovered: result.fd2g14_recovered,
+            }));
+            if (Array.isArray(result.events)) {
+              for (const event of result.events) {
+                diagnostics.write('EVENT ' + JSON.stringify(event));
+              }
+            }
             cleanup();
             processedCount = totalCount;
             emitProgress({ phase: 'done', message: result.message || '' });
@@ -1737,7 +1828,22 @@ async function runPythonWriteSenders({ portPath = '', gatewayType = 'fam14', bau
     };
 
     runOne(0);
-  });
+    });
+    diagnostics.write('FINISH result=' + JSON.stringify({
+      ok: writeResult?.ok, canceled: writeResult?.canceled,
+      error: writeResult?.error, counts: writeResult?.counts,
+    }));
+  } catch (error) {
+    diagnostics.write('FATAL ' + String(error.stack || error));
+    throw error;
+  } finally {
+    diagnostics.close();
+  }
+  return {
+    ...writeResult,
+    writeLogPath: diagnostics.filePath,
+    writeLogError: diagnostics.error || '',
+  };
 }
 
 
