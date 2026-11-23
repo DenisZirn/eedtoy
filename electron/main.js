@@ -2256,7 +2256,7 @@ ipcMain.handle('read-base-id', async (_, portPath, baudRate, protocol) => {
 
 ipcMain.handle('detect-gateway', async (_, preferredPath) => {
   try {
-    // Preferred path: Python detector with Philipp-Grimm/eltakobus-style FAM14/FAM-USB logic.
+    // Preferred path: Python detector for FAM14/FAM-USB via the Series-14 bus library.
     const py = await runPythonDetector(preferredPath || '', 'auto');
     if (py.ok) {
       if (py.gateway) rememberBusConnection(py.gateway.serial_path, py.gateway.type, py.gateway.baudRate || 57600);
