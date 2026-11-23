@@ -2712,16 +2712,21 @@ export default function App() {
     if (Object.keys(e).length) { setErrors(e); return; }
     setErrors({});
 
-    // Actuator programming is separate from saving a project. If an
-    // already imported heating actuator changes its sensor/control mode,
-    // always require an explicit, verified Series-14 write.
+    // Saving an actuator configuration never writes to the physical bus.
+    // Mark changes to programming-relevant fields as pending; changes to
+    // presentation-only fields (name/room) do not require bus programming.
     if (editIdx !== null && isPct14ImportedDevice(entry)) {
       const previous = devices[editIdx];
+      const type = String(deviceTypeForDevice(entry) || "").toUpperCase();
+      const heating = /FHK14|F4HK14|FAE14LPR|FAE14SSR/.test(type);
       const previousMode = String(previous?.heating_control_mode || "ha_external");
       const nextMode = String(entry.heating_control_mode || "ha_external");
-      const type = String(deviceTypeForDevice(entry) || "").toUpperCase();
-      if (/FHK14|F4HK14|FAE14LPR|FAE14SSR/.test(type) && previousMode !== nextMode) {
-        entry.sender_programming_pending = true;
+      const programmingFields = ["sender_id", "sender_eep", "channel", "f2l14_mode", "device_type"];
+      const changed = programmingFields.some(field =>
+        String(previous?.[field] ?? "") !== String(entry[field] ?? "")
+      ) || (heating && previousMode !== nextMode);
+      if (changed) entry.sender_programming_pending = true;
+      if (heating && previousMode !== nextMode) {
         entry.programmed_heating_control_mode =
           previous.programmed_heating_control_mode || previousMode;
       }
