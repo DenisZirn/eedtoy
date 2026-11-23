@@ -2,8 +2,7 @@
 """
 Gateway detector bridge for the Electron app.
 
-This intentionally follows the same high-level approach used by Philipp Grimm's
-EnOcean Device Manager:
+This uses the Series-14 communication routines provided by eltakobus:
 - list serial ports with pyserial
 - detect FAM14/FGW/FAM-USB with eltakobus.serial.RS485SerialInterfaceV2
 - for FAM14, lock the bus and read the FAM14 bus object at address 255
