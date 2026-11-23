@@ -610,6 +610,7 @@ function applyCurrentDatabaseProfile(device) {
     f2l14_mode: normalized.f2l14_mode,
     pwm_period_seconds: normalized.pwm_period_seconds,
     heating_control_mode: normalized.heating_control_mode,
+    operating_mode_sender_id: normalized.operating_mode_sender_id,
   };
   return {
     ...normalized,
@@ -726,6 +727,14 @@ function senderProgrammingIsPending(device, primaryKey, pct14BaseId = "") {
   if (device.programmed_heating_control_mode &&
       String(device.programmed_heating_control_mode) !== String(device.heating_control_mode || "ha_external")) {
     return true;
+  }
+  if (isSeries14HeatingActuator(device) && normalizeId(device.programmed_operating_mode_sender_id)) {
+    const separator = String(selectedKey || "").indexOf("|");
+    const sourceGateway = separator > 0
+      ? { type:selectedKey.slice(0, separator), base_id:selectedKey.slice(separator + 1) }
+      : null;
+    const requiredModeSender = operatingModeSenderForGateway(device, sourceGateway, pct14BaseIdForDevice(device, pct14BaseId));
+    if (!requiredModeSender || requiredModeSender !== normalizeId(device.programmed_operating_mode_sender_id)) return true;
   }
   if (knownSender) {
     const requestedSender = senderIdForGatewayKey(device, selectedKey, pct14BaseId);
@@ -1185,8 +1194,15 @@ function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", la
         if (deviceFamily === "FRW-WS") {
           out += `        battery_low_data: "0x30"\n`;
         }
-        if (["FHK14","F4HK14","FAE14LPR","FAE14SSR"].some(model => String(deviceType || "").toUpperCase().includes(model))) {
+        if (isSeries14HeatingActuator(d)) {
           out += `        heating_control_mode: "${String(d.heating_control_mode || "ha_external")}"\n`;
+        }
+        if ((isSeries14HeatingActuator(d) || isFhk61RadioThermostat(d))
+            && normalizeId(d.operating_mode_sender_id)) {
+          const modeSender = operatingModeSenderForGateway(d, gw, pct14BaseIdForDevice(d, pct14BaseId));
+          if (modeSender && modeSender !== normalizeId(exportSenderId)) {
+            out += `        operating_mode_sender_id: "${modeSender}"\n`;
+          }
         }
         if (p.pwm_mode === "direct") {
           out += `        pwm_mode: "direct"\n`;
@@ -1314,6 +1330,36 @@ function deviceIdForGateway(device, gw, pct14BaseId) {
   return busIdFromAddress(offset);
 }
 
+function isSeries14HeatingActuator(device) {
+  return /FHK14|F4HK14|FAE14LPR|FAE14SSR/.test(String(deviceTypeForDevice(device) || "").toUpperCase())
+    && String(profileFor(device?.eep).sender_eep || device?.sender_eep || "").toUpperCase() === "A5-10-06";
+}
+
+function isFhk61RadioThermostat(device) {
+  return /^FHK61(?:U|SSR)?(?:-|$)/.test(String(deviceTypeForDevice(device) || "").toUpperCase())
+    && String(profileFor(device?.eep).pwm_mode || "") !== "direct"
+    && String(profileFor(device?.eep).sender_eep || device?.sender_eep || "").toUpperCase() === "A5-10-06";
+}
+
+function operatingModeSenderForGateway(device, gw, pct14BaseId) {
+  return normalizeId(device?.operating_mode_sender_id)
+    || normalizeId(senderIdForGateway(device, gw, pct14BaseId));
+}
+
+function operatingModeSenderFitsGateway(senderId, gw) {
+  const id = normalizeId(senderId);
+  if (!id || !gw) return false;
+  if (gw.type === "fam-usb") {
+    const base = normalizeId(gw.base_id);
+    if (!base) return false;
+    const num = parseInt(id.replaceAll("-", ""), 16);
+    const start = parseInt(base.replaceAll("-", ""), 16);
+    return Number.isSafeInteger(start) && num > start && num <= start + 127;
+  }
+  return ["fam14", "fgw14usb"].includes(gw.type) &&
+    /^00-00-B0-[0-9A-F]{2}$/.test(id) && id !== "00-00-B0-00";
+}
+
 function senderIdForGateway(device, gw, pct14BaseId) {
   if (device?.bus_system_id && gw?.type === "fam-usb") return device.sender_id;
   // An explicitly imported sender is a complete address, never a gateway offset.
@@ -1388,6 +1434,10 @@ function buildSenderProgrammingEntries(devices, targetGateways, pct14BaseId, bus
         pwm_mode: String(d.pwm_mode || p.pwm_mode || ""),
         pwm_period_seconds: Number(d.pwm_period_seconds || p.pwm_period_seconds || 120),
         heating_control_mode: String(d.heating_control_mode || "ha_external"),
+        operating_mode_sender_id: (isSeries14HeatingActuator(d)
+          ? operatingModeSenderForGateway(d, targetGateway, pct14BaseIdForDevice(d, pct14BaseId))
+          : ""),
+        previous_operating_mode_sender_id: normalizeId(d.programmed_operating_mode_sender_id || ""),
       });
     }
   }
@@ -1798,7 +1848,7 @@ function firstAvailableProfileKey() {
 function createEmptyForm(preferredProfileKey = "") {
   const resolvedPreferred = PROFILE_KEY_ALIASES[String(preferredProfileKey || "").toUpperCase()] || String(preferredProfileKey || "");
   const profileKey = EEP_DB[resolvedPreferred] ? resolvedPreferred : firstAvailableProfileKey();
-  return { name:"", dev_id:"", physical_unique_id:"", eep:profileKey, room:"", device_class:"", sender_id:"", sender_eep:"", time_opens:"", time_closes:"", min_target_temperature:"", max_target_temperature:"", device_type:"", model:"", eltako:"", id_range:"1", fwg14ms_id_range:"1", bus_address:"", f2l14_mode:"exclusive", pwm_period_seconds:120, heating_control_mode:"ha_external" };
+  return { name:"", dev_id:"", physical_unique_id:"", eep:profileKey, room:"", device_class:"", sender_id:"", sender_eep:"", operating_mode_sender_id:"", time_opens:"", time_closes:"", min_target_temperature:"", max_target_temperature:"", device_type:"", model:"", eltako:"", id_range:"1", fwg14ms_id_range:"1", bus_address:"", f2l14_mode:"exclusive", pwm_period_seconds:120, heating_control_mode:"ha_external" };
 }
 
 // MiniSafe2 configurations arrive either as plain JSON or embedded in the text
@@ -2682,6 +2732,7 @@ export default function App() {
       battery_eep: isF4usmProfile ? String(profile.battery_eep || "") : String(form.battery_eep || ""),
       f2l14_mode: selectedFamily === "F2L14" ? String(form.f2l14_mode || profile.f2l14_mode || "exclusive") : String(form.f2l14_mode || "exclusive"),
       heating_control_mode: String(form.heating_control_mode || "ha_external"),
+      operating_mode_sender_id: normalizeId(form.operating_mode_sender_id),
       pwm_period_seconds: Number(form.pwm_period_seconds ?? profile.pwm_period_seconds ?? 120),
       pwm_mode: String(profile.pwm_mode || ""),
     };
@@ -2721,7 +2772,7 @@ export default function App() {
       const heating = /FHK14|F4HK14|FAE14LPR|FAE14SSR/.test(type);
       const previousMode = String(previous?.heating_control_mode || "ha_external");
       const nextMode = String(entry.heating_control_mode || "ha_external");
-      const programmingFields = ["sender_id", "sender_eep", "channel", "f2l14_mode", "device_type"];
+      const programmingFields = ["sender_id", "sender_eep", "channel", "f2l14_mode", "device_type", "operating_mode_sender_id"];
       const changed = programmingFields.some(field =>
         String(previous?.[field] ?? "") !== String(entry[field] ?? "")
       ) || (heating && previousMode !== nextMode);
@@ -3273,6 +3324,9 @@ export default function App() {
                 ...device,
                 programmed_sender_id: normalizeId(confirmed.sender_id),
                 programmed_heating_control_mode: String(device.heating_control_mode || "ha_external"),
+                ...(isSeries14HeatingActuator(device)
+                  ? { programmed_operating_mode_sender_id: normalizeId(confirmed.operating_mode_sender_id || confirmed.sender_id) }
+                  : {}),
                 sender_programming_pending: false,
                 actuator_settings_pending: false,
               }
