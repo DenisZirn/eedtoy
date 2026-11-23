@@ -6,7 +6,7 @@
   <a href="docs/de/yaml-home-assistant.md"><img src="https://img.shields.io/badge/Home%20Assistant-YAML%20Export-1687c7?style=flat" alt="Home Assistant YAML Export"></a>
   <a href="https://github.com/DenisZirn/eedtoy/releases/latest"><img src="https://img.shields.io/github/v/release/DenisZirn/eedtoy?label=release&amp;color=1687c7" alt="Aktuelles Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-97ca00?style=flat" alt="Lizenz GPL-3.0-or-later"></a>
-  <a href="docs/de/README.md"><img src="https://img.shields.io/badge/Dokumentation-Handbuch-2f67cf?style=flat" alt="Deutsches Benutzerhandbuch"></a>
+  <a href="docs/de/README.md"><img src="https://img.shields.io/badge/Documentation-Guides-2f67cf?style=flat" alt="Deutsches Benutzerhandbuch"></a>
 </p>
 
 <p align="center">
