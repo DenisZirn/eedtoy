@@ -1,28 +1,23 @@
-# EEDTOY v1.1.04
+# EEDTOY v1.1.05
 
-## Gateway-Zuordnung und YAML-Export
+## Geräte und Schreibfunktionen
 
-- **Pro Gerät ein YAML-Gateway:** In „Geräte“ lässt sich festlegen, über welches Gateway ein Gerät nach Home Assistant exportiert werden soll. Dadurch werden Geräte bei mehreren Gateways nicht mehr automatisch doppelt exportiert.
-- **PCT14-Import:** Erkannte FAM14- und FGW14-USB-Gateways sind separat auswählbar. Die Zuordnung berücksichtigt bei mehreren Bussystemen die jeweilige Bus-Base-ID.
-- **FTS14EM:** Geräte werden standardmäßig einem passenden Series-14-Gateway zugeordnet und nicht irrtümlich dem FAM-USB. Bestehende unpassende Standardzuordnungen werden beim Laden bzw. Aktivieren eines geeigneten Gateways berichtigt.
-- **Projektdateien:** Gateway-Zuordnungen und ausstehende Schreibvorgänge bleiben beim Speichern und erneuten Öffnen erhalten.
+- **FHK14, F4HK14 und FAE14:** Unterstützen zwei getrennte Temperaturregelungsarten. Beim HA-Temperatursensor wird die HA-Sender-ID in Funktionsgruppe 1 / Funktion 64 programmiert. Bei einem bereits eingelernten FTR/FUTH bleibt dessen Zuordnung erhalten; die HA-Sollwertvorgabe wird über Funktionsgruppe 3 / Funktion 65 eingerichtet.
+- **F4HK14:** Korrekte Zuordnung aller vier Heizkanäle und ihrer Kanalmasken auch bei uneinheitlicher Gerätebezeichnung.
+- **FHK61-Familie:** FHK61-230V, FHK61U-230V und FHK61SSR-230V als auswählbare Geräteprofile. Beim FHK61SSR sind Temperaturregelung und direkte PWM-Steuerung getrennte Betriebsarten. Bestehende Gerätedatenbanken werden um die Profile ergänzt.
+- **FRGBW14:** Controller-ID in Funktionsgruppe 3 / Funktion 81 mit der RGBW-Vierkanalmaske.
+- **FD2G14:** Sicheres Auslesen und Prüfen aller 16 Kanäle über die physische Busadresse. Sporadische Antwortausfälle werden protokolliert; fehlgeschlagene Speicherzugriffe werden nicht als erfolgreich gemeldet. Ein möglicher Geräte- oder Busfehler kann weiterhin zu Timeouts führen.
 
-## Controller-IDs sicher schreiben
+## Diagnose und Zuverlässigkeit
 
-- Ein Wechsel des Steuerungsgateways markiert bei betroffenen Aktoren die Controller-ID als **noch zu schreiben**, wenn die neue Sender-ID von der zuletzt bekannten eingelernten ID abweicht.
-- Beim Wechsel von „Geräte“ zu „YAML“ erscheint bei ausstehenden Schreibvorgängen ein Hinweis; eine Vorschau bleibt möglich.
-- Beim Zurückwechseln auf ein nachweislich bereits eingelerntes Gateway verschwindet die Warnung wieder. PCT14-Controller-IDs werden berücksichtigt; ein erneuter PCT14-Import kann den bekannten Stand ergänzen, ohne die manuelle Gateway-Auswahl zu überschreiben.
-- Das Schreiben erfolgt weiterhin bewusst über den gewählten Series-14-RS485-Bus. Ein Gatewaywechsel allein programmiert keinen Aktor um.
-
-## Bedienung
-
-- Oben in der Anwendung steht nun **„Projekt speichern unter …“** direkt neben „Projekt speichern“. Beide Funktionen bleiben auch über das Datei-Menü zugänglich.
-- Ergänzte Regressionstests für Gateway-Routing, PCT14-Import, gespeicherte Projekte und Schreibwarnungen.
+- **Python-Schreibdiagnose:** Bei jedem Sender-ID-Schreibvorgang wird automatisch `EEDTOY-Schreibdiagnose.log` neben der installierten Anwendung erstellt; falls Windows dort keine Schreibrechte gewährt, wird das EEDTOY-Benutzerverzeichnis verwendet. Der tatsächliche Pfad wird nach dem Schreiben angezeigt.
+- **Eindeutige Ergebnisse:** Wenn einzelne Sender-IDs nicht bestätigt werden können, meldet EEDTOY den Gesamtvorgang nicht mehr als vollständig erfolgreich.
+- **Geprüfter Programmstart:** Zusätzliche JavaScript-Syntaxprüfung im Buildprozess.
 
 ## Installation
 
-**Windows:** `EEDTOY-Setup-1.1.04.exe` herunterladen und installieren. Eine separate Python-Installation ist nicht erforderlich.
+**Windows:** `EEDTOY-Setup-1.1.05.exe` installieren. Die mitgelieferte Python-Laufzeit benötigt keine separate Installation.
 
-**macOS:** Die DMGs für Intel und Apple Silicon werden separat ergänzt.
+**Hinweis:** Vor Änderungen an Busaktoren die bestehende PCT14-Konfiguration sichern. Bei sporadischen FD2G14-Timeouts zunächst die Busverbindung und das Gerät prüfen. Die Diagnoseprotokolle enthalten technische Geräte- und Schnittstellenkennungen.
 
-**Hinweis:** Vor dem Schreiben von Controller-IDs die Gateway- und Buszuordnung prüfen. Bereits exportierte doppelte Geräte müssen gegebenenfalls separat in Home Assistant bereinigt werden.
+**macOS:** Ein aktueller DMG-Installer wird separat bereitgestellt.
