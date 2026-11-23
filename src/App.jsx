@@ -730,7 +730,7 @@ function senderProgrammingIsPending(device, primaryKey, pct14BaseId = "") {
   if (knownSender) {
     const requestedSender = senderIdForGatewayKey(device, selectedKey, pct14BaseId);
     return !requestedSender || requestedSender !== knownSender ||
-      Boolean(device.sender_programming_pending);
+      Boolean(device.actuator_settings_pending);
   }
   // Older project data may not have a recorded sender ID yet. Preserve the
   // outstanding warning until a previously clean route or a confirmed write
@@ -757,7 +757,7 @@ function assignDeviceExportGateway(device, selectedKey, primaryKey, pct14BaseId 
     export_gateway_key: selectedKey,
     programmed_sender_id: knownSender,
     sender_programming_pending: Boolean(selectedKey) && (
-      device.sender_programming_pending ||
+      device.actuator_settings_pending ||
       !knownSender || !selectedSender || knownSender !== selectedSender ||
       (device.programmed_heating_control_mode &&
        String(device.programmed_heating_control_mode) !== String(device.heating_control_mode || "ha_external"))
@@ -2725,7 +2725,10 @@ export default function App() {
       const changed = programmingFields.some(field =>
         String(previous?.[field] ?? "") !== String(entry[field] ?? "")
       ) || (heating && previousMode !== nextMode);
-      if (changed) entry.sender_programming_pending = true;
+      if (changed) {
+        entry.sender_programming_pending = true;
+        entry.actuator_settings_pending = true;
+      }
       if (heating && previousMode !== nextMode) {
         entry.programmed_heating_control_mode =
           previous.programmed_heating_control_mode || previousMode;
@@ -3109,7 +3112,7 @@ export default function App() {
   const canWriteSenderIds = !writingSenders && !writeGatewayBusy && busWriteGatewayConnected && senderProgrammingEntries.length > 0;
   const pendingActuatorChanges = devices.filter(device => (
     isPct14ImportedDevice(device) &&
-    (device.sender_programming_pending ||
+    (device.sender_programming_pending || device.actuator_settings_pending ||
       (device.programmed_heating_control_mode &&
         String(device.programmed_heating_control_mode) !== String(device.heating_control_mode || "ha_external")))
   )).length;
@@ -3254,7 +3257,7 @@ export default function App() {
         // Only clear pending flags for devices represented in this successful
         // verified write operation, never for another bus or gateway route.
         setDevices(previous => previous.map(device => {
-          if (!device.sender_programming_pending) return device;
+          if (!device.sender_programming_pending && !device.actuator_settings_pending) return device;
           const entries = buildSenderProgrammingEntries(
             [device], programmingGatewayBlocks,
             selectedWriteBus?.base_id || pct14GatewayBaseId,
@@ -3271,6 +3274,7 @@ export default function App() {
                 programmed_sender_id: normalizeId(confirmed.sender_id),
                 programmed_heating_control_mode: String(device.heating_control_mode || "ha_external"),
                 sender_programming_pending: false,
+                actuator_settings_pending: false,
               }
             : device;
         }));
