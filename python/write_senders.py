@@ -1220,7 +1220,7 @@ async def _write_senders_session(
             counts[event.get("status", "unknown")] = counts.get(event.get("status", "unknown"), 0) + 1
 
         return {
-            "ok": True,
+            "ok": counts.get("error", 0) == 0,
             "fam14_base_id": fam14_base_id,
             "target_addresses": target_addresses,
             "scanned_devices": len({e.get("device_id") for e in events if e.get("device_id")}),
@@ -1267,6 +1267,7 @@ def _update_sender_write_summary(result: Dict[str, Any]) -> Dict[str, Any]:
         status = event.get("status", "unknown")
         counts[status] = counts.get(status, 0) + 1
     result["counts"] = counts
+    result["ok"] = counts.get("error", 0) == 0
     result["scanned_devices"] = len({e.get("device_id") for e in events if e.get("device_id")})
     result["message"] = (
         f"Sender-ID Schreiben beendet. Aktualisiert: {counts.get('updated', 0)}, "
@@ -1292,7 +1293,7 @@ async def write_senders(
     first = await _write_senders_session(
         port, sender_map_path, baud_rate, gateway_type
     )
-    if not first.get("ok"):
+    if not first.get("ok") and not first.get("events"):
         return first
 
     initial_events = first.get("events") or []
@@ -1327,8 +1328,7 @@ async def write_senders(
             continue
 
         new_event = retry_events.get(original_id)
-        if (second.get("ok") and new_event
-                and new_event.get("status") in ("updated", "exists")):
+        if (new_event and new_event.get("status") in ("updated", "exists")):
             successful = dict(new_event)
             successful["message"] = (
                 str(new_event.get("message") or "")
