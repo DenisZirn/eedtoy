@@ -1085,7 +1085,7 @@ function expandMultiIdExportDevices(devices) {
   return result;
 }
 
-// ─── YAML Generator — grimmpp eltako: format ─────────────────────
+// ─── YAML Generator — EEDTOY Home Assistant export ─────────────────────
 function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", language = "de", primaryExportGatewayKey = gatewayKey(gateway)) {
   if (!devices.length) return "";
   // Resolve every device against the current database at export time. This makes
@@ -1124,7 +1124,7 @@ function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", la
   );
 
   const writeGatewayBlock = (gw, index) => {
-    // Format bewusst wie in der Grimm/Home-Assistant-Eltako-Konfiguration:
+    // Home-Assistant-YAML: Gateway-Liste auf derselben Ebene:
     // gateway: gefolgt von einer Sequenz auf derselben YAML-Ebene.
     out += `  - id: ${index + 1}\n`;
     out += `    device_type: ${gw.type}\n`;
@@ -1230,7 +1230,7 @@ function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", la
           out += `        time_opens: ${d.time_opens || 25}\n`;
         }
         if (plat === "climate") {
-          // Grimm/Home-Assistant-Eltako erwartet beim FHK14 die Temperaturangaben
+          // Die Home-Assistant-Integration erwartet beim FHK14 die Temperaturangaben
           // im gleichen Format wie der originale Generator, hier bewusst in Celsius.
           out += `        temperature_unit: '°C'\n`;
           out += `        min_target_temperature: ${d.min_target_temperature || 16}\n`;
@@ -1731,7 +1731,7 @@ function parsePct14Xml(text, currentBaseId = "", options = {}, language = "de") 
       const channel = channels.find(c => Number(c.getAttribute("channelnumber")) === channelNumber);
       const group = groups.find(g => Number(g.getAttribute("groupnumber")) === i);
       const channelDesc = channel?.getAttribute("description")?.trim() || group?.getAttribute("description")?.trim() || "";
-      // PCT14-Series-14-Geräte werden in der grimmpp-Integration als Busadresse
+      // PCT14-Series-14-Geräte werden im HA-YAML als Busadresse
       // 00-00-00-xx geführt. Die Gateway-base_id bleibt beim Gateway selbst.
       const devId = busIdFromAddress(address + i);
       const p = profileFor(mapping.eep);
