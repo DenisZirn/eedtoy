@@ -108,6 +108,59 @@ async def test_frgbw14_group_3_function_81():
         raise AssertionError("FRGBW14 must reject unconfirmed writes")
 
 
+
+async def test_frgbw14_ignores_stale_busobject_cache():
+    """The physical PCT14 table must win over a stale BusObject cache."""
+    class Response:
+        def __init__(self, value):
+            self.value = value
+
+    class Bus:
+        def __init__(self, dev):
+            self.dev = dev
+            self.reads = []
+
+        async def exchange(self, request, response_type=None):
+            row = getattr(request, "row", None)
+            if row is None:
+                row = getattr(request, "memory_line", None)
+            if row is None:
+                row = getattr(request, "address", None)
+            # EltakoMemoryRequest exposes the memory line as memory_line or
+            # memory_address depending on the bus library version.
+            if row is None or not isinstance(row, int) or row >= len(self.dev.hardware):
+                row = getattr(request, "memory_address", None)
+            assert isinstance(row, int), repr(request)
+            self.reads.append(row)
+            return Response(self.dev.hardware[row])
+
+    class StaleDevice(FakeDevice):
+        def __init__(self):
+            super().__init__(127)
+            self.hardware = list(self.memory)
+            self.address = 35
+            self.bus = Bus(self)
+
+        async def read_mem_line(self, row):
+            return self.memory[row]  # deliberately stale
+
+        async def write_mem_line(self, row, value):
+            self.hardware[row] = value
+            self.memory[row] = value
+
+    dev = StaleDevice()
+    expected = bytes.fromhex("FFA604A300510F00")
+    foreign = bytes.fromhex("FFAD246800510F00")
+    dev.hardware[8] = expected       # PCT14 FG1 contains the wrong assignment
+    dev.hardware[12] = foreign       # PCT14 FG3 entry 5 is someone else's ID
+    dev.memory[12] = expected        # stale false-positive FG3 cache
+    assert await module._ensure_programmed_controller_profile(dev, "FF-A6-04-A3") is True
+    assert dev.hardware[8] == bytes(8)
+    assert dev.hardware[12] == foreign
+    assert dev.hardware[13] == expected
+    assert 8 in dev.bus.reads and 12 in dev.bus.reads and 13 in dev.bus.reads
+
+
 class HeatingDevice(FakeDevice):
     """Keep actuator contents independent from the eltakobus read cache."""
 
@@ -577,6 +630,7 @@ if __name__ == "__main__":
     test_heating_control_mode_survives_sender_map()
     test_multiple_senders_per_device_are_preserved()
     asyncio.run(test_frgbw14_group_3_function_81())
+    asyncio.run(test_frgbw14_ignores_stale_busobject_cache())
     asyncio.run(test_heating_group_1_function_64_only())
     asyncio.run(test_f2l14_confirmed_pct14_additive_double_rocker_entry())
     asyncio.run(test_f2l14_mode_change_replaces_existing_sender_and_cleans_duplicates())
