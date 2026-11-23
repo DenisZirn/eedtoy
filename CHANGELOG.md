@@ -1,12 +1,13 @@
 ## 1.1.05
 
-- FHK61-230V, FHK61U-230V und FHK61SSR-230V als Geräteprofile ergänzt; SSR-Temperatur- und PWM-Betrieb getrennt.
-- FHK14/F4HK14/FAE14: auswählbare Regelungsarten mit HA-Temperaturquelle (FG1/F64) oder physischem FTR/FUTH und HA-Sollwertvorgabe (FG3/F65).
+- FRGBW14: hardwarebestätigte Korrektur der PCT14-Speicheradressierung: FG1/Eintrag 1 = Zeile 12, FG3/Eintrag 5 = Zeile 16; Funktion 81 mit RGBW-Vierkanalmaske. Fremde Sender-IDs und Konfigurationszeilen werden geschützt.
+- Programmierungsrelevante Aktoränderungen, insbesondere FHK14/F4HK14/FAE14 Temperaturreferenz intern/extern, erfordern einen separaten bestätigten Schreibvorgang.
+- FHK14/F4HK14/FAE14: HA-Temperaturquelle über FG1/F64 oder physischer Sensor mit HA-Sollwert über FG3/F65.
 - F4HK14: korrekte Erkennung und Sender-ID-Prüfung für alle vier Kanäle.
-- FRGBW14: Senderzuordnung in FG3/F81 mit Vierkanalmaske.
-- FD2G14: Diagnose und sichere Prüfung der 16 Kanäle verbessert; sporadische Geräte- oder Busantwortausfälle bleiben möglich.
+- FHK61-230V, FHK61U-230V und FHK61SSR-230V als Geräteprofile ergänzt; SSR-Temperatur- und PWM-Betrieb getrennt.
+- FD2G14: NameError im Wiederanlauf behoben, Diagnose und Prüfung der 16 Kanäle verbessert; sporadische Geräte- oder Busantwortausfälle bleiben möglich.
 - Automatische Python-Schreibdiagnose mit Logdatei, Rotation und Windows-Schreibrechte-Fallback.
-- Schreibgesamtstatus zeigt bei Fehlern nicht mehr fälschlich Erfolg; zusätzliche JavaScript-Syntaxprüfung.
+- Schreibgesamtstatus zeigt bei Fehlern nicht mehr fälschlich Erfolg; erweiterte Regressionstests und Windows-Installer-Prüfung.
 - Anwendersichtbare Fremdnamens-Bezeichnungen aus eigenen Diagnosemeldungen entfernt.
 
 ## 1.1.04
