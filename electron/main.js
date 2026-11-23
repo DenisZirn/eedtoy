@@ -28,6 +28,7 @@ function getAppIconPath() {
 
 let mainWindow = null;
 let deviceDatabaseWindow = null;
+let decentralizedTeachInWindow = null;
 let currentLanguage = 'de';
 
 function t(key, variables = {}) {
@@ -148,6 +149,7 @@ function buildApplicationMenu() {
       label: t('menu.help'),
       submenu: [
         { label: t('menu.checkUpdates'), click: () => checkForApplicationUpdate({ silent: false }) },
+        { label: t('menu.decentralizedTeachIn'), click: () => openDecentralizedTeachInHelp() },
         { type: 'separator' },
         { label: t('menu.about'), click: () => showAboutDialog() },
       ],
@@ -561,6 +563,65 @@ function createWindow() {
   win.webContents.once('did-finish-load', () => setTimeout(showMainWindow, 50));
   setTimeout(showMainWindow, 1500);
 }
+
+// Read-only help for decentralized actuators. Never programs hardware.
+function openDecentralizedTeachInHelp(requestedModel = '') {
+  const model = String(requestedModel || '').trim().replace(/[^a-zA-Z0-9 /._-]/g, '').slice(0, 100);
+  const showHelp = win => {
+    if (win.isMinimized()) win.restore();
+    win.show(); win.focus();
+  };
+  if (decentralizedTeachInWindow && !decentralizedTeachInWindow.isDestroyed()) {
+    decentralizedTeachInWindow.loadFile(path.join(__dirname, 'decentralized-teach-in.html'), {
+      query: { model, lang: currentLanguage },
+    }).catch(error => console.error('[decentralized-teach-in] reload failed', error));
+    showHelp(decentralizedTeachInWindow);
+    return;
+  }
+  const win = new BrowserWindow({
+    width: 1010, height: 750, minWidth: 730, minHeight: 570,
+    parent: mainWindow || undefined, modal: false, show: false,
+    icon: getAppIconPath(),
+    title: t('menu.decentralizedTeachIn'),
+    backgroundColor: '#f7f9fc',
+    webPreferences: {
+      nodeIntegration: false, contextIsolation: true, sandbox: true,
+    },
+  });
+  decentralizedTeachInWindow = win;
+  win.on('closed', () => {
+    if (decentralizedTeachInWindow === win) decentralizedTeachInWindow = null;
+  });
+  const isOfficialUrl = url => {
+    try {
+      const target = new URL(url);
+      return target.protocol === 'https:' &&
+        (target.hostname === 'eltako.com' || target.hostname === 'www.eltako.com');
+    } catch (_) { return false; }
+  };
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (isOfficialUrl(url)) shell.openExternal(url).catch(error =>
+      console.error('[decentralized-teach-in] manual open failed', error));
+    return { action:'deny' };
+  });
+  win.webContents.on('will-navigate', (event, url) => {
+    event.preventDefault();
+    if (isOfficialUrl(url)) shell.openExternal(url).catch(error =>
+      console.error('[decentralized-teach-in] manual open failed', error));
+  });
+  attachNativeEditContextMenu(win);
+  win.loadFile(path.join(__dirname, 'decentralized-teach-in.html'), {
+    query: { model, lang: currentLanguage },
+  }).catch(error => console.error('[decentralized-teach-in] load failed', error));
+  win.once('ready-to-show', () => {
+    if (!win.isDestroyed()) showHelp(win);
+  });
+}
+
+ipcMain.handle('open-decentralized-teach-in-help', (_event, model = '') => {
+  openDecentralizedTeachInHelp(model);
+  return { ok: true };
+});
 
 function createDeviceDatabaseWindow() {
   if (deviceDatabaseWindow && !deviceDatabaseWindow.isDestroyed()) {
