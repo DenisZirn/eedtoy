@@ -256,12 +256,28 @@ async def _ensure_programmed_controller_profile(dev: Any, sender_id: str, channe
         raise RuntimeError("FRGBW14: kein Zugriff auf die PCT14-ID-Tabelle (Funktionsgruppe 3)")
 
     async def read_verified(row: int) -> bytes:
-        actual = await _read_back_mem_line(dev, row)
+        # Read directly over RS485. BusObject.read_mem_line() may return its
+        # in-memory cache, which must never be evidence for PCT14 verification.
+        bus = getattr(dev, "bus", None)
+        if bus is not None:
+            from eltakobus.message import EltakoMemoryRequest, EltakoMemoryResponse
+            response = await bus.exchange(
+                EltakoMemoryRequest(dev.address, row), EltakoMemoryResponse
+            )
+            actual = getattr(response, "value", None)
+        else:
+            # Allows the existing memory-only unit doubles; production
+            # BusObjects always carry the bus supplied by create_busobject.
+            actual = await _read_back_mem_line(dev, row)
         if not isinstance(actual, (bytes, bytearray)) or len(actual) != 8:
             raise TimeoutError(
                 f"FRGBW14: Speicherzeile {row} konnte nicht sicher aus dem Aktor gelesen werden"
             )
-        return bytes(actual)
+        actual = bytes(actual)
+        if row in (8, 12):
+            log("FRGBW14 physical read", "bus_address", getattr(dev, "address", "?"),
+                "row", row, "data", actual.hex("-").upper())
+        return actual
 
     async def write_verified(row: int, value: bytes) -> None:
         await _write_mem_line_with_readback(dev, row, value)
@@ -278,10 +294,7 @@ async def _ensure_programmed_controller_profile(dev: Any, sender_id: str, channe
     sender_row = None
     free_row = None
     for row in range(12, group3_end):
-        line = await dev.read_mem_line(row)
-        if not isinstance(line, (bytes, bytearray)) or len(line) != 8:
-            raise TimeoutError(f"FRGBW14: ungültige Speicherantwort für Zeile {row}")
-        line = bytes(line)
+        line = await read_verified(row)
         if line == expected_line:
             # Validate against the hardware, not just the library cache.
             line = await read_verified(row)
@@ -1107,6 +1120,7 @@ async def _write_senders_session(
     bus = None
     locked = False
     events: List[Dict[str, Any]] = []
+    discovered_fd2g: Dict[int, Any] = {}
     try:
         # The FGW14-USB RS485 adapter needs ~10 ms pacing at 57600 baud.
         # The previous 1 ms pacing could overload consecutive memory reads
