@@ -285,7 +285,17 @@ async def _ensure_programmed_controller_profile(dev: Any, sender_id: str, channe
         return actual
 
     async def write_verified(row: int, value: bytes) -> None:
-        await _write_mem_line_with_readback(dev, row, value)
+        # Only accept a physical RS485 readback. The generic write helper
+        # can accept a cached value after a lost acknowledgement.
+        log("FRGBW14 write attempt", "bus_address", getattr(dev, "address", "?"),
+            "row", row, "value", value.hex("-").upper())
+        try:
+            await dev.write_mem_line(row, value)
+        except Exception:
+            # An ACK may be lost although the actuator completed the write.
+            # Resolve this uncertainty using the uncached hardware read.
+            if await read_verified(row) != value:
+                raise
         if await read_verified(row) != value:
             raise RuntimeError(
                 f"FRGBW14: Schreiben in Speicherzeile {row} nicht bestätigt; "
@@ -340,9 +350,35 @@ async def _ensure_programmed_controller_profile(dev: Any, sender_id: str, channe
             changed = True
 
     # Final hardware verification prevents false "written" or "exists" output.
-    if await read_verified(target_row) != expected_line:
+    # A new BusObject must agree with our original instance; never report
+    # success based solely on an object that participated in the write.
+    fresh_dev = None
+    if getattr(dev, "bus", None) is not None:
+        from eltakobus.device import create_busobject
+        fresh_dev = await create_busobject(bus=dev.bus, id=dev.address)
+        if fresh_dev is None or not _is_real_frgbw14(fresh_dev):
+            raise RuntimeError("FRGBW14: unabhängige Geräteerkennung nach dem Schreiben fehlgeschlagen")
+
+    async def final_read(row: int) -> bytes:
+        if fresh_dev is None:
+            return await read_verified(row)
+        from eltakobus.message import EltakoMemoryRequest, EltakoMemoryResponse
+        answer = await fresh_dev.bus.exchange(
+            EltakoMemoryRequest(fresh_dev.address, row), EltakoMemoryResponse
+        )
+        if getattr(answer, "row", None) != row or len(getattr(answer, "value", b"")) != 8:
+            raise RuntimeError(f"FRGBW14: ungültige unabhängige Rücklesung der Speicherzeile {row}")
+        return bytes(answer.value)
+
+    final_target = await final_read(target_row)
+    final_fg1 = await final_read(8)
+    final_foreign = await final_read(12)
+    log("FRGBW14 final hardware state", "FG1_row8", final_fg1.hex("-").upper(),
+        "FG3_first_row12", final_foreign.hex("-").upper(),
+        "FG3_target_row", target_row, "target", final_target.hex("-").upper())
+    if final_target != expected_line:
         raise RuntimeError("FRGBW14: Controller-ID ist nicht in Funktionsgruppe 3 gespeichert")
-    if (await read_verified(8))[:4] == sender:
+    if final_fg1[:4] == sender:
         raise RuntimeError("FRGBW14: fehlerhafter Eintrag in Funktionsgruppe 1 ist noch vorhanden")
     dev._eedtoy_frgbw14_row = target_row
     log("FRGBW14 verified", "bus_address", getattr(dev, "address", "?"),
