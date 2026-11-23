@@ -187,6 +187,46 @@ async def test_frgbw14_ignores_stale_busobject_cache():
     assert 8 in dev.bus.reads and 12 in dev.bus.reads and 13 in dev.bus.reads
 
 
+
+async def test_frgbw14_arbitrary_sender_ids_and_occupied_slots():
+    """Program arbitrary controller IDs; do not special-case the testwand IDs."""
+    class HardwareDevice(FakeDevice):
+        def __init__(self):
+            super().__init__(127)
+            self.hardware = list(self.memory)
+
+        async def read_mem_line(self, row):
+            self.memory[row] = self.hardware[row]
+            return self.hardware[row]
+
+        async def write_mem_line(self, row, value):
+            self.hardware[row] = value
+            self.memory[row] = value
+
+    for sender_id, occupied_slots in (
+        ("01-23-45-67", 0),
+        ("7A-BB-CC-DD", 1),
+        ("FE-12-34-56", 4),
+        ("A0-B1-C2-D3", 12),
+    ):
+        dev = HardwareDevice()
+        expected = bytes.fromhex(sender_id.replace("-", "")) + bytes((0, 81, 15, 0))
+        foreign = {}
+        for offset in range(occupied_slots):
+            row = 12 + offset
+            value = (1000 + offset).to_bytes(4, "big") + bytes((0, 81, 15, 0))
+            foreign[row] = value
+            dev.hardware[row] = value
+        dev.hardware[8] = expected
+        assert await module._ensure_programmed_controller_profile(dev, sender_id) is True
+        assert dev.hardware[12 + occupied_slots] == expected
+        assert dev.hardware[8] == bytes(8)
+        assert all(dev.hardware[row] == value for row, value in foreign.items())
+        assert await module._ensure_programmed_controller_profile(dev, sender_id) is False
+        assert sum(
+            dev.hardware[row] == expected for row in range(12, 124)
+        ) == 1
+
 class HeatingDevice(FakeDevice):
     """Keep actuator contents independent from the eltakobus read cache."""
 
@@ -657,6 +697,7 @@ if __name__ == "__main__":
     test_multiple_senders_per_device_are_preserved()
     asyncio.run(test_frgbw14_group_3_function_81())
     asyncio.run(test_frgbw14_ignores_stale_busobject_cache())
+    asyncio.run(test_frgbw14_arbitrary_sender_ids_and_occupied_slots())
     asyncio.run(test_heating_group_1_function_64_only())
     asyncio.run(test_f2l14_confirmed_pct14_additive_double_rocker_entry())
     asyncio.run(test_f2l14_mode_change_replaces_existing_sender_and_cleans_duplicates())
