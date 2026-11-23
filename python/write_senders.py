@@ -264,6 +264,11 @@ async def _ensure_programmed_controller_profile(dev: Any, sender_id: str, channe
             response = await bus.exchange(
                 EltakoMemoryRequest(dev.address, row), EltakoMemoryResponse
             )
+            if getattr(response, "row", row) != row:
+                raise RuntimeError(
+                    f"FRGBW14: Busantwort für falsche Speicherzeile: "
+                    f"angefordert {row}, empfangen {getattr(response, 'row', '?')}"
+                )
             actual = getattr(response, "value", None)
         else:
             # Allows the existing memory-only unit doubles; production
