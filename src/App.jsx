@@ -2682,6 +2682,25 @@ export default function App() {
       if (!String(f.physical_unique_id || "").trim()) e.physical_unique_id = language === "en" ? "Learn or enter the battery ID." : "Batterie-ID einlernen oder eingeben.";
       else if (!/^[0-9a-fA-F]{2}(-[0-9a-fA-F]{2}){3}$/.test(String(f.physical_unique_id).trim())) e.physical_unique_id = "Format: FF-AA-BB-CC";
     }
+    // A separate operating-mode sender is optional, but must belong to the
+    // selected radio/Series-14 controller gateway when explicitly provided.
+    if (isSeries14HeatingActuator(f) || isFhk61RadioThermostat(f)) {
+      const modeText = String(f.operating_mode_sender_id || "").trim();
+      if (modeText) {
+        if (!normalizeId(modeText)) {
+          e.operating_mode_sender_id = "Format: FF-AA-BB-CC";
+        } else {
+          const gateways = orderedGatewayBlocks(gateway, buildActiveExtraGateways());
+          const key = f.export_gateway_key || gatewayKey(gateway);
+          const selected = gateways.find(item => gatewayKey(item) === key);
+          if (!selected || !operatingModeSenderFitsGateway(modeText, selected)) {
+            e.operating_mode_sender_id = language === "en"
+              ? "Operating-mode sender ID does not belong to the selected gateway/Base-ID."
+              : "Betriebsarten-Sender-ID gehört nicht zur gewählten Gateway-/Base-ID.";
+          }
+        }
+      }
+    }
     if (selectedProfile.pwm_mode === "direct") {
       const period = Number(f.pwm_period_seconds ?? selectedProfile.pwm_period_seconds ?? 120);
       if (!Number.isInteger(period) || period < 10 || period > 1000 || period % 10 !== 0) {
@@ -4196,6 +4215,56 @@ export default function App() {
                       ? (language === "en" ? "Requires a matching pre-learned sensor in FG1. The writer leaves that sensor unchanged and programs only the HA setpoint in FG3." : "Voraussetzung: Ein passender Temperatursensor ist bereits in Gruppe 1 eingelernt. Der Writer belässt diesen Sensor und schreibt den HA-Sollwert nur in Gruppe 3.")
                       : (language === "en" ? "The HA sender occupies the FG1 thermostat slot and may replace an earlier function-64 sender for this channel." : "Die HA-Sender-ID belegt den Temperaturreglerplatz in Gruppe 1 und kann dort eine bisherige Funktion-64-Sender-ID dieses Kanals ersetzen.")}
                   </div>
+                </div>
+              )}
+
+              {(isSeries14HeatingActuator({ ...form, device_type: form.device_type || profile.device_type })
+                  || isFhk61RadioThermostat({ ...form, device_type: form.device_type || profile.device_type })) && (
+                <div style={{maxWidth:550,marginBottom:".7rem",padding:".7rem",border:"1px solid #c6d9e4",borderRadius:7,background:"#f4f8fb"}}>
+                  <strong style={{fontSize:".76rem",color:"#245b7a"}}>
+                    {language === "en" ? "Operating-mode sender (fourfold RPS pushbutton)" : "Betriebsartensender (Vierfach-RPS-Taster)"}
+                  </strong>
+                  <p style={{fontSize:".7rem",margin:".4rem 0"}}>
+                    {language === "en"
+                      ? "The existing controller sender ID remains responsible for temperature/setpoint. Leave this blank to reuse it for operating modes."
+                      : "Die bisherige Sender-ID steuert weiterhin Temperatur und Sollwert. Leer lassen, um dieselbe Sender-ID für die Betriebsarten zu verwenden."}
+                  </p>
+                  <label>{language === "en" ? "Separate operating-mode sender ID (optional)" : "Separate Betriebsarten-Sender-ID (optional)"}</label>
+                  <input
+                    className={errors.operating_mode_sender_id ? "err" : ""}
+                    value={form.operating_mode_sender_id || ""}
+                    onChange={e=>{setForm(current=>({...current,operating_mode_sender_id:e.target.value.toUpperCase()}));setErrors({});}}
+                    placeholder={language === "en" ? "Empty = use the temperature sender" : "Leer = Sender-ID des Temperaturreglers verwenden"}
+                  />
+                  {errors.operating_mode_sender_id && <div className="em">{errors.operating_mode_sender_id}</div>}
+                  <div style={{fontSize:".68rem",color:"#53616f",lineHeight:1.5,marginTop:".4rem"}}>
+                    {isSeries14HeatingActuator({ ...form, device_type: form.device_type || profile.device_type })
+                      ? (language === "en"
+                        ? "Series-14: FG4 / function 30 is written separately for each channel using the selected Series-14 gateway. FG1/F64 and FG3/F65 are preserved."
+                        : "Series-14: FG4 / Funktion 30 wird je Heizkanal über das ausgewählte Series-14-Gateway geschrieben. Die Temperaturzuordnung FG1/F64 bzw. FG3/F65 bleibt getrennt.")
+                      : (language === "en"
+                        ? "FHK61 radio actuator: no FG4 programming. Teach the RPS sender separately on the physical actuator; transmission is not proof of learning."
+                        : "FHK61-Funkaktor: Keine FG4-Programmierung. Den RPS-Sender am physischen Aktor separat einlernen; ein gesendetes Telegramm ist keine Einlernbestätigung.")}
+                  </div>
+                  {isFhk61RadioThermostat({ ...form, device_type: form.device_type || profile.device_type }) && (
+                    <div style={{fontSize:".69rem",lineHeight:1.6,marginTop:".45rem"}}>
+                      <strong>{language === "en" ? "Manual FHK61 teach-in" : "FHK61-Betriebsartensender manuell einlernen"}</strong>
+                      <ol style={{paddingLeft:"1.2rem",margin:".3rem 0"}}>
+                        <li>{language === "en" ? "Set the lower dial to 4.5 (right stop)." : "Unteren Drehschalter auf 4,5 (Rechtsanschlag) stellen."}</li>
+                        <li>{language === "en" ? "Set the upper dial to LRN; the LED should flash calmly." : "Oberen Drehschalter auf LRN stellen; LED blinkt ruhig."}</li>
+                        <li>{language === "en" ? "Operate the assigned fourfold RPS sender once (e.g. 0x70 = Home). Check the actuator LED: it should go out." : "Den zugeordneten Vierfach-RPS-Sender einmal betätigen (z. B. 0x70 = Home). LED am Aktor kontrollieren: sie sollte erlöschen."}</li>
+                        <li>{language === "en" ? "Restore both dials to the operating positions and verify all four modes on the device." : "Beide Drehschalter in die Betriebsstellung zurückdrehen und alle vier Betriebsarten am Aktor prüfen."}</li>
+                      </ol>
+                      <div>{language === "en"
+                        ? "RPS data byte (not the EnOcean status byte): 0x70 Home, 0x50 Sleep (−4 K), 0x30 Eco (−2 K), 0x10 Off / frost protection."
+                        : "RPS-Datenbyte (nicht EnOcean-Statusbyte): 0x70 Home, 0x50 Sleep (−4 K), 0x30 Eco (−2 K), 0x10 Aus / Frostschutz."}</div>
+                      <div style={{fontWeight:600,color:"#a3540a",marginTop:".3rem"}}>
+                        {language === "en"
+                          ? "EEDTOY prepares the sender configuration. No automatic RPS telegram is sent and no learning success is claimed."
+                          : "EEDTOY bereitet die Senderzuordnung vor. Es wird kein RPS-Telegramm automatisch gesendet und kein Lernerfolg behauptet."}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
