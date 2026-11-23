@@ -525,9 +525,9 @@ def test_target_addresses():
     assert module.target_bus_addresses(base, sender_map) == [2, 3, 21, 22, 56]
 
 
-def test_fd2g14_uses_grimm_scan():
+def test_fd2g14_uses_series14_scan():
     source = SCRIPT.read_text(encoding="utf-8")
-    assert "enumerate_bus_grimm" in source
+    assert "enumerate_series14_devices" in source
     assert "Discovery-Modell 04-82" in source
     assert "dev.ensure_programmed(channel, sender_address, profile)" in source
     assert "_ensure_programmed_fsr14ssr" in source
@@ -573,7 +573,7 @@ def test_multiple_senders_per_device_are_preserved():
 
 if __name__ == "__main__":
     test_target_addresses()
-    test_fd2g14_uses_grimm_scan()
+    test_fd2g14_uses_series14_scan()
     test_heating_control_mode_survives_sender_map()
     test_multiple_senders_per_device_are_preserved()
     asyncio.run(test_frgbw14_group_3_function_81())
