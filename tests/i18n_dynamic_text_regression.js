@@ -143,8 +143,14 @@ const databaseSource = appSource
   .replace(/\r\n/g, '\n');
 const deviceRows = [...databaseSource.matchAll(/group:"([^"]+)"\s*,\s*label:"([^"]+)"/g)]
   .map((match) => ({ group: match[1], label: match[2] }));
-assertEqual(deviceRows.length, 82, 'Approved device profile count is 82');
-assertEqual(crypto.createHash('sha256').update(databaseSource).digest('hex'), '0418a5a75757ceb30e7d0f6e59f7f88d9c3670d68e851295893ccc7541ee8a80', 'Approved device database content unchanged');
+assertEqual(deviceRows.length, 86, 'Approved device profile count includes four FHK61 family profiles');
+// Keep the original 82 device definitions immutable while verifying the
+// four deliberately added FHK61 entries independently.
+const originalDatabaseSource = databaseSource.split('\n').filter(line =>
+  !/^\s*"(?:A5-10-06-FHK61-230V|A5-10-06-FHK61U-230V|A5-10-06-FHK61SSR-230V|A5-38-08-FHK61SSR-PWM)"\s*:/.test(line)
+).join('\n');
+assertEqual(crypto.createHash('sha256').update(originalDatabaseSource).digest('hex'), '0418a5a75757ceb30e7d0f6e59f7f88d9c3670d68e851295893ccc7541ee8a80', 'Original 82 device profiles unchanged');
+assert(deviceRows.some(row => row.label.includes('FHK61SSR-230V')), 'FHK61SSR present in extended catalog');
 assert(Object.keys(api.deviceLabelTranslations).length > 0, 'Exact English device-label table is available');
 
 const remainingGerman = /(Taster|Näherung|Fenster|Türkontakt|Bewegung|Helligkeit|Rauch|Hitze|Temperatur\b|Feuchte|Datenübermittlung|Punkt-Regler|Heizkörper|Funk-|Wechselstrom|Drehstrom|Wetterstation|Regen|Dimmaktor|Relais|Farbsteuerung|freies Profil|Jalousie|Rollladen|Betriebsart|Raumregler|Sollwert|Belegung)/;

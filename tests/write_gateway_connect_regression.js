@@ -8,7 +8,7 @@ function app(overrides={}) {
   busWriteGatewayAvailable:{get:()=>c.hasRs485Gateway&&!!c.busWritePort},
   busWriteGatewayConnected:{get:()=>!!c.writeGatewayConnection&&c.writeGatewayConnection.key===c.writeConnectionKey},
  });
- for(const key of ['WritingSenders','WriteSenderLog','WriteBusPort','Ports','ConnectingWriteGateway','DisconnectingGateway','WriteGatewayConnection','WriteSenderSummary','WriteSenderMsg','WriteSenderProgress']) c['set'+key]=value=>{const name=key==='WriteBusPort'?'busWritePort':key[0].toLowerCase()+key.slice(1);c[name]=typeof value==='function'?value(c[name]):value;};
+ for(const key of ['WritingSenders','WriteSenderLog','WriteBusPort','Ports','ConnectingWriteGateway','DisconnectingGateway','WriteGatewayConnection','WriteSenderSummary','WriteSenderMsg','WriteSenderProgress','WriteSenderDiagnosticPath','WriteSenderDiagnosticError']) c['set'+key]=value=>{const name=key==='WriteBusPort'?'busWritePort':key[0].toLowerCase()+key.slice(1);c[name]=typeof value==='function'?value(c[name]):value;};
  c.calls=[];c.window={electronAPI:{
   connectWriteGateway:async(args)=>{c.calls.push(args);return {ok:true,baseId:c.expectedWriteBaseId,portPath:c.busWritePort||'COM9'};},
   disconnectGateway:async args=>{c.calls.push(args);return {ok:true};},

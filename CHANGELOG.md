@@ -1,3 +1,14 @@
+## 1.1.05
+
+- FHK61-230V, FHK61U-230V und FHK61SSR-230V als Geräteprofile ergänzt; SSR-Temperatur- und PWM-Betrieb getrennt.
+- FHK14/F4HK14/FAE14: auswählbare Regelungsarten mit HA-Temperaturquelle (FG1/F64) oder physischem FTR/FUTH und HA-Sollwertvorgabe (FG3/F65).
+- F4HK14: korrekte Erkennung und Sender-ID-Prüfung für alle vier Kanäle.
+- FRGBW14: Senderzuordnung in FG3/F81 mit Vierkanalmaske.
+- FD2G14: Diagnose und sichere Prüfung der 16 Kanäle verbessert; sporadische Geräte- oder Busantwortausfälle bleiben möglich.
+- Automatische Python-Schreibdiagnose mit Logdatei, Rotation und Windows-Schreibrechte-Fallback.
+- Schreibgesamtstatus zeigt bei Fehlern nicht mehr fälschlich Erfolg; zusätzliche JavaScript-Syntaxprüfung.
+- Anwendersichtbare Fremdnamens-Bezeichnungen aus eigenen Diagnosemeldungen entfernt.
+
 ## 1.1.04
 
 - Pro Gerät genau eine Gateway-Zuordnung für den YAML-Export, mit persistenter Auswahl statt doppelter Geräte in mehreren Gateway-Blöcken.
