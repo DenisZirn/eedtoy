@@ -756,7 +756,7 @@ function assignDeviceExportGateway(device, selectedKey, primaryKey, pct14BaseId 
     ...device,
     export_gateway_key: selectedKey,
     programmed_sender_id: knownSender,
-    sender_programming_pending: Boolean(selectedKey) && (
+    sender_programming_pending: Boolean(selectedKey) && Boolean(
       device.actuator_settings_pending ||
       !knownSender || !selectedSender || knownSender !== selectedSender ||
       (device.programmed_heating_control_mode &&
