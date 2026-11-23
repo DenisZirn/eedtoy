@@ -1267,14 +1267,8 @@ async function runPythonDetector(preferredPath = '', mode = 'auto', writeConnect
   const { spawn } = require('child_process');
   const detectorScript = getPythonDetectorScriptPath();
   const script = writeConnection ? path.join(path.dirname(detectorScript), 'detect_write_gateway.py') : detectorScript;
-  const diagnostics = createSenderWriteDiagnosticsLog();
-  diagnostics.write('START sender-write port=' + String(portPath) +
-    ' gateway=' + String(gatewayType) + ' baud=' + String(baudRate) +
-    ' sender_entries=' + (Array.isArray(entries) ? entries.length : 'invalid'));
-  let writeResult;
-  try {
-    const commandInfo = await getPythonCommands(script);
-    writeResult = await new Promise((resolve) => {
+  const commandInfo = await getPythonCommands(script);
+  return new Promise((resolve) => {
     const attempts = commandInfo.setup?.attempts ? [...commandInfo.setup.attempts] : [];
     const commands = commandInfo.commands;
 
