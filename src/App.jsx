@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getStoredLanguage, storeLanguage, translate, translateDeviceLabel, translateDeviceProfileLabel, translateDeviceName, translateGroup, translatePlatform, translateRuntimeText } from "./i18n.js";
 
-const APP_VERSION = "1.1.05";
+const APP_VERSION = "1.1.06";
 
 
 function serializeDeviceDatabaseYaml(database) {
