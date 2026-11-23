@@ -721,9 +721,16 @@ function senderProgrammingIsPending(device, primaryKey, pct14BaseId = "") {
   const selectedKey = exportGatewayForDevice(device, primaryKey);
   if (!selectedKey) return false;
   const knownSender = normalizeId(device.programmed_sender_id);
+  // A change of heating reference changes the physical FG/function even
+  // when the controller sender ID itself stays exactly the same.
+  if (device.programmed_heating_control_mode &&
+      String(device.programmed_heating_control_mode) !== String(device.heating_control_mode || "ha_external")) {
+    return true;
+  }
   if (knownSender) {
     const requestedSender = senderIdForGatewayKey(device, selectedKey, pct14BaseId);
-    return !requestedSender || requestedSender !== knownSender;
+    return !requestedSender || requestedSender !== knownSender ||
+      Boolean(device.sender_programming_pending);
   }
   // Older project data may not have a recorded sender ID yet. Preserve the
   // outstanding warning until a previously clean route or a confirmed write
@@ -749,7 +756,12 @@ function assignDeviceExportGateway(device, selectedKey, primaryKey, pct14BaseId 
     ...device,
     export_gateway_key: selectedKey,
     programmed_sender_id: knownSender,
-    sender_programming_pending: Boolean(selectedKey) && (!knownSender || !selectedSender || knownSender !== selectedSender),
+    sender_programming_pending: Boolean(selectedKey) && (
+      device.sender_programming_pending ||
+      !knownSender || !selectedSender || knownSender !== selectedSender ||
+      (device.programmed_heating_control_mode &&
+       String(device.programmed_heating_control_mode) !== String(device.heating_control_mode || "ha_external"))
+    ),
   };
 }
 
