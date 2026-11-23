@@ -1437,6 +1437,8 @@ function buildSenderProgrammingEntries(devices, targetGateways, pct14BaseId, bus
         operating_mode_sender_id: (isSeries14HeatingActuator(d)
           ? operatingModeSenderForGateway(d, targetGateway, pct14BaseIdForDevice(d, pct14BaseId))
           : ""),
+        operating_mode_sender_valid: !normalizeId(d.operating_mode_sender_id)
+          || operatingModeSenderFitsGateway(d.operating_mode_sender_id, targetGateway),
         previous_operating_mode_sender_id: normalizeId(d.programmed_operating_mode_sender_id || ""),
       });
     }
@@ -3272,6 +3274,13 @@ export default function App() {
     }
     if (!activeGatewayBlocks.length) {
       setWriteSenderMsg(t("senderWrite.noGateway"));
+      return;
+    }
+    const invalidOperatingModes = senderProgrammingEntries.filter(entry => entry.operating_mode_sender_valid === false);
+    if (invalidOperatingModes.length) {
+      setWriteSenderMsg(language === "en"
+        ? "Operating-mode sender ID does not belong to the selected gateway/Base-ID. Correct the ID before programming."
+        : "Betriebsarten-Sender-ID passt nicht zur gewählten Gateway-/Base-ID. Bitte vor dem Schreiben korrigieren.");
       return;
     }
     const port = busWritePort;
