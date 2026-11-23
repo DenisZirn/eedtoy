@@ -82,6 +82,8 @@ def load_sender_map(path: str) -> Dict[str, List[Dict[str, Any]]]:
             "source_gateway_base_id": norm_id(item.get("source_gateway_base_id") or ""),
             "f2l14_mode": str(item.get("f2l14_mode") or "exclusive").strip().lower(),
             "heating_control_mode": str(item.get("heating_control_mode") or "ha_external").strip().lower(),
+            "operating_mode_sender_id": norm_id(item.get("operating_mode_sender_id") or ""),
+            "previous_operating_mode_sender_id": norm_id(item.get("previous_operating_mode_sender_id") or ""),
         })
     return result
 
@@ -720,6 +722,127 @@ async def _ensure_programmed_fhk_controller(
         "function", 64, "channel_mask", f"{mask:08b}", "memory_row", target_row)
     return changed
 
+
+def _heating_group_4_start(device_type: str, size: int) -> int:
+    """First free-form switch entry in physical FG4, after reserved FG1-3.
+
+    Derived from Series-14 BusObject ranges (FAE14/FHK14: 14+, F4HK14:
+    20+). One-channel legacy FHK14 uses the conservative 14+ boundary.
+    """
+    count, _fg1, _fg3, _models = _heating_group_1_layout(device_type, size)
+    return 20 if count == 4 else 14
+
+
+async def _ensure_programmed_heating_operating_mode(
+    dev: Any,
+    sender_id: str,
+    channel: int,
+    device_type: str,
+    previous_sender_id: str = "",
+) -> bool:
+    """Teach a fourfold RPS operating-mode sender in Series-14 FG4/F30.
+
+    A separate sender is optional, and may be identical to the thermostat
+    sender. Existing FTR/FUTH/MiniSafe and other FG4 entries are protected.
+    The writer only replaces an existing FG4/F30 entry with an *explicitly*
+    tracked previous sender ID for the same channel, never by position.
+    """
+    count, _fg1, _fg3, model_codes = _heating_group_1_layout(
+        device_type, int(getattr(dev, "size", 0) or 0)
+    )
+    if not isinstance(channel, int) or not 0 <= channel < count:
+        raise ValueError(f"{device_type}: ungültiger Betriebsartenkanal {channel!r}")
+    discovery = getattr(dev, "discovery_response", None)
+    model = bytes(getattr(discovery, "model", b"") or b"")
+    if len(model) >= 2 and (model[0] != 0x04 or model[1] not in model_codes):
+        raise RuntimeError(
+            f"{device_type}: physische Gerätekennung {model[:2].hex('-').upper()} "
+            "passt nicht zum ausgewählten Betriebsarten-Aktor"
+        )
+
+    group4_start = _heating_group_4_start(device_type, count)
+    end = int(getattr(dev, "memory_size", 0) or 0)
+    if end <= group4_start or not hasattr(dev, "read_mem_line") or not hasattr(dev, "write_mem_line"):
+        raise RuntimeError(f"{device_type}: FG4-ID-Speicher nicht verfügbar")
+
+    sender = _sender_bytes_from_id(sender_id)
+    old_sender = _sender_bytes_from_id(previous_sender_id) if previous_sender_id else None
+    mask = 1 << channel
+    expected = sender + bytes((0, 30, mask, 0))  # PCT14 FG4, fourfold RPS
+    former = (old_sender + bytes((0, 30, mask, 0))
+              if old_sender and old_sender != sender else None)
+
+    async def read_physical(row: int) -> bytes:
+        value = await _read_back_mem_line(dev, row)
+        if not isinstance(value, (bytes, bytearray)) or len(value) != 8:
+            raise TimeoutError(f"{device_type}: FG4 Speicherzeile {row} nicht lesbar")
+        return bytes(value)
+
+    async def write_physical(row: int, data: bytes) -> None:
+        if count <= 2 and "FHK14" in device_type.upper() and "F4HK14" not in device_type.upper():
+            await _write_fhk_mem_line(dev, row, data)
+        else:
+            await _write_mem_line_with_readback(dev, row, data)
+        if await read_physical(row) != data:
+            raise RuntimeError(f"{device_type}: FG4 Speicherzeile {row} nicht bestätigt")
+
+    exact_rows = []
+    prior_rows = []
+    first_empty = None
+    for row in range(group4_start, end):
+        value = await read_physical(row)
+        if value == expected:
+            exact_rows.append(row)
+        elif former is not None and value == former:
+            prior_rows.append(row)
+        elif not any(value) and first_empty is None:
+            first_empty = row
+
+    if exact_rows:
+        target = exact_rows[0]
+    elif prior_rows:
+        target = prior_rows[0]  # replace only own tracked previous sender
+    else:
+        target = first_empty
+    if target is None:
+        raise RuntimeError(
+            f"{device_type} Kanal {channel + 1}: kein freier FG4-Eintrag "
+            "für den Betriebsartensender; bestehende Sender bleiben erhalten"
+        )
+
+    changed = False
+    current = await read_physical(target)
+    if current != expected:
+        if any(current) and (former is None or current != former):
+            raise RuntimeError(
+                f"{device_type} Kanal {channel + 1}: FG4-Zeile {target} "
+                "ist inzwischen anderweitig belegt"
+            )
+        await write_physical(target, expected)
+        changed = True
+
+    # Remove duplicate *exact* entries only; never remove other senders,
+    # functions or channel masks. A former ID is removed only if EEDTOY
+    # previously recorded this exact sender for this heater/channel.
+    for row in exact_rows[1:] + [row for row in prior_rows if row != target]:
+        if await read_physical(row) in (expected, former):
+            await write_physical(row, bytes(8))
+            changed = True
+        else:
+            raise RuntimeError(
+                f"{device_type} Kanal {channel + 1}: FG4-Zeile {row} wurde zwischenzeitlich verändert"
+            )
+    if await read_physical(target) != expected:
+        raise RuntimeError(f"{device_type}: FG4/F30 nicht bestätigt")
+    dev._eedtoy_heating_mode_row = target
+    log("Heating operating-mode writer verified", device_type,
+        "bus_address", getattr(dev, "address", "?"),
+        "channel", channel + 1, "sender", norm_id(sender_id),
+        "function_group", 4, "function", 30,
+        "channel_mask", f"{mask:08b}", "memory_row", target)
+    return changed
+
+
 async def _write_fhk_mem_line(dev: Any, row: int, value: bytes) -> None:
     """Write an FHK14 row without mistaking a delayed F2 reply for the F4 ACK."""
     bus = getattr(dev, "bus", None)
@@ -1124,10 +1247,16 @@ async def ensure_programmed_for_device(fam14_base_id_int: int, dev: Any, sender_
                     elif is_f2l14 and sender_eep == "F6-02-01":
                         update_result = await _ensure_programmed_f2l14(dev, sender_id, entry.get("f2l14_mode", "exclusive"))
                     elif is_fhk and sender_eep == "A5-10-06":
-                        update_result = await _ensure_programmed_fhk_controller(
+                        temperature_updated = await _ensure_programmed_fhk_controller(
                             dev, sender_id, channel, entry_type,
                             str(entry.get("heating_control_mode") or "ha_external"),
                         )
+                        mode_sender = norm_id(entry.get("operating_mode_sender_id") or sender_id)
+                        mode_updated = await _ensure_programmed_heating_operating_mode(
+                            dev, mode_sender, channel, entry_type,
+                            norm_id(entry.get("previous_operating_mode_sender_id") or ""),
+                        )
+                        update_result = bool(temperature_updated or mode_updated)
                     elif isinstance(dev, HasProgrammableRPS) or isinstance(dev, DimmerStyle) or hasattr(dev, "ensure_programmed"):
                         sender_address = AddressExpression.parse(sender_id)
                         eep_profile = EEP.find(sender_eep)
@@ -1157,9 +1286,14 @@ async def ensure_programmed_for_device(fam14_base_id_int: int, dev: Any, sender_
             if is_fhk and sender_eep == "A5-10-06" and update_result is not None:
                 learned = str(entry.get("heating_control_mode") or "ha_external") == "learned_sensor"
                 group, function = (3, 65) if learned else (1, 64)
+                mode_sender = norm_id(entry.get("operating_mode_sender_id") or sender_id)
+                mode_row = getattr(dev, "_eedtoy_heating_mode_row", None)
                 message += (
-                    f" Bestätigt: Funktionsgruppe {group}, Funktion {function}, "
-                    f"Kanalmaske {1 << channel:08b}."
+                    f" Bestätigt: Temperatur Funktionsgruppe {group}, Funktion {function}, "
+                    f"Kanalmaske {1 << channel:08b}. "
+                    f"Betriebsartensender {mode_sender}: Funktionsgruppe 4, "
+                    f"Funktion 30, Kanalmaske {1 << channel:08b}, "
+                    f"Speicherzeile {mode_row}."
                 )
             if is_frgbw14_hardware and update_result is not None:
                 slot = getattr(dev, "_eedtoy_frgbw14_row", None)
