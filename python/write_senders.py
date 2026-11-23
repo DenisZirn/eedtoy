@@ -236,10 +236,14 @@ def _is_real_frgbw14(dev: Any) -> bool:
 async def _ensure_programmed_controller_profile(dev: Any, sender_id: str, channel: int = 0) -> Optional[bool]:
     """Write the FRGBW14 controller exclusively to PCT14 function group 3.
 
-    Confirmed FRGBW14 PCT14 memory layout (04-A1, offset first block 8):
-      entry 1 / function group 1: memory row 8
-      entries 2..4 / group 2:    memory rows 9..11
-      entry 5+ / function group 3: memory rows 12..123
+    FRGBW14 PCT14 memory layout (04-A1, PCT14 offset first block 8):
+      memory rows 8..11: actuator configuration, NOT the learned-ID table
+      entry 1 / function group 1: memory row 12
+      entries 2..4 / group 2:    memory rows 13..15
+      entry 5+ / function group 3: memory rows 16..127 (when accessible)
+    The four configuration rows explain the previously observed discrepancy:
+    writing memory row 12 physically programs FG1, regardless of the function
+    number in the written bytes.
     The PCT14 controller entry uses button 0, function 81, channel
     bitmap 00001111 (all RGBW channels), value 0.
 
@@ -251,8 +255,12 @@ async def _ensure_programmed_controller_profile(dev: Any, sender_id: str, channe
     sender = _sender_bytes_from_id(sender_id)
     expected_line = sender + bytes((0, 81, 0x0F, 0))
     memory_size = int(getattr(dev, "memory_size", 0) or 0)
-    group3_end = min(memory_size, 124)  # 116 PCT14 ID entries, starting at row 8
-    if group3_end <= 12 or not hasattr(dev, "read_mem_line") or not hasattr(dev, "write_mem_line"):
+    # PCT14 table: four configuration lines (8..11), then ID entries 1..116.
+    # The bus library indexes memory by physical row, not PCT14 entry number.
+    group1_row = 12
+    group3_start = 16
+    group3_end = min(memory_size, 128)
+    if group3_end <= group3_start or not hasattr(dev, "read_mem_line") or not hasattr(dev, "write_mem_line"):
         raise RuntimeError("FRGBW14: kein Zugriff auf die PCT14-ID-Tabelle (Funktionsgruppe 3)")
 
     async def read_verified(row: int) -> bytes:
@@ -279,7 +287,7 @@ async def _ensure_programmed_controller_profile(dev: Any, sender_id: str, channe
                 f"FRGBW14: Speicherzeile {row} konnte nicht sicher aus dem Aktor gelesen werden"
             )
         actual = bytes(actual)
-        if row in (8, 12):
+        if row in (8, group1_row, group3_start):
             log("FRGBW14 physical read", "bus_address", getattr(dev, "address", "?"),
                 "row", row, "data", actual.hex("-").upper())
         return actual
@@ -302,28 +310,30 @@ async def _ensure_programmed_controller_profile(dev: Any, sender_id: str, channe
                 "Aktorinhalt weicht vom Sollwert ab"
             )
 
-    # A stale BusObject cache must never hide a wrong group-1 assignment.
-    old_group1 = await read_verified(8)
+    # Row 8 contains configuration data. NEVER treat it as a learned ID.
+    config_row8 = await read_verified(8)
+    old_group1 = await read_verified(group1_row)
     log("FRGBW14 programming start", "bus_address", getattr(dev, "address", "?"),
-        "sender_id", norm_id(sender_id), "FG1_row8", old_group1.hex("-").upper(),
-        "FG3_first_row", 12, "FG3_end_exclusive", group3_end)
+        "sender_id", norm_id(sender_id),
+        "config_row8", config_row8.hex("-").upper(),
+        "FG1_row12", old_group1.hex("-").upper(),
+        "FG3_first_row", group3_start, "FG3_end_exclusive", group3_end)
 
     exact_row = None
     sender_row = None
     free_row = None
     protected_rows = {}
-    for row in range(12, group3_end):
+    for row in range(group3_start, group3_end):
         line = await read_verified(row)
         if any(line) and line[:4] != sender:
             # Preserve every other learned sender independently of the
             # controller being programmed. Do not assume entry 5 is empty.
             protected_rows[row] = line
         if line == expected_line:
-            # Validate against the hardware, not just the library cache.
+            # Read again: never count a cached value as independent evidence.
             line = await read_verified(row)
-            if line == expected_line:
+            if line == expected_line and exact_row is None:
                 exact_row = row
-                break
         if line[:4] == sender and any(line) and sender_row is None:
             sender_row = row
         if not any(line) and free_row is None:
@@ -352,9 +362,9 @@ async def _ensure_programmed_controller_profile(dev: Any, sender_id: str, channe
     # for the very same sender be removed. Ignore its other bytes: old
     # builds did not all use the same key/function/channel encoding.
     if old_group1[:4] == sender:
-        current_group1 = await read_verified(8)
+        current_group1 = await read_verified(group1_row)
         if current_group1[:4] == sender:
-            await write_verified(8, bytes(8))
+            await write_verified(group1_row, bytes(8))
             changed = True
 
     # Final hardware verification prevents false "written" or "exists" output.
@@ -379,17 +389,25 @@ async def _ensure_programmed_controller_profile(dev: Any, sender_id: str, channe
         return bytes(answer.value)
 
     final_target = await final_read(target_row)
-    final_fg1 = await final_read(8)
-    final_foreign = await final_read(12)
-    log("FRGBW14 final hardware state", "FG1_row8", final_fg1.hex("-").upper(),
-        "FG3_first_row12", final_foreign.hex("-").upper(),
+    final_fg1 = await final_read(group1_row)
+    final_config = await final_read(8)
+    final_group3_first = await final_read(group3_start)
+    log("FRGBW14 final hardware state",
+        "config_row8", final_config.hex("-").upper(),
+        "FG1_row12", final_fg1.hex("-").upper(),
+        "FG3_first_row16", final_group3_first.hex("-").upper(),
         "FG3_target_row", target_row, "target", final_target.hex("-").upper(),
         "protected_FG3_entries", len(protected_rows))
+    if final_config != config_row8:
+        raise RuntimeError(
+            "FRGBW14: Konfigurationszeile 8 hat sich verändert; "
+            "keine sichere Bestätigung der ID-Programmierung"
+        )
     for protected_row, original in protected_rows.items():
         actual = await final_read(protected_row)
         if actual != original:
             raise RuntimeError(
-                f"FRGBW14: bestehender fremder FG3-Eintrag {protected_row - 7} "
+                f"FRGBW14: bestehender fremder FG3-Eintrag {protected_row - 11} "
                 f"(Zeile {protected_row}) hat sich verändert. "
                 "Keine sichere Bestätigung der Programmierung; "
                 "Aktor in PCT14 neu auslesen."
@@ -401,7 +419,7 @@ async def _ensure_programmed_controller_profile(dev: Any, sender_id: str, channe
     dev._eedtoy_frgbw14_row = target_row
     log("FRGBW14 verified", "bus_address", getattr(dev, "address", "?"),
         "sender", norm_id(sender_id), "function_group", 3,
-        "pct14_entry", target_row - 7, "memory_row", target_row,
+        "pct14_entry", target_row - 11, "memory_row", target_row,
         "function", 81, "channel_mask", "00001111")
     return changed
 
@@ -1147,7 +1165,7 @@ async def ensure_programmed_for_device(fam14_base_id_int: int, dev: Any, sender_
                 slot = getattr(dev, "_eedtoy_frgbw14_row", None)
                 if slot is not None:
                     message += (
-                        f" Bestätigt: Funktionsgruppe 3, PCT14-Eintrag {slot - 7}, "
+                        f" Bestätigt: Funktionsgruppe 3, PCT14-Eintrag {slot - 11}, "
                         "Funktion 81, Kanal 00001111."
                     )
             events.append({"status": status, "device_id": device_ext_id, "device_type": entry_type, "sender_id": sender_id, "sender_eep": sender_eep, "message": message})
