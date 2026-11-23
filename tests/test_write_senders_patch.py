@@ -161,10 +161,19 @@ async def test_frgbw14_ignores_stale_busobject_cache():
         pass
     fake_messages.EltakoMemoryRequest = MemoryRequest
     fake_messages.EltakoMemoryResponse = MemoryResponse
+    fake_devices = types.ModuleType("eltakobus.device")
+    async def create_busobject(bus, id):
+        assert id == 35
+        return bus.dev
+    fake_devices.create_busobject = create_busobject
+    fake_pkg.device = fake_devices
     sys.modules["eltakobus"] = fake_pkg
     sys.modules["eltakobus.message"] = fake_messages
+    sys.modules["eltakobus.device"] = fake_devices
 
     dev = StaleDevice()
+    dev.discovery_response = types.SimpleNamespace(model=bytes((0x04, 0xA1, 0, 0)))
+    dev.size = 6
     expected = bytes.fromhex("FFA604A300510F00")
     foreign = bytes.fromhex("FFAD246800510F00")
     dev.hardware[8] = expected       # PCT14 FG1 contains the wrong assignment
