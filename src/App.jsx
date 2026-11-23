@@ -4304,6 +4304,20 @@ export default function App() {
                 </div>
               )}
 
+              {/* Read-only model-specific learning guide. Never programs a device. */}
+              {/(?:61|62|72)(?:[A-Z0-9/-]|$)/i.test(String(form.device_type || profile.device_type || "")) && (
+                <div style={{marginBottom:".65rem"}}>
+                  <button type="button" className="btn ghost"
+                    onClick={()=>window.electronAPI?.openDecentralizedTeachInHelp?.(
+                      String(form.device_type || profile.device_type || "").trim()
+                    )}
+                    disabled={!isElectron}
+                  >
+                    {language === "en" ? "Teach-in help for this actuator…" : "Einlernhilfe für diesen Aktor öffnen…"}
+                  </button>
+                </div>
+              )}
+
               {/* Sender */}
               {profile.needs_sender&&(
                 <div style={{background:"#eef5f8",border:"1px solid #c6d9e4",borderRadius:7,padding:".75rem",marginBottom:".65rem"}}>
