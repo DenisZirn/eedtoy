@@ -83,6 +83,7 @@ def load_sender_map(path: str) -> Dict[str, List[Dict[str, Any]]]:
             "f2l14_mode": str(item.get("f2l14_mode") or "exclusive").strip().lower(),
             "heating_control_mode": str(item.get("heating_control_mode") or "ha_external").strip().lower(),
             "operating_mode_sender_id": norm_id(item.get("operating_mode_sender_id") or ""),
+            "operating_mode_sender_valid": item.get("operating_mode_sender_valid", True) is not False,
             "previous_operating_mode_sender_id": norm_id(item.get("previous_operating_mode_sender_id") or ""),
         })
     return result
@@ -1247,6 +1248,10 @@ async def ensure_programmed_for_device(fam14_base_id_int: int, dev: Any, sender_
                     elif is_f2l14 and sender_eep == "F6-02-01":
                         update_result = await _ensure_programmed_f2l14(dev, sender_id, entry.get("f2l14_mode", "exclusive"))
                     elif is_fhk and sender_eep == "A5-10-06":
+                        if not entry.get("operating_mode_sender_valid", True):
+                            raise RuntimeError(
+                                f"{entry_type}: Betriebsarten-Sender-ID passt nicht zum Gateway/Base-ID"
+                            )
                         temperature_updated = await _ensure_programmed_fhk_controller(
                             dev, sender_id, channel, entry_type,
                             str(entry.get("heating_control_mode") or "ha_external"),
