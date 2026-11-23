@@ -39,7 +39,7 @@ vm.createContext(context);
 vm.runInContext(helperSource, context, { filename: 'src/App.helpers.jsx' });
 const api = context.__api;
 
-assert(api.APP_VERSION === '1.1.04', 'Application version is 1.1.04');
+assert(api.APP_VERSION === '1.1.05', 'Application version is 1.1.05');
 assert(Object.keys(api.EEP_DB).length === 86, 'Approved device profile count is 86, including FHK61 variants');
 
 const fhk61Models = ['FHK61-230V','FHK61U-230V','FHK61SSR-230V'];
@@ -118,7 +118,7 @@ const devices = [
 ];
 
 const deYaml = api.generateYaml(gateway, devices, [], '', 'de');
-assertIncludes(deYaml, '# Version: 1.1.04', 'German YAML version header');
+assertIncludes(deYaml, '# Version: 1.1.05', 'German YAML version header');
 assertIncludes(deYaml, '# Generiert:', 'German YAML timestamp label');
 assertIncludes(deYaml, 'device_type: fam14', 'Gateway type export');
 assertIncludes(deYaml, 'base_id: FF-AA-BB-00', 'Gateway base ID export');
