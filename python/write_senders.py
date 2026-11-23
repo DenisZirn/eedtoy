@@ -304,12 +304,20 @@ async def _ensure_programmed_controller_profile(dev: Any, sender_id: str, channe
 
     # A stale BusObject cache must never hide a wrong group-1 assignment.
     old_group1 = await read_verified(8)
+    log("FRGBW14 programming start", "bus_address", getattr(dev, "address", "?"),
+        "sender_id", norm_id(sender_id), "FG1_row8", old_group1.hex("-").upper(),
+        "FG3_first_row", 12, "FG3_end_exclusive", group3_end)
 
     exact_row = None
     sender_row = None
     free_row = None
+    protected_rows = {}
     for row in range(12, group3_end):
         line = await read_verified(row)
+        if any(line) and line[:4] != sender:
+            # Preserve every other learned sender independently of the
+            # controller being programmed. Do not assume entry 5 is empty.
+            protected_rows[row] = line
         if line == expected_line:
             # Validate against the hardware, not just the library cache.
             line = await read_verified(row)
@@ -375,7 +383,17 @@ async def _ensure_programmed_controller_profile(dev: Any, sender_id: str, channe
     final_foreign = await final_read(12)
     log("FRGBW14 final hardware state", "FG1_row8", final_fg1.hex("-").upper(),
         "FG3_first_row12", final_foreign.hex("-").upper(),
-        "FG3_target_row", target_row, "target", final_target.hex("-").upper())
+        "FG3_target_row", target_row, "target", final_target.hex("-").upper(),
+        "protected_FG3_entries", len(protected_rows))
+    for protected_row, original in protected_rows.items():
+        actual = await final_read(protected_row)
+        if actual != original:
+            raise RuntimeError(
+                f"FRGBW14: bestehender fremder FG3-Eintrag {protected_row - 7} "
+                f"(Zeile {protected_row}) hat sich verändert. "
+                "Keine sichere Bestätigung der Programmierung; "
+                "Aktor in PCT14 neu auslesen."
+            )
     if final_target != expected_line:
         raise RuntimeError("FRGBW14: Controller-ID ist nicht in Funktionsgruppe 3 gespeichert")
     if final_fg1[:4] == sender:
