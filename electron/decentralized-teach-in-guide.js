@@ -7,9 +7,9 @@
 })(typeof window === "undefined" ? null : window, function () {
   const downloads = "https://www.eltako.com/de/service/downloads-zone/";
   const rows = [
-    ["FHK61-230V","61","heating","fhk61","A5-10-06","40-30-0D-87","https://www.eltako.com/fileadmin/downloads/de/_bedienung/FHK61-230V_UC_30100045-3_dt.pdf"],
+    ["FHK61-230V","61","heating","fhk61","A5-10-06","40-30-0D-87","https://www.eltako.com/de/download_file/fhk61-230v_dt-pdf/"],
     ["FHK61U-230V","61","heating","fhk61","A5-10-06","40-30-0D-87","https://www.eltako.com/fileadmin/downloads/de/_bedienung/FHK61U-230V_30100050-2_dt.pdf"],
-    ["FHK61SSR-230V","61","heating","fhk61","A5-10-06","40-30-0D-87",downloads],
+    ["FHK61SSR-230V","61","heating","fhk61","A5-10-06","40-30-0D-87","https://www.eltako.com/fileadmin/downloads/de/_bedienung/FHK61SSR_30100034-1_dt.pdf"],
     ["FSR61-230V","61","relay","generic61","A5-38-08","E0-40-0D-80",downloads],
     ["FSR61NP-230V","61","relay","fsr61np","A5-38-08","E0-40-0D-80","https://www.eltako.com/fileadmin/downloads/de/_bedienung/FSR61NP-230V_30100030-12_dt.pdf"],
     ["FSR61G-230V","61","relay","generic61","A5-38-08","E0-40-0D-80",downloads],
@@ -74,8 +74,8 @@
           ? 'For a fourfold operating-mode sender, set the lower rotary switch to right stop 4.5.'
           : 'Für den Vierfach-Betriebsartensender den unteren Drehschalter auf Rechtsanschlag 4,5 stellen.')
         : (en
-          ? 'For the A5-10-06 temperature-controller sender, select the temperature-controller teach-in position from this exact actuator manual. The 4.5 position is reserved here for the operating-mode sender.'
-          : 'Für A5-10-06-Temperaturregler die zum jeweiligen Aktor passende Einlernposition gemäß Anleitung wählen. Die Stellung 4,5 ist hier dem Betriebsartensender vorbehalten.'));
+          ? 'For an FTR/FT4-compatible A5-10-06 temperature-controller sender, the manual also specifies the lower dial at right stop 4.5. Other temperature sensors (e.g. FTF) have different settings: check the exact model manual.'
+          : 'Bei einem FTR-/FT4-kompatiblen A5-10-06-Temperaturregler den unteren Drehschalter ebenfalls auf Rechtsanschlag 4,5 stellen. Für andere Temperaturfühler (z. B. FTF) gelten andere Einstellungen – genaue Anleitung prüfen.'));
       steps.push(en
         ? 'Turn the upper rotary switch to LRN. The LED flashes slowly.'
         : 'Oberen Drehschalter auf LRN stellen. Die LED blinkt ruhig.');
