@@ -2700,6 +2700,21 @@ export default function App() {
     if (Object.keys(e).length) { setErrors(e); return; }
     setErrors({});
 
+    // Actuator programming is separate from saving a project. If an
+    // already imported heating actuator changes its sensor/control mode,
+    // always require an explicit, verified Series-14 write.
+    if (editIdx !== null && isPct14ImportedDevice(entry)) {
+      const previous = devices[editIdx];
+      const previousMode = String(previous?.heating_control_mode || "ha_external");
+      const nextMode = String(entry.heating_control_mode || "ha_external");
+      const type = String(deviceTypeForDevice(entry) || "").toUpperCase();
+      if (/FHK14|F4HK14|FAE14LPR|FAE14SSR/.test(type) && previousMode !== nextMode) {
+        entry.sender_programming_pending = true;
+        entry.programmed_heating_control_mode =
+          previous.programmed_heating_control_mode || previousMode;
+      }
+    }
+
     const nextDevices = editIdx !== null
       ? devices.map((x,i) => i===editIdx ? entry : x)
       : [...devices, { ...entry, export_gateway_key: defaultExportGatewayForDevice(
@@ -3075,6 +3090,12 @@ export default function App() {
   }, [writeConnectionKey]);
   const busWriteHint = t("senderWrite.hint");
   const canWriteSenderIds = !writingSenders && !writeGatewayBusy && busWriteGatewayConnected && senderProgrammingEntries.length > 0;
+  const pendingActuatorChanges = devices.filter(device => (
+    isPct14ImportedDevice(device) &&
+    (device.sender_programming_pending ||
+      (device.programmed_heating_control_mode &&
+        String(device.programmed_heating_control_mode) !== String(device.heating_control_mode || "ha_external")))
+  )).length;
 
   useEffect(() => {
     if (!isElectron || !window.electronAPI?.onWriteSenderProgress) return undefined;
@@ -3228,7 +3249,12 @@ export default function App() {
             done.sender_eep === entry.sender_eep
           ));
           return confirmed
-            ? { ...device, programmed_sender_id: normalizeId(confirmed.sender_id), sender_programming_pending: false }
+            ? {
+                ...device,
+                programmed_sender_id: normalizeId(confirmed.sender_id),
+                programmed_heating_control_mode: String(device.heating_control_mode || "ha_external"),
+                sender_programming_pending: false,
+              }
             : device;
         }));
       }
@@ -4083,6 +4109,13 @@ export default function App() {
                     <option value="ha_external">{language === "en" ? "External Home Assistant temperature – FG1 / function 64" : "Externer HA-Temperatursensor – Funktionsgruppe 1 / Funktion 64"}</option>
                     <option value="learned_sensor">{language === "en" ? "Sensor already learned in actuator – HA setpoint FG3 / function 65" : "Im Aktor eingelernter Temperatursensor – HA-Sollwert Gruppe 3 / Funktion 65"}</option>
                   </select>
+                  {editIdx !== null && String(devices[editIdx]?.heating_control_mode || "ha_external") !== String(form.heating_control_mode || "ha_external") && (
+                    <div role="status" style={{fontSize:".73rem",marginTop:".4rem",fontWeight:600,color:"#a3540a"}}>
+                      {language === "en"
+                        ? "Actuator setting changed: save the device and explicitly write the sender IDs to the actuator. The change is not active until the write is verified."
+                        : "Aktoreinstellung geändert: Gerät speichern und anschließend die Sender-IDs ausdrücklich in den Aktor schreiben. Bis zur bestätigten Übertragung ist die Änderung nicht aktiv."}
+                    </div>
+                  )}
                   <div style={{fontSize:".68rem",color:"#53616f",lineHeight:1.5,marginTop:".35rem"}}>
                     {(form.heating_control_mode || "ha_external") === "learned_sensor"
                       ? (language === "en" ? "Requires a matching pre-learned sensor in FG1. The writer leaves that sensor unchanged and programs only the HA setpoint in FG3." : "Voraussetzung: Ein passender Temperatursensor ist bereits in Gruppe 1 eingelernt. Der Writer belässt diesen Sensor und schreibt den HA-Sollwert nur in Gruppe 3.")
@@ -4278,6 +4311,13 @@ export default function App() {
                     </div>
                   </div>
                 </div>
+                {pendingActuatorChanges > 0 && (
+                  <div role="status" style={{marginTop:".6rem",padding:".55rem .7rem",fontSize:".75rem",border:"1px solid #f0bf79",borderRadius:6,background:"#fff7ed",color:"#9a3412"}}>
+                    {language === "en"
+                      ? `${pendingActuatorChanges} actuator change(s) not yet written. Save the project separately; select the correct Series-14 bus and use "Write to actuators" to apply the changes.`
+                      : `${pendingActuatorChanges} Aktoränderung(en) noch nicht geschrieben. Das Speichern des Projekts überträgt keine Änderungen an den Aktor. Passenden Series-14-Bus auswählen und „In Aktoren schreiben“ ausführen.`}
+                  </div>
+                )}
                 {writingSenders&&(()=>{
                   const total = Number(writeSenderProgress.total || senderProgrammingEntries.length || 0);
                   const processed = Math.min(total, Number(writeSenderProgress.processed || 0));
