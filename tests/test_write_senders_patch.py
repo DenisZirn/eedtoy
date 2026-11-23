@@ -112,8 +112,9 @@ async def test_frgbw14_group_3_function_81():
 async def test_frgbw14_ignores_stale_busobject_cache():
     """The physical PCT14 table must win over a stale BusObject cache."""
     class Response:
-        def __init__(self, value):
+        def __init__(self, value, row):
             self.value = value
+            self.row = row
 
     class Bus:
         def __init__(self, dev):
@@ -132,7 +133,7 @@ async def test_frgbw14_ignores_stale_busobject_cache():
                 row = getattr(request, "memory_address", None)
             assert isinstance(row, int), repr(request)
             self.reads.append(row)
-            return Response(self.dev.hardware[row])
+            return Response(self.dev.hardware[row], row)
 
     class StaleDevice(FakeDevice):
         def __init__(self):
