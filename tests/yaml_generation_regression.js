@@ -27,7 +27,7 @@ const start = appSource.indexOf('const APP_VERSION');
 const end = appSource.indexOf('export default function App()');
 if (start < 0 || end < 0) throw new Error('Could not isolate App.jsx helper functions');
 
-const helperSource = `${appSource.slice(start, end)}\nthis.__api = { APP_VERSION, EEP_DB, generateYaml, normalizeFksSenderAssignments, getPct14Mapping, deduplicateExportDevices, buildSenderProgrammingEntries };`;
+const helperSource = `${appSource.slice(start, end)}\nthis.__api = { APP_VERSION, EEP_DB, generateYaml, normalizeFksSenderAssignments, getPct14Mapping, deduplicateExportDevices, buildSenderProgrammingEntries, isSeries14HeatingActuator, isFhk61RadioThermostat, operatingModeSenderFitsGateway };`;
 const context = {
   console,
   Date,
@@ -295,3 +295,55 @@ for (let channel = 1; channel <= 4; channel += 1) {
   assertIncludes(fsr71PlainYaml, `device_type: "FSR71NP-4x-230V"`, `Saved FSR71 profile supplies the technical type for channel ${channel}`);
   assertIncludes(fsr71PlainYaml, `channel: ${channel}`, `Legacy FSR71 alias channel ${channel} metadata`);
 }
+
+ 
+// Separate operating-mode sender is optional; existing project YAML remains
+// byte-compatible when no explicit sender is configured.
+const heatingGateway = {type:'fam-usb',base_id:'FF-A6-04-80'};
+const baseHeating = {name:'FHK14 Heizung',eep:'A5-10-06',platform:'climate',
+  device_type:'FHK14',dev_id:'00-00-00-06',sender_id:'FF-A6-04-86',
+  sender_eep:'A5-10-06',imported_from_pct14:true};
+const noModeYaml = api.generateYaml(heatingGateway,[baseHeating],[], 'FF-BF-5C-80');
+assertNotIncludes(noModeYaml,'operating_mode_sender_id:', 'Legacy heating YAML omits new optional field');
+const modeHeating = {...baseHeating,operating_mode_sender_id:'FF-A6-04-A8'};
+const separateModeYaml = api.generateYaml(heatingGateway,[modeHeating],[], 'FF-BF-5C-80');
+assertIncludes(separateModeYaml,'operating_mode_sender_id: "FF-A6-04-A8"', 'Series-14 separate operating sender exported');
+assertIncludes(separateModeYaml,'id: "FF-A6-04-86"', 'Existing controller sender unchanged');
+const heatingEntries = api.buildSenderProgrammingEntries(
+  [modeHeating], [heatingGateway], 'FF-BF-5C-80', '', 'fam-usb|FF-A6-04-80');
+assert(heatingEntries.length===1 && heatingEntries[0].operating_mode_sender_id==='FF-A6-04-A8',
+  'FG4 sender passed to the Series-14 writer without another device entry');
+assert(heatingEntries[0].sender_id==='FF-A6-04-86',
+  'Temperature sender remains the original channel controller');
+assert(api.operatingModeSenderFitsGateway('FF-A6-04-A8',heatingGateway),
+  'FAM-USB operating-mode sender must be inside Base-ID range');
+assert(!api.operatingModeSenderFitsGateway('AA-BB-CC-DD',heatingGateway),
+  'Foreign Base-ID must be rejected for FAM-USB');
+assert(api.operatingModeSenderFitsGateway('00-00-B0-05',{type:'fgw14usb',base_id:'FF-BF-5C-80'}),
+  'Series-14 writer allows virtual sender IDs');
+assert(!api.operatingModeSenderFitsGateway('FF-A6-04-A8',{type:'fgw14usb',base_id:'FF-BF-5C-80'}),
+  'Series-14 writer rejects radio ID when a virtual bus sender is needed');
+const heatingChannels=Array.from({length:4},(_,index)=>({
+  ...modeHeating,device_type:'F4HK14',name:'F4HK14 Kanal '+(index+1),
+  dev_id:'00-00-00-'+(0x40+index).toString(16).toUpperCase(),
+  operating_mode_sender_id:'FF-A6-04-'+(0xA8+index).toString(16).toUpperCase()
+}));
+const channels=api.buildSenderProgrammingEntries(
+  heatingChannels,[heatingGateway],'FF-BF-5C-80','','fam-usb|FF-A6-04-80');
+assert(channels.length===4 &&
+  new Set(channels.map(x=>x.operating_mode_sender_id)).size===4 &&
+  new Set(channels.map(x=>x.sender_id)).size===4,
+  'F4HK14 channels use independently routed controller and operating-mode IDs');
+const fhk61Profile='A5-10-06-FHK61-230V';
+const fhk61={name:'FHK61',eep:fhk61Profile,platform:'climate',
+  device_type:'FHK61-230V',dev_id:'01-02-03-04',sender_id:'FF-A6-04-86',
+  operating_mode_sender_id:'FF-A6-04-A9'};
+const radioModeYaml=api.generateYaml(heatingGateway,[fhk61],[], 'FF-BF-5C-80');
+assertIncludes(radioModeYaml,'operating_mode_sender_id: "FF-A6-04-A9"',
+  'FHK61 physical radio teach-in sender role exported separately');
+const pwmModeYaml=api.generateYaml(heatingGateway,[{
+ ...fhk61,eep:'A5-38-08-FHK61SSR-PWM',device_type:'FHK61SSR-230V',
+ platform:'number',sender_eep:'A5-38-08',pwm_mode:'direct'
+}],[], 'FF-BF-5C-80');
+assertNotIncludes(pwmModeYaml,'operating_mode_sender_id:',
+  'SSR direct PWM remains independent from RPS operating-mode learning');
