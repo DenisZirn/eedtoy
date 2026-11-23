@@ -11,7 +11,7 @@
     ["FHK61U-230V","61","heating","fhk61","A5-10-06","40-30-0D-87","https://www.eltako.com/fileadmin/downloads/de/_bedienung/FHK61U-230V_30100050-2_dt.pdf"],
     ["FHK61SSR-230V","61","heating","fhk61","A5-10-06","40-30-0D-87",downloads],
     ["FSR61-230V","61","relay","generic61","A5-38-08","E0-40-0D-80",downloads],
-    ["FSR61NP-230V","61","relay","fsr61np","A5-38-08","E0-40-0D-80","https://www.eltako.com/fileadmin/downloads/de/_bedienung/FSR61NP-230V_30100030-13_dt.pdf"],
+    ["FSR61NP-230V","61","relay","fsr61np","A5-38-08","E0-40-0D-80","https://www.eltako.com/fileadmin/downloads/de/_bedienung/FSR61NP-230V_30100030-12_dt.pdf"],
     ["FSR61G-230V","61","relay","generic61","A5-38-08","E0-40-0D-80",downloads],
     ["FSR61/8-24V UC","61","relay","generic61","A5-38-08","E0-40-0D-80",downloads],
     ["FUD61NP-230V","61","dimmer","generic61","A5-38-08","E0-40-0D-80",downloads],
@@ -21,7 +21,7 @@
     ["FSB61NP-230V","61","cover","generic61","H5-3F-7F","FF-F8-0D-80",downloads],
     ["FD62NP-230V","62","dimmer","fd62","A5-38-08","E0-40-0D-80","https://www.eltako.com/fileadmin/downloads/de/_bedienung/FD62NP-230V_30100537-1_dt.pdf"],
     ["FD62NPN-230V","62","dimmer","fd62","A5-38-08","E0-40-0D-80","https://www.eltako.com/fileadmin/downloads/de/_bedienung/FD62NPN-230V_30100535-2_dt.pdf"],
-    ["FJ62NP-230V","62","cover","fj62","H5-3F-7F","FF-F8-0D-80","https://www.eltako.com/fileadmin/downloads/de/_bedienung/FJ62NP-230V_30200535-3_dt.pdf"],
+    ["FJ62NP-230V","62","cover","fj62","H5-3F-7F","FF-F8-0D-80","https://www.eltako.com/fileadmin/downloads/de/_bedienung/FJ62NP-230V_30200535-2_dt.pdf"],
     ["FJ62/12-36V DC","62","cover","fj62","H5-3F-7F","FF-F8-0D-80",downloads],
     ["FR62-230V","62","relay","generic62","A5-38-08","E0-40-0D-80",downloads],
     ["FR62NP-230V","62","relay","generic62","A5-38-08","E0-40-0D-80","https://www.eltako.com/fileadmin/downloads/de/_bedienung/FR62NP-230V_30100543-2_dt.pdf"],
@@ -59,8 +59,8 @@
       ? 'Exit learning mode, restore the desired operating settings and test the actuator from Home Assistant.'
       : 'Einlernmodus verlassen, vorgesehene Betriebsstellung wiederherstellen und den Aktor anschließend aus Home Assistant testen.';
     const ensure=en
-      ? 'Check the exact model number, production date and manual. Disable other radio senders during teaching. Never use CLR or erase the complete learning memory.'
-      : 'Exakten Gerätetyp, Fertigungsstand und Anleitung prüfen. Während des Lernens andere Funksender ruhig halten. Nicht auf CLR stellen und keinen Lernspeicher löschen.';
+      ? 'Check the exact model and device revision. Keep other radio senders quiet during teaching. Never use CLR or erase the complete learning memory.'
+      : 'Exakten Gerätetyp und Fertigungsstand prüfen. Während des Lernens andere Funksender ruhig halten. Nicht auf CLR stellen und keinen Lernspeicher löschen.';
     let steps=[ensure];
     let note="";
     if (!item) {
@@ -68,16 +68,20 @@
         ? 'Put the physical actuator into its documented teaching mode. The correct switch position or tapping sequence depends on the model.'
         : 'Aktor gemäß seiner genauen Herstelleranleitung in Lernbereitschaft versetzen. Drehschalterstellung beziehungsweise Tippfolge sind geräteabhängig.');
     } else if (item.guide==="fhk61") {
-      steps.push(en
-        ? 'For the fourfold operating-mode button or FTR/FUTH, turn the lower rotary switch to the right stop (4.5).'
-        : 'Für Vierfach-Betriebsartentaster beziehungsweise FTR/FUTH den unteren Drehschalter auf Rechtsanschlag 4,5 stellen.');
+      steps.push(mode
+        ? (en
+          ? 'For a fourfold operating-mode sender, set the lower rotary switch to right stop 4.5.'
+          : 'Für den Vierfach-Betriebsartensender den unteren Drehschalter auf Rechtsanschlag 4,5 stellen.')
+        : (en
+          ? 'For the A5-10-06 temperature-controller sender, select the temperature-controller teach-in position from this exact actuator manual. The 4.5 position is reserved here for the operating-mode sender.'
+          : 'Für A5-10-06-Temperaturregler die zum jeweiligen Aktor passende Einlernposition gemäß Anleitung wählen. Die Stellung 4,5 ist hier dem Betriebsartensender vorbehalten.'));
       steps.push(en
         ? 'Turn the upper rotary switch to LRN. The LED flashes slowly.'
         : 'Oberen Drehschalter auf LRN stellen. Die LED blinkt ruhig.');
       if(mode) {
         steps.push(en
-          ? 'In Home Assistant trigger the operating-mode RPS teach-in for the assigned operating-mode sender ID, if the integration exposes this function. RPS data codes: 0x70 Home, 0x50 Sleep, 0x30 Eco, 0x10 Off/frost protection. This is NOT the A5-10-06 temperature-controller telegram.'
-          : 'In Home Assistant – sofern vorhanden – den RPS-Einlernvorgang für die zugeordnete Betriebsarten-Sender-ID auslösen. RPS-Daten: 0x70 Normal, 0x50 Nacht, 0x30 Eco, 0x10 Aus/Frostschutz. Das ist NICHT das A5-10-06-Temperaturreglertelegramm.');
+          ? 'In Home Assistant press “Send teach-in telegram” for the assigned operating-mode RPS sender, if the integration provides this function. RPS data codes: 0x70 Home, 0x50 Sleep, 0x30 Eco, 0x10 Off/frost protection. This is NOT the A5-10-06 temperature-controller telegram.'
+          : 'In Home Assistant – sofern für RPS-Betriebsarten angeboten – bei der zugeordneten Betriebsarten-Sender-ID „Einlerntelegramm senden“ drücken. RPS-Daten: 0x70 Normal, 0x50 Nacht, 0x30 Eco, 0x10 Aus/Frostschutz. Das ist NICHT das A5-10-06-Temperaturreglertelegramm.');
       } else {
         steps.push(en
           ? 'For an A5-10-06 temperature controller, press “Send teach-in telegram” in Home Assistant, if available. EEDTOY records 40-30-0D-87 as the temperature-controller teach-in payload.'
