@@ -2,8 +2,7 @@
 """
 Write Home Assistant sender IDs into ELTAKO Series-14 bus actuators.
 
-This mirrors the relevant write path of Philipp Grimm's EnOcean Device Manager:
-connect to the FAM14/FGW14 bus, lock it, address only the devices referenced by
+Connect to the FAM14/FGW14 bus, lock it and address only the devices referenced by
 the PCT14 sender map and program the requested controller sender IDs.
 """
 import argparse
@@ -706,8 +705,8 @@ def _fd2g14_targets(fam14_base_id_int: int, sender_map: Dict[str, List[Dict[str,
     return result
 
 
-async def enumerate_bus_grimm(bus: Any):
-    """Enumerate Series-14 devices exactly like Grimm's eltakotool.
+async def enumerate_series14_devices(bus: Any):
+    """Enumerate detected Series-14 devices on the locked RS485 bus.
 
     A multi-channel device is discovered once at its physical base address and
     its complete address range is skipped afterwards. This is important for the
@@ -730,7 +729,7 @@ async def enumerate_bus_grimm(bus: Any):
         except TimeoutError:
             continue
         except Exception as exc:
-            log("Grimm bus scan failed", address, repr(exc))
+            log("Series-14-Geräteerkennung fehlgeschlagen", address, repr(exc))
 
 
 def _is_real_fd2g14(dev: Any) -> bool:
@@ -814,12 +813,12 @@ async def ensure_fd2g14_from_yaml(
     processed_ids: Set[str],
     known_devices: Optional[Dict[int, Any]] = None,
 ) -> List[Dict[str, Any]]:
-    """Program FD2G14 through Grimm's real FD2G14/FDG14 BusObject path.
+    """Program FD2G14 using the real FD2G14/FDG14 bus object.
 
     The sixteen YAML IDs describe the logical DALI groups. They are *not* used
     as raw memory-access addresses. We discover the physical FD2G14 on the bus,
-    then call its DimmerStyle.ensure_programmed() for channels 0..15. Grimm's
-    implementation writes A5-38-08 as sender + 00 + function 32 + group + 00.
+    then call its DimmerStyle.ensure_programmed() for channels 0..15. The
+    writer sends A5-38-08 as sender + 00 + function 32 + group + 00.
     """
     from eltakobus.eep import EEP
     try:
@@ -864,7 +863,7 @@ async def ensure_fd2g14_from_yaml(
 
     missing_bases = pending_bases - {int(d.address) for d in discovered}
     if missing_bases:
-        async for dev in enumerate_bus_grimm(bus):
+        async for dev in enumerate_series14_devices(bus):
             if _is_real_fd2g14(dev) and int(getattr(dev, "address", -1)) in missing_bases:
                 discovered.append(dev)
                 missing_bases.discard(int(dev.address))
