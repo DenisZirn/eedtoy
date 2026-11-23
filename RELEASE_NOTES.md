@@ -11,6 +11,14 @@
 - **FHK61-Familie:** FHK61-230V, FHK61U-230V und FHK61SSR-230V ergänzt; Temperaturregelung und direkter PWM-Betrieb beim SSR bleiben getrennte Betriebsarten.
 - **FD2G14:** Wiederanlauf nach fehlgeschlagener Geräteerkennung gegen `NameError` abgesichert; Diagnose und Rückleseprüfung für 16 Kanäle erweitert. Sporadische Timeouts können weiterhin auftreten.
 
+## EEDTOY-Einlernhilfe für dezentrale Funkaktoren
+
+- Unter **Hilfe → Dezentrale Aktoren einlernen** steht ein eigenständiges, durchsuchbares Hilfefenster für Modelle der **Baureihe 61 und 62** zur Verfügung. Die **Baureihe 72** wird nur mit allgemeinen Hinweisen angezeigt, solange keine genaue Gerätevariante bestätigt ist.
+- Das Geräteformular bietet für passende Modelle einen direkten Link **„Einlernhilfe für diesen Aktor öffnen“**. Dadurch öffnet sich die Anleitung sofort mit der Modellvorauswahl.
+- Die Anleitungen enthalten nun die vier wesentlichen Schritte **Aktor auf LRN beziehungsweise per Tippsequenz lernbereit machen → in Home Assistant „Einlerntelegramm senden“ drücken (sofern verfügbar) → Gerätequittierung kontrollieren → Betriebsstellung wiederherstellen**.
+- FHK61: Temperaturregler A5-10-06 und RPS-Betriebsartensender sind getrennt auswählbar. Direkt-PWM am FHK61SSR wird nicht mit der Temperaturregelung gleichgesetzt.
+- Für unbestätigte Varianten werden keine Einlernpositionen erfunden. Hersteller-PDFs beziehungsweise die offizielle Download-Zone sind separat verlinkt. Die Hilfefunktion schreibt selbst keine Telegramme und ändert keine Projekte.
+
 ## Sicherheit und Diagnose
 
 - Bei Änderungen an programmierungsrelevanten Aktoreinstellungen (z. B. Temperaturreferenz, Sender-ID, Kanal oder F2L14-Modus) verlangt EEDTOY einen **separaten, ausdrücklich bestätigten Schreibvorgang**. Das Speichern der Projektdatei allein programmiert keinen Aktor.
