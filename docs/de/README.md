@@ -1,6 +1,6 @@
 # EEDTOY – Benutzerhandbuch
 
-**Deutsch · für EEDTOY v1.1.04 · Stand: November 2026**
+**Deutsch · für EEDTOY v1.1.05 · Stand: November 2026**
 
 EEDTOY ist ein Desktop-Konfigurator für unterstützte EnOcean-Geräte und ELTAKO-Series-14-Bussysteme. Er verwaltet Geräte und ihre Gateway-Zuordnung, importiert PCT14- und MiniSafe2-Daten und erzeugt eine YAML-Datei für die Home-Assistant-Integration **ELTAKO Sensors & Actuators**.
 
@@ -52,7 +52,7 @@ flowchart LR
 | **YAML-Gateway** | Gateway, unter dem ein Gerät nach Home Assistant exportiert wird |
 | **Projektdatei** | Lokal gespeicherter EEDTOY-Arbeitsstand; nicht identisch mit YAML |
 
-Nicht jedes Geräteprofil bietet alle Funktionen. **Das Handbuch beschreibt v1.1.04 anhand des Quellcodes. Screenshots werden separat ergänzt.**
+Nicht jedes Geräteprofil bietet alle Funktionen. **Das Handbuch beschreibt v1.1.05 anhand des Quellcodes. Screenshots werden separat ergänzt.**
 
 [Quellcode](https://github.com/DenisZirn/eedtoy) · [Versionshinweise](../../CHANGELOG.md) · [Fehler melden](https://github.com/DenisZirn/eedtoy/issues/new/choose)
 
