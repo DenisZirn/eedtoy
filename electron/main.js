@@ -1631,8 +1631,14 @@ async function runPythonWriteSenders({ portPath = '', gatewayType = 'fam14', bau
   const fs = require('fs');
   const os = require('os');
   const script = getPythonWriteSendersScriptPath();
-  const commandInfo = await getPythonCommands(script);
-  return new Promise((resolve) => {
+  const diagnostics = createSenderWriteDiagnosticsLog();
+  diagnostics.write('START sender-write port=' + String(portPath) +
+    ' gateway=' + String(gatewayType) + ' baud=' + String(baudRate) +
+    ' sender_entries=' + (Array.isArray(entries) ? entries.length : 'invalid'));
+  let writeResult;
+  try {
+    const commandInfo = await getPythonCommands(script);
+    writeResult = await new Promise((resolve) => {
     const attempts = commandInfo.setup?.attempts ? [...commandInfo.setup.attempts] : [];
 
     if (!portPath || !String(portPath).trim()) {
