@@ -49,27 +49,29 @@ async def test_frgbw14_group_3_function_81():
     unrelated = bytes.fromhex("0000B00100330100")
 
     dev = ReadbackDevice()
-    dev.seed(8, expected)
-    dev.seed(12, unrelated)
+    dev.seed(8, bytes.fromhex("03FE03FE03FE03FE"))  # hardware config, NEVER ID
+    dev.seed(12, expected)  # legacy FG1
+    dev.seed(16, unrelated)  # occupied FG3/PCT14 entry 5
     assert await module._ensure_programmed_controller_profile(dev, "FF-A6-04-A3") is True
-    assert dev.hardware[12] == unrelated
-    assert dev.hardware[13] == expected
-    assert dev.hardware[8] == bytes(8)
+    assert dev.hardware[16] == unrelated
+    assert dev.hardware[17] == expected
+    assert dev.hardware[12] == bytes(8)
+    assert dev.hardware[8] == bytes.fromhex("03FE03FE03FE03FE")
     assert await module._ensure_programmed_controller_profile(dev, "FF-A6-04-A3") is False
 
     # PCT14 group 3 begins at ID entry 5, but a busy entry 5 is NEVER
     # overwritten. The writer may use entries 6, 7, 8, ... instead.
     first_three_taken = ReadbackDevice()
     existing_rows = {
-        12: bytes.fromhex("0000B00500510F00"),  # PCT14 entry 5
-        13: bytes.fromhex("0000B00600510F00"),  # PCT14 entry 6
-        14: bytes.fromhex("0000B00700510F00"),  # PCT14 entry 7
+        16: bytes.fromhex("0000B00500510F00"),  # PCT14 entry 5
+        17: bytes.fromhex("0000B00600510F00"),  # PCT14 entry 6
+        18: bytes.fromhex("0000B00700510F00"),  # PCT14 entry 7
     }
     for row, line in existing_rows.items():
         first_three_taken.seed(row, line)
     assert await module._ensure_programmed_controller_profile(first_three_taken, "FF-A6-04-A3") is True
-    assert first_three_taken.hardware[15] == expected  # PCT14 entry 8
-    assert first_three_taken._eedtoy_frgbw14_row == 15
+    assert first_three_taken.hardware[19] == expected  # PCT14 entry 8
+    assert first_three_taken._eedtoy_frgbw14_row == 19
     assert all(first_three_taken.hardware[row] == line for row, line in existing_rows.items())
     assert first_three_taken.hardware[8] == bytes(8)
     assert await module._ensure_programmed_controller_profile(first_three_taken, "FF-A6-04-A3") is False
@@ -77,22 +79,22 @@ async def test_frgbw14_group_3_function_81():
     # If this exact sender ID already exists later in group 3, reuse it
     # without creating a duplicate in the first available lower entry.
     already_later = ReadbackDevice()
-    already_later.seed(16, expected)  # PCT14 entry 9
+    already_later.seed(20, expected)  # PCT14 entry 9
     assert await module._ensure_programmed_controller_profile(already_later, "FF-A6-04-A3") is False
-    assert already_later._eedtoy_frgbw14_row == 16
-    assert all(already_later.hardware[row] == bytes(8) for row in range(12, 16))
+    assert already_later._eedtoy_frgbw14_row == 20
+    assert all(already_later.hardware[row] == bytes(8) for row in range(16, 20))
 
     legacy = ReadbackDevice()
-    legacy.seed(8, bytes.fromhex("FFA604A300200100"))
+    legacy.seed(12, bytes.fromhex("FFA604A300200100"))
     assert await module._ensure_programmed_controller_profile(legacy, "FF-A6-04-A3") is True
-    assert legacy.hardware[8] == bytes(8)
-    assert legacy.hardware[12] == expected
+    assert legacy.hardware[12] == bytes(8)
+    assert legacy.hardware[16] == expected
 
     other_sender = ReadbackDevice()
-    other_sender.seed(8, unrelated)
+    other_sender.seed(12, unrelated)
     assert await module._ensure_programmed_controller_profile(other_sender, "FF-A6-04-A3") is True
-    assert other_sender.hardware[8] == unrelated
-    assert other_sender.hardware[12] == expected
+    assert other_sender.hardware[12] == unrelated
+    assert other_sender.hardware[16] == expected
 
     class BrokenWrite(ReadbackDevice):
         async def write_mem_line(self, row, value):
@@ -177,14 +179,16 @@ async def test_frgbw14_ignores_stale_busobject_cache():
     dev.size = 6
     expected = bytes.fromhex("FFA604A300510F00")
     foreign = bytes.fromhex("FFAD246800510F00")
-    dev.hardware[8] = expected       # PCT14 FG1 contains the wrong assignment
-    dev.hardware[12] = foreign       # PCT14 FG3 entry 5 is someone else's ID
-    dev.memory[12] = expected        # stale false-positive FG3 cache
+    dev.hardware[8] = bytes.fromhex("03FE03FE03FE03FE")
+    dev.hardware[12] = expected      # PCT14 FG1 contains the wrong assignment
+    dev.hardware[16] = foreign       # PCT14 FG3 entry 5 is someone else's ID
+    dev.memory[16] = expected        # stale false-positive FG3 cache
     assert await module._ensure_programmed_controller_profile(dev, "FF-A6-04-A3") is True
-    assert dev.hardware[8] == bytes(8)
-    assert dev.hardware[12] == foreign
-    assert dev.hardware[13] == expected
-    assert 8 in dev.bus.reads and 12 in dev.bus.reads and 13 in dev.bus.reads
+    assert dev.hardware[8] == bytes.fromhex("03FE03FE03FE03FE")
+    assert dev.hardware[12] == bytes(8)
+    assert dev.hardware[16] == foreign
+    assert dev.hardware[17] == expected
+    assert 8 in dev.bus.reads and 12 in dev.bus.reads and 16 in dev.bus.reads and 17 in dev.bus.reads
 
 
 
@@ -213,18 +217,20 @@ async def test_frgbw14_arbitrary_sender_ids_and_occupied_slots():
         expected = bytes.fromhex(sender_id.replace("-", "")) + bytes((0, 81, 15, 0))
         foreign = {}
         for offset in range(occupied_slots):
-            row = 12 + offset
+            row = 16 + offset
             value = (1000 + offset).to_bytes(4, "big") + bytes((0, 81, 15, 0))
             foreign[row] = value
             dev.hardware[row] = value
-        dev.hardware[8] = expected
+        dev.hardware[8] = bytes.fromhex("03FE03FE03FE03FE")
+        dev.hardware[12] = expected
         assert await module._ensure_programmed_controller_profile(dev, sender_id) is True
-        assert dev.hardware[12 + occupied_slots] == expected
-        assert dev.hardware[8] == bytes(8)
+        assert dev.hardware[16 + occupied_slots] == expected
+        assert dev.hardware[12] == bytes(8)
+        assert dev.hardware[8] == bytes.fromhex("03FE03FE03FE03FE")
         assert all(dev.hardware[row] == value for row, value in foreign.items())
         assert await module._ensure_programmed_controller_profile(dev, sender_id) is False
         assert sum(
-            dev.hardware[row] == expected for row in range(12, 124)
+            dev.hardware[row] == expected for row in range(16, 127)
         ) == 1
 
 class HeatingDevice(FakeDevice):
