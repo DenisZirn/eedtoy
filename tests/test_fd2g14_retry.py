@@ -76,7 +76,7 @@ async def run():
     devices.create_busobject=discover
     async def no_scan(bus):
         raise AssertionError('full scan not needed');yield
-    writer.enumerate_bus_grimm=no_scan
+    writer.enumerate_series14_devices=no_scan
     processed=set()
     events=await writer.ensure_fd2g14_from_yaml(None,0xFFBF5C80,target,processed)
     assert events[0]['status']=='updated'
@@ -130,7 +130,7 @@ async def run():
     async def wrong_discover(**kwargs):return wrong
     async def wrong_scan(bus):yield wrong
     devices.create_busobject=wrong_discover
-    writer.enumerate_bus_grimm=wrong_scan
+    writer.enumerate_series14_devices=wrong_scan
     events=await writer.ensure_fd2g14_from_yaml(None,0xFFBF5C80,target,set())
     assert events[0]['status']=='error'
 
