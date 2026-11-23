@@ -67,6 +67,7 @@
       steps.push(en
         ? 'Put the physical actuator into its documented teaching mode. The correct switch position or tapping sequence depends on the model.'
         : 'Aktor gemäß seiner genauen Herstelleranleitung in Lernbereitschaft versetzen. Drehschalterstellung beziehungsweise Tippfolge sind geräteabhängig.');
+      steps.push(ha);
     } else if (item.guide==="fhk61") {
       steps.push(mode
         ? (en
