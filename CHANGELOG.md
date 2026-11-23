@@ -11,6 +11,7 @@
 - FD2G14: NameError im Wiederanlauf behoben, Diagnose und Prüfung der 16 Kanäle verbessert; sporadische Geräte- oder Busantwortausfälle bleiben möglich.
 - Automatische Python-Schreibdiagnose mit Logdatei, Rotation und Windows-Schreibrechte-Fallback.
 - Schreibgesamtstatus zeigt bei Fehlern nicht mehr fälschlich Erfolg; erweiterte Regressionstests und Windows-Installer-Prüfung.
+- Einlernhilfe unter Hilfe für dezentrale Aktoren der Baureihen 61 und 62 (Baureihe 72 als noch unbestätigte Kategorie), mit Suchfeld, Modellvorauswahl, direktem Link aus dem Geräteformular und eigenen Anleitungen einschließlich Home-Assistant-Einlerntelegramm-Schritt. Keine Hardware-Schreibaktion durch das Hilfefenster.
 - Anwendersichtbare Fremdnamens-Bezeichnungen aus eigenen Diagnosemeldungen entfernt.
 
 ## 1.1.04
