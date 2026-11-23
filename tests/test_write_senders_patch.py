@@ -148,6 +148,22 @@ async def test_frgbw14_ignores_stale_busobject_cache():
             self.hardware[row] = value
             self.memory[row] = value
 
+    # Unit tests run with the system Python, without the bundled eltakobus.
+    # Supply only the two message types; the production integration still
+    # imports the real library and exchanges actual RS485 telegrams.
+    fake_pkg = types.ModuleType("eltakobus")
+    fake_messages = types.ModuleType("eltakobus.message")
+    class MemoryRequest:
+        def __init__(self, address, row):
+            self.address = address
+            self.row = row
+    class MemoryResponse:
+        pass
+    fake_messages.EltakoMemoryRequest = MemoryRequest
+    fake_messages.EltakoMemoryResponse = MemoryResponse
+    sys.modules["eltakobus"] = fake_pkg
+    sys.modules["eltakobus.message"] = fake_messages
+
     dev = StaleDevice()
     expected = bytes.fromhex("FFA604A300510F00")
     foreign = bytes.fromhex("FFAD246800510F00")
