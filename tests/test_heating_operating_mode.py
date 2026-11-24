@@ -46,7 +46,7 @@ async def test_fg4_per_channel():
         dev.seed(start, foreign)
         for channel in range(count):
             sender = f"7A-BB-CC-{0x10 + channel:02X}"
-            expected = bytes.fromhex(sender.replace("-", "")) + bytes((0, 30, 1 << channel, 0))
+            expected = bytes.fromhex(sender.replace("-", "")) + bytes((7, 30, 1 << channel, 0))
             assert await module._ensure_programmed_heating_operating_mode(
                 dev, sender, channel, model
             ) is True
@@ -64,13 +64,55 @@ async def test_fg4_per_channel():
         assert await module._ensure_programmed_heating_operating_mode(
             dev, new_id, 0, model, "7A-BB-CC-10"
         ) is True
-        assert dev.hardware[start + 1] == bytes.fromhex("70605040001E0100")
+        assert dev.hardware[start + 1] == bytes.fromhex("70605040071E0100")
         assert dev.hardware[start] == foreign
         assert await module._ensure_programmed_heating_operating_mode(
             dev, new_id, 0, model, "7A-BB-CC-10"
         ) is False
-        assert sum(v == bytes.fromhex("70605040001E0100")
+        assert sum(v == bytes.fromhex("70605040071E0100")
                    for v in dev.hardware[start:]) == 1
+
+
+
+async def test_legacy_key_zero_is_updated_in_place():
+    for model, channel in (("FHK14", 0), ("F4HK14", 2),
+                           ("FAE14LPR", 1), ("FAE14SSR", 0)):
+        dev = Hardware(model)
+        start = module._heating_group_4_start(model, dev.size)
+        sender = "FF-A6-04-86"
+        mask = 1 << channel
+        old = bytes.fromhex("FFA60486") + bytes((0, 30, mask, 0))
+        corrected = bytes.fromhex("FFA60486") + bytes((7, 30, mask, 0))
+        foreign = bytes.fromhex("FFAD2425") + bytes((7, 30, mask, 0))
+        dev.seed(start, foreign)
+        dev.seed(start + 3, old)
+        assert await module._ensure_programmed_heating_operating_mode(
+            dev, sender, channel, model
+        ) is True
+        assert dev.hardware[start + 3] == corrected
+        assert dev.hardware[start] == foreign
+        assert len(dev.writes) == 1
+        assert dev.writes[0] == (start + 3, corrected)
+        assert await module._ensure_programmed_heating_operating_mode(
+            dev, sender, channel, model
+        ) is False
+        assert len(dev.writes) == 1
+
+    # A partially migrated device may contain both key-0 and key-7 for
+    # precisely the same sender/function/channel. Keep only the right one.
+    dev = Hardware("FHK14")
+    corrected = bytes.fromhex("FFA60486071E0100")
+    old = bytes.fromhex("FFA60486001E0100")
+    dev.seed(14, corrected)
+    dev.seed(15, old)
+    assert await module._ensure_programmed_heating_operating_mode(
+        dev, "FF-A6-04-86", 0, "FHK14"
+    ) is True
+    assert dev.hardware[14] == corrected
+    assert dev.hardware[15] == bytes(8)
+    assert await module._ensure_programmed_heating_operating_mode(
+        dev, "FF-A6-04-86", 0, "FHK14"
+    ) is False
 
 
 async def test_shared_sender_and_temperature_roles():
@@ -82,7 +124,7 @@ async def test_shared_sender_and_temperature_roles():
         dev, "FF-A6-04-A3", 0, "FHK14"
     )
     assert dev.hardware[8] == bytes.fromhex("FFA604A300400100")
-    assert dev.hardware[14] == bytes.fromhex("FFA604A3001E0100")
+    assert dev.hardware[14] == bytes.fromhex("FFA604A3071E0100")
 
     native = Hardware("F4HK14")
     for channel in range(4):
@@ -100,7 +142,7 @@ async def test_shared_sender_and_temperature_roles():
             bytes.fromhex(sender_id.replace("-", "")) + bytes((0, 65, 1 << channel, 0))
         )
         assert native.hardware[20 + channel] == (
-            bytes.fromhex(sender_id.replace("-", "")) + bytes((0, 30, 1 << channel, 0))
+            bytes.fromhex(sender_id.replace("-", "")) + bytes((7, 30, 1 << channel, 0))
         )
 
 
@@ -153,5 +195,6 @@ if __name__ == "__main__":
     test_sender_map_roles()
     asyncio.run(test_fg4_per_channel())
     asyncio.run(test_shared_sender_and_temperature_roles())
+    asyncio.run(test_legacy_key_zero_is_updated_in_place())
     asyncio.run(test_occupied_or_unconfirmed_are_never_reported_as_success())
     print("Heating operating-mode FG4/F30 tests passed.")
