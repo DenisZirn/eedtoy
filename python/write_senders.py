@@ -769,9 +769,17 @@ async def _ensure_programmed_heating_operating_mode(
     sender = _sender_bytes_from_id(sender_id)
     old_sender = _sender_bytes_from_id(previous_sender_id) if previous_sender_id else None
     mask = 1 << channel
-    expected = sender + bytes((0, 30, mask, 0))  # PCT14 FG4, fourfold RPS
-    former = (old_sender + bytes((0, 30, mask, 0))
-              if old_sender and old_sender != sender else None)
+    # PCT14 Key/Taste 7 = "4-fach Taster, alle Tasten" (MiniSafe).
+    # Memory bytes: sender[4], key[1], function[1], channel mask[1], value[1].
+    # Older EEDTOY builds incorrectly used key 0; migrate that exact
+    # same-sender/function/channel entry in place, without adding a duplicate.
+    key_all_buttons = 7
+    expected = sender + bytes((key_all_buttons, 30, mask, 0))
+    legacy = sender + bytes((0, 30, mask, 0))
+    former_variants = (
+        {old_sender + bytes((key, 30, mask, 0)) for key in (0, key_all_buttons)}
+        if old_sender and old_sender != sender else set()
+    )
 
     async def read_physical(row: int) -> bytes:
         value = await _read_back_mem_line(dev, row)
@@ -788,21 +796,26 @@ async def _ensure_programmed_heating_operating_mode(
             raise RuntimeError(f"{device_type}: FG4 Speicherzeile {row} nicht bestätigt")
 
     exact_rows = []
+    legacy_rows = []
     prior_rows = []
     first_empty = None
     for row in range(group4_start, end):
         value = await read_physical(row)
         if value == expected:
             exact_rows.append(row)
-        elif former is not None and value == former:
+        elif value == legacy:
+            legacy_rows.append(row)
+        elif value in former_variants:
             prior_rows.append(row)
         elif not any(value) and first_empty is None:
             first_empty = row
 
     if exact_rows:
         target = exact_rows[0]
+    elif legacy_rows:
+        target = legacy_rows[0]  # upgrade EEDTOY's wrong key 0 in place
     elif prior_rows:
-        target = prior_rows[0]  # replace only own tracked previous sender
+        target = prior_rows[0]  # replace only explicitly tracked former ID
     else:
         target = first_empty
     if target is None:
@@ -814,7 +827,7 @@ async def _ensure_programmed_heating_operating_mode(
     changed = False
     current = await read_physical(target)
     if current != expected:
-        if any(current) and (former is None or current != former):
+        if any(current) and current != legacy and current not in former_variants:
             raise RuntimeError(
                 f"{device_type} Kanal {channel + 1}: FG4-Zeile {target} "
                 "ist inzwischen anderweitig belegt"
@@ -822,11 +835,12 @@ async def _ensure_programmed_heating_operating_mode(
         await write_physical(target, expected)
         changed = True
 
-    # Remove duplicate *exact* entries only; never remove other senders,
-    # functions or channel masks. A former ID is removed only if EEDTOY
-    # previously recorded this exact sender for this heater/channel.
-    for row in exact_rows[1:] + [row for row in prior_rows if row != target]:
-        if await read_physical(row) in (expected, former):
+    # Remove only exact duplicates, EEDTOY's old key-0 duplicates for
+    # this sender/function/channel and explicitly tracked former senders.
+    # Never modify foreign IDs, other channel masks, or unrelated functions.
+    duplicate_rows = set(exact_rows + legacy_rows + prior_rows) - {target}
+    for row in sorted(duplicate_rows):
+        if await read_physical(row) in ({expected, legacy} | former_variants):
             await write_physical(row, bytes(8))
             changed = True
         else:
@@ -839,7 +853,7 @@ async def _ensure_programmed_heating_operating_mode(
     log("Heating operating-mode writer verified", device_type,
         "bus_address", getattr(dev, "address", "?"),
         "channel", channel + 1, "sender", norm_id(sender_id),
-        "function_group", 4, "function", 30,
+        "function_group", 4, "function", 30, "key", key_all_buttons,
         "channel_mask", f"{mask:08b}", "memory_row", target)
     return changed
 
