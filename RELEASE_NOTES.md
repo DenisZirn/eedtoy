@@ -20,6 +20,13 @@
 - FHK61: Temperaturregler A5-10-06 und RPS-Betriebsartensender sind getrennt auswählbar. Direkt-PWM am FHK61SSR wird nicht mit der Temperaturregelung gleichgesetzt.
 - Für unbestätigte Varianten werden keine Einlernpositionen erfunden. Hersteller-PDFs beziehungsweise die offizielle Download-Zone sind separat verlinkt. Die Hilfefunktion schreibt selbst keine Telegramme und ändert keine Projekte.
 
+## Home-Assistant-Entitäten: Light oder Switch
+
+- Bei geeigneten **Licht-/Relaisaktoren** ist im Geräteformular die YAML-Entität als **Light** oder **Switch** wählbar. Standard ist weiterhin die Vorgabe aus der EEDTOY-Gerätedatenbank.
+- Eine abweichende Auswahl wird **pro Gerät und pro Kanal** im Projekt gespeichert und auch beim erneuten YAML-Export beachtet. Beim Rückwechsel auf den Datenbankwert entfällt die manuelle Abweichung.
+- Nur der YAML-Abschnitt `light:` beziehungsweise `switch:` ändert sich; EEP, Sender-ID, Gateway, Einlernung und Aktorprogrammierung bleiben unverändert.
+- RGBW-Aktoren und andere spezialisierte Gerätetypen werden nicht als einfacher Switch angeboten; bestehende Projekte bleiben kompatibel.
+
 ## Sicherheit und Diagnose
 
 - Bei Änderungen an programmierungsrelevanten Aktoreinstellungen (z. B. Temperaturreferenz, Sender-ID, Kanal oder F2L14-Modus) verlangt EEDTOY einen **separaten, ausdrücklich bestätigten Schreibvorgang**. Das Speichern der Projektdatei allein programmiert keinen Aktor.
