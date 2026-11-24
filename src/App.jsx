@@ -472,6 +472,27 @@ function profileFor(eep) {
   return EEP_DB[resolvedKey] || GENERIC_EEP_PROFILES[resolvedKey] || {};
 }
 
+// The YAML entity domain is a per-device presentation choice, not an actuator
+// operating mode. Hardware learning telegrams and sender IDs remain unchanged.
+// RGBW actuators have color-specific semantics and are intentionally excluded.
+function supportsLightSwitchSelection(profile) {
+  const p = profile || {};
+  const outgoingEep = String(p.eep_out || "").toUpperCase();
+  return Boolean(p.needs_sender) &&
+    ["light", "switch"].includes(String(p.platform || "").toLowerCase()) &&
+    ["A5-38-08", "M5-38-08"].includes(outgoingEep) &&
+    !p.rgbw;
+}
+
+function effectivePlatformForDevice(device, deviceProfile = profileFor(device?.eep)) {
+  const defaultPlatform = String(deviceProfile.platform || device?.platform || "sensor").toLowerCase();
+  const requestedPlatform = String(device?.platform_override || "").toLowerCase();
+  return supportsLightSwitchSelection(deviceProfile) &&
+    ["light", "switch"].includes(requestedPlatform)
+    ? requestedPlatform
+    : defaultPlatform;
+}
+
 function idLearningFilterForProfile(profileKey) {
   const profile = profileFor(profileKey);
   const eep = String(profile.eep_out || profileKey || "").toUpperCase();
@@ -611,6 +632,7 @@ function applyCurrentDatabaseProfile(device) {
     pwm_period_seconds: normalized.pwm_period_seconds,
     heating_control_mode: normalized.heating_control_mode,
     operating_mode_sender_id: normalized.operating_mode_sender_id,
+    platform_override: normalized.platform_override,
   };
   return {
     ...normalized,
@@ -618,7 +640,7 @@ function applyCurrentDatabaseProfile(device) {
     ...Object.fromEntries(Object.entries(instanceValues).filter(([, value]) => value !== undefined && value !== null && value !== "")),
     profile_key: profileKey,
     eep: profileKey,
-    platform: profile.platform || normalized.platform,
+    platform: effectivePlatformForDevice(normalized, profile),
     sender_eep: profile.sender_eep || "",
     device_family: profile.device_family || "",
     device_type: profile.device_type || "",
@@ -1850,7 +1872,7 @@ function firstAvailableProfileKey() {
 function createEmptyForm(preferredProfileKey = "") {
   const resolvedPreferred = PROFILE_KEY_ALIASES[String(preferredProfileKey || "").toUpperCase()] || String(preferredProfileKey || "");
   const profileKey = EEP_DB[resolvedPreferred] ? resolvedPreferred : firstAvailableProfileKey();
-  return { name:"", dev_id:"", physical_unique_id:"", eep:profileKey, room:"", device_class:"", sender_id:"", sender_eep:"", operating_mode_sender_id:"", time_opens:"", time_closes:"", min_target_temperature:"", max_target_temperature:"", device_type:"", model:"", eltako:"", id_range:"1", fwg14ms_id_range:"1", bus_address:"", f2l14_mode:"exclusive", pwm_period_seconds:120, heating_control_mode:"ha_external" };
+  return { name:"", dev_id:"", physical_unique_id:"", eep:profileKey, room:"", device_class:"", sender_id:"", sender_eep:"", operating_mode_sender_id:"", platform_override:"", time_opens:"", time_closes:"", min_target_temperature:"", max_target_temperature:"", device_type:"", model:"", eltako:"", id_range:"1", fwg14ms_id_range:"1", bus_address:"", f2l14_mode:"exclusive", pwm_period_seconds:120, heating_control_mode:"ha_external" };
 }
 
 // MiniSafe2 configurations arrive either as plain JSON or embedded in the text
@@ -2637,6 +2659,9 @@ export default function App() {
       ...f,
       eep,
       profile_key: eep,
+      // The former entity-domain override is only valid for its old profile.
+      // A newly selected device type starts with the database platform.
+      platform_override: "",
       device_type: p.device_type || "",
       device_class: p.default_dc ?? "",
       sender_eep: p.sender_eep ?? "",
@@ -2736,7 +2761,11 @@ export default function App() {
       profile_key: form.eep,
       sender_id: profile.needs_sender ? (form.sender_id.trim() || autoSender) : "",
       sender_eep: profile.needs_sender ? (form.sender_eep || profile.sender_eep || "") : "",
-      platform: profile.platform ?? "sensor",
+      platform: effectivePlatformForDevice(form, profile),
+      platform_override: supportsLightSwitchSelection(profile) &&
+        ["light", "switch"].includes(String(form.platform_override || ""))
+          ? (String(form.platform_override) === String(profile.platform) ? "" : form.platform_override)
+          : "",
       device_type: profile.device_type || "",
       model: profile.eltako || form.model || "",
       eltako: profile.eltako || form.eltako || "",
@@ -4184,11 +4213,36 @@ export default function App() {
                 </select>
               </div>
 
+              {/* Home Assistant entity domain: optional per-device override. */}
+              {supportsLightSwitchSelection(profile) && (
+                <div style={{maxWidth:370,marginBottom:".7rem"}}>
+                  <label htmlFor="device-platform-selection">
+                    {language === "en" ? "Home Assistant entity type" : "Home-Assistant-Entität"}
+                  </label>
+                  <select
+                    id="device-platform-selection"
+                    value={effectivePlatformForDevice(form, profile)}
+                    onChange={e=>setForm(current=>({
+                      ...current,
+                      platform_override:e.target.value === profile.platform ? "" : e.target.value
+                    }))}
+                  >
+                    <option value="light">Light</option>
+                    <option value="switch">Switch</option>
+                  </select>
+                  <div style={{fontSize:".68rem",color:"#53616f",lineHeight:1.5,marginTop:".3rem"}}>
+                    {language === "en"
+                      ? `Device database default: ${profile.platform}. This only changes the YAML section (light/switch), not the controller ID, teach-in, or actuator hardware.`
+                      : `Vorgabe aus der Gerätedatenbank: ${profile.platform}. Die Auswahl ändert nur den YAML-Bereich (light/switch), nicht die Sender-ID, das Einlernen oder den Aktor.`}
+                  </div>
+                </div>
+              )}
+
               {/* Info */}
               {profile.eltako&&(
                 <div style={{fontSize:".7rem",color:"#2f6f8f",background:"#eef5f8",border:"1px solid #c6d9e4",borderRadius:5,padding:".38rem .7rem",marginBottom:".65rem",lineHeight:1.5}}>
                    <strong>{profile.eltako}</strong>
-                  {"  "}<span style={{color:PC[profile.platform]??""}}>{PI[profile.platform]??""} {profile.platform}</span>
+                  {"  "}<span style={{color:PC[effectivePlatformForDevice(form,profile)]??""}}>{PI[effectivePlatformForDevice(form,profile)]??""} {effectivePlatformForDevice(form,profile)}</span>
                 </div>
               )}
 
