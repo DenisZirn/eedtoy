@@ -27,7 +27,7 @@ const start = appSource.indexOf('const APP_VERSION');
 const end = appSource.indexOf('export default function App()');
 if (start < 0 || end < 0) throw new Error('Could not isolate App.jsx helper functions');
 
-const helperSource = `${appSource.slice(start, end)}\nthis.__api = { APP_VERSION, EEP_DB, generateYaml, normalizeFksSenderAssignments, getPct14Mapping, deduplicateExportDevices, buildSenderProgrammingEntries, isSeries14HeatingActuator, isFhk61RadioThermostat, operatingModeSenderFitsGateway };`;
+const helperSource = `${appSource.slice(start, end)}\nthis.__api = { APP_VERSION, EEP_DB, generateYaml, normalizeFksSenderAssignments, getPct14Mapping, deduplicateExportDevices, buildSenderProgrammingEntries, isSeries14HeatingActuator, isFhk61RadioThermostat, operatingModeSenderFitsGateway, supportsLightSwitchSelection, effectivePlatformForDevice, applyCurrentDatabaseProfile, normalizeLoadedDeviceProfile };`;
 const context = {
   console,
   Date,
@@ -347,3 +347,51 @@ const pwmModeYaml=api.generateYaml(heatingGateway,[{
 }],[], 'FF-BF-5C-80');
 assertNotIncludes(pwmModeYaml,'operating_mode_sender_id:',
   'SSR direct PWM remains independent from RPS operating-mode learning');
+
+
+// Light/Switch is a YAML-only user override. Old projects fall back to
+// the database, unchanged sender IDs / EEP and identical physical actuation.
+const relayGw={type:'fam-usb',base_id:'FF-A6-04-80'};
+const relayBase={eep:'M5-38-08-FSR61NP-230V',profile_key:'M5-38-08-FSR61NP-230V',
+  device_type:'FSR61NP-230V',name:'Steckdose Garten',dev_id:'FF-AC-10-01',
+  sender_id:'FF-A6-04-95',sender_eep:'A5-38-08',platform:'light'};
+const dbRelay=api.EEP_DB[relayBase.eep];
+assert(api.supportsLightSwitchSelection(dbRelay),'FSR relay supports Light/Switch');
+assert(api.effectivePlatformForDevice(relayBase,dbRelay)==='light',
+  'Database default remains Light when override is absent');
+const legacyYaml=api.generateYaml(relayGw,[relayBase]);
+assertIncludes(legacyYaml,'      light:', 'Legacy relay still exports as Light');
+assertNotIncludes(legacyYaml,'      switch:', 'No unexpected Switch from old project');
+const switched={...relayBase,platform_override:'switch'};
+const loadedSwitched=api.normalizeLoadedDeviceProfile(switched);
+assert(loadedSwitched.platform_override==='switch','Switch override persists on project load');
+const appliedSwitched=api.applyCurrentDatabaseProfile(loadedSwitched);
+assert(appliedSwitched.platform==='switch', 'Database refresh respects Switch override');
+const switchYaml=api.generateYaml(relayGw,[switched]);
+assertIncludes(switchYaml,'      switch:', 'Switch override chooses YAML switch section');
+assertNotIncludes(switchYaml,'      light:', 'Switch override removes device from YAML light section');
+assertIncludes(switchYaml,'eep: "M5-38-08"','Switch retains device EEP');
+assertIncludes(switchYaml,'id: "FF-A6-04-95"','Switch retains controller sender ID');
+assertIncludes(switchYaml,'eep: "A5-38-08"','Switch retains controller sender EEP');
+const backToDb={...switched,platform_override:''};
+assert(api.effectivePlatformForDevice(backToDb,dbRelay)==='light',
+  'Selecting original Light restores database default');
+const switchedBack=api.generateYaml(relayGw,[backToDb]);
+assertIncludes(switchedBack,'      light:','Switch-to-Light reset exports database platform');
+assertNotIncludes(switchedBack,'      switch:','Switch section disappears after reset');
+const rgbProfile=api.EEP_DB['07-3F-7F-FRGBW14'];
+assert(!api.supportsLightSwitchSelection(rgbProfile),'RGBW actuator cannot be converted to Switch');
+const rgbDevice={eep:'07-3F-7F-FRGBW14',device_type:'FRGBW14',
+  name:'RGBW',dev_id:'FF-AC-10-07',sender_id:'FF-A6-04-96',
+  platform_override:'switch',platform:'light'};
+assert(api.effectivePlatformForDevice(rgbDevice,rgbProfile)==='light',
+  'Invalid saved RGBW override is ignored');
+assert(!api.supportsLightSwitchSelection(api.EEP_DB['A5-10-06']),
+  'Heating/climate entities cannot be converted');
+const fourRelay={...relayBase,eep:'M5-38-08-FSR71NP-4X-230V',profile_key:'M5-38-08-FSR71NP-4X-230V',
+  device_type:'FSR71NP-4x-230V',name:'FSR71NP-4x-230V',platform_override:'switch'};
+const fourYaml=api.generateYaml(relayGw,[fourRelay]);
+for(let ch=1;ch<=4;ch++)assertIncludes(fourYaml,`channel: ${ch}`,
+  `Four-channel relay keeps channel ${ch} as Switch`);
+assertIncludes(fourYaml,'      switch:', 'Expanded relay uses Switch YAML group');
+assertNotIncludes(fourYaml,'      light:', 'Expanded Switch relay not duplicated in Light');
