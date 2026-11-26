@@ -27,7 +27,7 @@ const start = appSource.indexOf('const APP_VERSION');
 const end = appSource.indexOf('export default function App()');
 if (start < 0 || end < 0) throw new Error('Could not isolate App.jsx helper functions');
 
-const helperSource = `${appSource.slice(start, end)}\nthis.__api = { APP_VERSION, EEP_DB, generateYaml, normalizeFksSenderAssignments, getPct14Mapping, deduplicateExportDevices, buildSenderProgrammingEntries, isSeries14HeatingActuator, isFhk61RadioThermostat, operatingModeSenderFitsGateway, supportsLightSwitchSelection, effectivePlatformForDevice, applyCurrentDatabaseProfile, normalizeLoadedDeviceProfile };`;
+const helperSource = `${appSource.slice(start, end)}\nthis.__api = { APP_VERSION, EEP_DB, generateYaml, normalizeFksSenderAssignments, getPct14Mapping, deduplicateExportDevices, buildSenderProgrammingEntries, isSeries14HeatingActuator, isFhk61RadioThermostat, operatingModeSenderFitsGateway, supportsLightSwitchSelection, effectivePlatformForDevice, applyCurrentDatabaseProfile, normalizeLoadedDeviceProfile, ftrModelForDevice, exportDeviceTypeForDevice };`;
 const context = {
   console,
   Date,
@@ -426,3 +426,51 @@ for (const profileKey of [
 }
 assert(api.supportsLightSwitchSelection(dbRelay),
   'Simple FSR relay still offers Light/Switch after dimmer restriction');
+
+
+// FTR55/FTR65 hardware variant must be independent of FHK / TF61 mode.
+// Former builds exported FTR65DSB for the entire shared profile family.
+const ftrVariants = [
+  "FTR65DSB", "FTR55DSB", "FTR55EHB", "FTR55ESB",
+  "FTR65HB", "FTRF65HB", "FTR55HB", "FTR65SB",
+  "FTRF65SB", "FTR55SB"
+];
+for(const mode of [
+  {eep:"A5-10-06-FTR-FHK", out:"A5-10-06", platform:"sensor", role:"fhk"},
+  {eep:"A5-38-08-FTR-TF61", out:"A5-38-08", platform:"binary_sensor", role:"tf61"}
+]) {
+  for(const model of ftrVariants) {
+    const current = {
+      eep:mode.eep, profile_key:mode.eep, name:model+" Testwand",
+      dev_id:"05-A3-EA-85",platform:mode.platform,
+      ftr_model:model, device_type:"FTR65DSB"
+    };
+    assert(api.ftrModelForDevice(current)===model,
+      model+" / "+mode.role+" explicitly saved model");
+    const imported=api.applyCurrentDatabaseProfile(current);
+    assert(imported.device_type===model,model+" / "+mode.role+" reload keeps physical model");
+    const exported=api.generateYaml(
+      {type:"fam-usb",base_id:"05-A3-EA-80"},[current],[], "", "de"
+    );
+    assertIncludes(exported,`device_type: "${model}"`,
+      model+" / "+mode.role+" YAML exports correct physical model");
+    assertIncludes(exported,`room_controller_mode: "${mode.role}"`,
+      model+" / "+mode.role+" mode unchanged");
+    assertIncludes(exported,`eep: "${mode.out}"`,
+      model+" / "+mode.role+" EEP unchanged");
+  }
+}
+const oldFtrProject = {eep:"A5-10-06-FTR-FHK",name:"FTR55ESB Testwand",
+  dev_id:"05-A3-EA-85",device_type:"FTR65DSB",platform:"sensor"};
+assert(api.normalizeLoadedDeviceProfile(oldFtrProject).ftr_model==="FTR55ESB",
+  "Legacy project recovers FTR55ESB from unique name");
+assertIncludes(api.generateYaml(
+  {type:"fam-usb",base_id:"05-A3-EA-80"},[oldFtrProject]),
+  'device_type: "FTR55ESB"',
+  "Previously exported FTR65DSB corrected for FTR55ESB Testwand");
+const userSelectedFtr={...oldFtrProject,ftr_model:"FTR55EHB"};
+assert(api.ftrModelForDevice(userSelectedFtr)==="FTR55EHB",
+  "Explicit model selection takes precedence over legacy name");
+assert(api.ftrModelForDevice({
+  ...oldFtrProject,name:"Wohnzimmer",device_type:"FTR55DSB"
+})==="FTR55DSB","Old project with a valid specific device type retains it");
