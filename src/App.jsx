@@ -88,7 +88,7 @@ const DEFAULT_EEP_DB = {
   "A5-10-06-FAE14LPR": { group:"Raumregler / Klima", label:"FAE14LPR – Heizung/Klima wie FAE14SSR (A5-10-06)", platform:"climate", eep_out:"A5-10-06", needs_sender:true, sender_eep:"A5-10-06", teach_in_telegram:"40-30-0D-87", device_family:"FAE14LPR", bidirectional:true, min_target_temperature:16, max_target_temperature:25, device_type:"FAE14LPR", eltako:"FAE14LPR" },
   "A5-10-06-FUTH55": { group:"Raumregler / Klima", label:"FUTH55 / FUTH55ED / FUTH65D – Temperaturregler + Sollwert (A5-10-06)", platform:"climate", eep_out:"A5-10-06", needs_sender:true, sender_eep:"A5-10-06", futh55ed_mode:"fhk", teach_in_telegram:"40-30-0D-87", min_target_temperature:12, max_target_temperature:28, device_type:"FUTH55", eltako:"FUTH55, FUTH55ED, FUTH65D", note:"Für die Sollwertsteuerung muss die Home-Assistant-Sender-ID im FUTH55 eingelernt werden." },
   "A5-10-12-FUTH55-HYGROSTAT": { group:"Raumregler / Klima", label:"FUTH55 / FUTH55ED / FUTH65D – Hygrostat: Temperatur + Feuchte + Sollwert (A5-10-12)", platform:"sensor", eep_out:"A5-10-12", futh55ed_mode:"hygrostat", teach_in_telegram:"40-90-0D-80", device_type:"FUTH55", eltako:"FUTH55, FUTH55ED, FUTH65D" },
-  "A5-10-06-FTR-FHK": { group:"Raumregler / Klima", label:"FTR55/65-Familie – Betriebsart FHK: Soll- und Isttemperatur (A5-10-06)", platform:"sensor", eep_out:"A5-10-06", room_controller_mode:"fhk", teach_in_telegram:"40-30-0D-87", min_target_temperature:12, max_target_temperature:28, frost_temperature:8, device_type:"FTR65DSB", eltako:"FTR65DSB, FTR55DSB, FTR55EHB, FTR55ESB, FTR65HB, FTRF65HB, FTR55HB, FTR65SB, FTRF65SB, FTR55SB" },
+  "A5-10-06-FTR-FHK": { group:"Raumregler / Klima", label:"FTR55/65-Familie – Betriebsart FHK: Soll- und Isttemperatur, Frostschutz 8 °C (DB2-Sollwert, A5-10-06)", platform:"sensor", eep_out:"A5-10-06", room_controller_mode:"fhk", teach_in_telegram:"40-30-0D-87", min_target_temperature:12, max_target_temperature:28, note:"Frostschutz: 8 °C werden bei FHK als Solltemperatur in DB2 des A5-10-06-Datentelegramms übertragen. Keine separate Frostschutztemperatur im Telegramm oder YAML.", device_type:"FTR65DSB", eltako:"FTR65DSB, FTR55DSB, FTR55EHB, FTR55ESB, FTR65HB, FTRF65HB, FTR55HB, FTR65SB, FTRF65SB, FTR55SB" },
   "A5-38-08-FTR-TF61": { group:"Raumregler / Klima", label:"FTR55/65-Familie – Betriebsart TF61: Heizanforderung EIN/AUS (A5-38-08)", platform:"binary_sensor", eep_out:"A5-38-08", room_controller_mode:"tf61", teach_in_telegram:"E0-40-0D-80", hysteresis:1, device_type:"FTR65DSB", eltako:"FTR65DSB, FTR55DSB, FTR55EHB, FTR55ESB, FTR65HB, FTRF65HB, FTR55HB, FTR65SB, FTRF65SB, FTR55SB" },
 
   // ── Heizung / Stellantrieb ───────────────────────────────────
@@ -1300,7 +1300,12 @@ function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", la
           out += `        bus_address: "${normalizeId(d.bus_address)}"\n`;
         }
         if (p.hysteresis != null) out += `        hysteresis: ${p.hysteresis}\n`;
-        if (p.frost_temperature != null) out += `        frost_temperature: ${p.frost_temperature}\n`;
+        // FTR55/65 frost protection is the 8 °C DB2 setpoint in an
+        // A5-10-06 data telegram, not a separate YAML/EEP field. Suppress
+        // even stale locally customized database values for FTR profiles.
+        if (!isFtrRoomControllerDevice(d) && p.frost_temperature != null) {
+          out += `        frost_temperature: ${p.frost_temperature}\n`;
+        }
         if (p.dimming_speed != null) out += `        dimming_speed: ${p.dimming_speed}\n`;
         if (p.room_controller_mode && p.min_target_temperature != null) out += `        min_target_temperature: ${p.min_target_temperature}\n`;
         if (p.room_controller_mode && p.max_target_temperature != null) out += `        max_target_temperature: ${p.max_target_temperature}\n`;
@@ -4316,6 +4321,16 @@ export default function App() {
                       ? "Choose the actual model printed on the sensor. The FHK/TF61 operating mode remains independent; YAML uses this model as device_type."
                       : "Bitte den tatsächlichen Gerätetyp auswählen. Die FHK-/TF61-Betriebsart bleibt unabhängig; der YAML-Export verwendet das ausgewählte Modell als device_type."}
                   </div>
+                </div>
+              )}
+
+              {/* FTR frost protection is already encoded as the normal
+                   8 °C setpoint in DB2, not as an independent YAML value. */}
+              {isFtrRoomControllerDevice(form) && String(profile.room_controller_mode || "").toLowerCase() === "fhk" && (
+                <div style={{fontSize:".7rem",color:"#2f6f8f",background:"#eef5f8",border:"1px solid #c6d9e4",borderRadius:5,padding:".5rem .7rem",marginBottom:".65rem",lineHeight:1.5}}>
+                  {language === "en"
+                    ? "Frost protection: the sensor reports 8 °C as its normal DB2 target temperature in A5-10-06. There is no separate frost-temperature telegram field or YAML setting."
+                    : "Frostschutz: Der FTR meldet 8 °C als normalen Solltemperaturwert in DB2 (A5-10-06). Kein separates Frostschutz-Telegrammfeld und keine zusätzliche YAML-Einstellung."}
                 </div>
               )}
 
