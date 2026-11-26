@@ -478,9 +478,15 @@ function profileFor(eep) {
 function supportsLightSwitchSelection(profile) {
   const p = profile || {};
   const outgoingEep = String(p.eep_out || "").toUpperCase();
+  // All true dimmers remain HA lights. In particular, FUD14/FUD61/FUD71
+  // and FD62NP/FD62NPN must not be exposed as simple on/off switches.
+  // The database groups DALI dimmers (FDG14, FD2G14) in the same category.
+  // This also ignores a stale "switch" override from a prior test project.
+  const isDimmer = String(p.group || "").trim() === "Licht / Dimmer";
   return Boolean(p.needs_sender) &&
     ["light", "switch"].includes(String(p.platform || "").toLowerCase()) &&
     ["A5-38-08", "M5-38-08"].includes(outgoingEep) &&
+    !isDimmer &&
     !p.rgbw;
 }
 
