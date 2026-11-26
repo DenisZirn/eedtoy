@@ -32,7 +32,8 @@
 - Bei den FTR55-/FTR65-Raumreglern wird nun das **physische Modell** (z. B. FTR55ESB) separat von der Betriebsart **FHK (A5-10-06)** beziehungsweise **TF61 (A5-38-08)** gewählt.
 - Die YAML übernimmt `device_type` aus der tatsächlichen Geräteauswahl und nicht mehr pauschal `FTR65DSB`.
 - Bei älteren EEDTOY-Projekten wird ein eindeutig im Gerätenamen erkennbares Modell, etwa `FTR55ESB Testwand`, erkannt. Manuell ausgewählte Gerätemodelle werden vorrangig verwendet.
-- Teach-in-Daten, Sollwert- und Frostschutzeinstellungen bleiben unverändert; die Home-Assistant-Integration wird nicht geändert.
+- Bei FTR55-/FTR65-Raumreglern wird die **Frostschutztemperatur 8 °C nur noch als Gerätehinweis** gezeigt: Im A5-10-06-FHK-Telegramm steht der Wert als reguläre Solltemperatur in **DB2**, nicht in einem separaten Frostschutzfeld. Deshalb entfällt `frost_temperature: 8` in der erzeugten YAML – auch bei älteren lokal angepassten Gerätedatenbanken. Die Frostschutzfunktion, der Empfangsdecoder und die Home-Assistant-Integration bleiben unverändert.
+- Teach-in-Daten, Solltemperaturbereich und Betriebsart FHK/TF61 bleiben unverändert; die Home-Assistant-Integration wird nicht geändert.
 
 ## Sicherheit und Diagnose
 
