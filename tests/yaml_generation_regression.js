@@ -482,10 +482,10 @@ assert(api.ftrModelForDevice({
 // frost_temperature value. The FTR-specific YAML writer must ignore it,
 // while other device profiles retain their existing export behavior.
 const ftrDb = api.EEP_DB["A5-10-06-FTR-FHK"];
-assert(!Object.prototype.hasOwnProperty.call(ftrDb, "frost_temperature"),
-  "Default FTR device database does not store a separate frost-temperature value");
-assert(String(ftrDb.note).includes("DB2") && String(ftrDb.label).includes("8 °C"),
-  "8 C frost protection remains visible as DB2 protocol guidance");
+assert(ftrDb.frost_temperature === 8,
+  "Legacy FTR database retains its unchanged 8 C reference for old projects");
+assert(!ftrDb.note,
+  "FTR database stays backward-compatible; explanatory text is in the device form");
 const savedFtrProfile = {...ftrDb};
 try {
   ftrDb.frost_temperature = 8;
