@@ -130,7 +130,7 @@ assertNotIncludes(deYaml, 'serial_path:', 'Serial path is not exported');
 assertIncludes(deYaml, 'room_controller_mode: "fhk"', 'FTR FHK mode export');
 assertIncludes(deYaml, 'min_target_temperature: 12', 'FTR minimum setpoint export');
 assertIncludes(deYaml, 'max_target_temperature: 28', 'FTR maximum setpoint export');
-assertIncludes(deYaml, 'frost_temperature: 8', 'FTR frost protection setpoint export');
+assertNotIncludes(deYaml, 'frost_temperature:', 'FTR frost protection 8 C is a DB2 setpoint, not a separate YAML field');
 assertIncludes(deYaml, 'room_controller_mode: "tf61"', 'FTR TF61 mode export');
 assertIncludes(deYaml, 'hysteresis: 1', 'FTR TF61 hysteresis export');
 assertIncludes(deYaml, 'name: "FDG14 DALI"', 'FDG14 device export');
@@ -458,6 +458,8 @@ for(const mode of [
       model+" / "+mode.role+" mode unchanged");
     assertIncludes(exported,`eep: "${mode.out}"`,
       model+" / "+mode.role+" EEP unchanged");
+    assertNotIncludes(exported, 'frost_temperature:',
+      model+" / "+mode.role+" does not export a separate frost protection YAML field");
   }
 }
 const oldFtrProject = {eep:"A5-10-06-FTR-FHK",name:"FTR55ESB Testwand",
@@ -474,3 +476,31 @@ assert(api.ftrModelForDevice(userSelectedFtr)==="FTR55EHB",
 assert(api.ftrModelForDevice({
   ...oldFtrProject,name:"Wohnzimmer",device_type:"FTR55DSB"
 })==="FTR55DSB","Old project with a valid specific device type retains it");
+
+
+// A user-customized local device database may still carry the obsolete
+// frost_temperature value. The FTR-specific YAML writer must ignore it,
+// while other device profiles retain their existing export behavior.
+const ftrDb = api.EEP_DB["A5-10-06-FTR-FHK"];
+assert(!Object.prototype.hasOwnProperty.call(ftrDb, "frost_temperature"),
+  "Default FTR device database does not store a separate frost-temperature value");
+assert(String(ftrDb.note).includes("DB2") && String(ftrDb.label).includes("8 °C"),
+  "8 C frost protection remains visible as DB2 protocol guidance");
+const savedFtrProfile = {...ftrDb};
+try {
+  ftrDb.frost_temperature = 8;
+  const oldDbProject = {
+    eep:"A5-10-06-FTR-FHK",platform:"sensor",name:"FTR55ESB Testwand",
+    device_type:"FTR55ESB",ftr_model:"FTR55ESB",dev_id:"05-A3-EA-85"
+  };
+  const ftrFromOldDb = api.generateYaml({
+    type:"fam-usb",base_id:"05-A3-EA-80"
+  },[oldDbProject]);
+  assertNotIncludes(ftrFromOldDb,"frost_temperature:",
+    "Legacy local FTR database values do not reintroduce separate YAML frost setting");
+  assertIncludes(ftrFromOldDb,'device_type: "FTR55ESB"',
+    "Legacy local FTR DB keeps actual physical device type");
+} finally {
+  if (savedFtrProfile.frost_temperature === undefined) delete ftrDb.frost_temperature;
+  else ftrDb.frost_temperature = savedFtrProfile.frost_temperature;
+}
