@@ -395,3 +395,34 @@ for(let ch=1;ch<=4;ch++)assertIncludes(fourYaml,`channel: ${ch}`,
   `Four-channel relay keeps channel ${ch} as Switch`);
 assertIncludes(fourYaml,'      switch:', 'Expanded relay uses Switch YAML group');
 assertNotIncludes(fourYaml,'      light:', 'Expanded Switch relay not duplicated in Light');
+
+
+// Dimmers must always stay lights, even if a user saved an outdated
+// platform_override='switch' before the Light/Switch selector was restricted.
+for (const profileKey of [
+  'A5-38-08-FUD14', 'A5-38-08-FUD71',
+  'A5-38-08-FUD61NP-230V', 'A5-38-08-FUD61NPN-230V',
+  'A5-38-08-FD62NP-230V', 'A5-38-08-FD62NPN-230V',
+  'A5-38-08-FDG14', 'A5-38-08-FD2G14',
+]) {
+  const dimmer = api.EEP_DB[profileKey];
+  assert(dimmer && dimmer.platform === 'light', profileKey + ' database platform light');
+  assert(!api.supportsLightSwitchSelection(dimmer),
+    profileKey + ' does not show Light/Switch selector');
+  const legacy = {
+    name: dimmer.device_type, eep:profileKey, profile_key:profileKey,
+    device_type:dimmer.device_type, dev_id:'FF-AC-10-08',
+    sender_id:'FF-A6-04-96',sender_eep:'A5-38-08',
+    platform:'switch',platform_override:'switch'
+  };
+  assert(api.effectivePlatformForDevice(legacy,dimmer) === 'light',
+    profileKey + ' ignores previously saved Switch override');
+  const normalized = api.applyCurrentDatabaseProfile(legacy);
+  assert(normalized.platform === 'light',
+    profileKey + ' project reload normalizes to Light');
+  const yaml = api.generateYaml(relayGw,[legacy]);
+  assertIncludes(yaml,'      light:', profileKey + ' exports in light section');
+  assertNotIncludes(yaml,'      switch:',profileKey + ' never exports as switch');
+}
+assert(api.supportsLightSwitchSelection(dbRelay),
+  'Simple FSR relay still offers Light/Switch after dimmer restriction');
