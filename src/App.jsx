@@ -525,6 +525,46 @@ function normalizeProfileSearchText(value) {
     .trim();
 }
 
+// FTR device model and FHK/TF61 operating mode are two independent choices.
+const FTR_ROOM_CONTROLLER_MODELS = Object.freeze([
+  "FTR65DSB", "FTR55DSB", "FTR55EHB", "FTR55ESB",
+  "FTR65HB", "FTRF65HB", "FTR55HB", "FTR65SB",
+  "FTRF65SB", "FTR55SB",
+]);
+const FTR_ROOM_CONTROLLER_PROFILE_KEYS = Object.freeze([
+  "A5-10-06-FTR-FHK", "A5-38-08-FTR-TF61",
+]);
+
+function isFtrRoomControllerDevice(device) {
+  const key = String(device?.profile_key || device?.eep || "").toUpperCase();
+  return FTR_ROOM_CONTROLLER_PROFILE_KEYS.includes(key) ||
+    FTR_ROOM_CONTROLLER_PROFILE_KEYS.includes(String(device?.eep || "").toUpperCase());
+}
+
+function recognizedFtrModel(value) {
+  const model = String(value || "").trim().toUpperCase();
+  return FTR_ROOM_CONTROLLER_MODELS.includes(model) ? model : "";
+}
+
+function ftrModelFromName(value) {
+  const upper = String(value || "").toUpperCase();
+  return FTR_ROOM_CONTROLLER_MODELS.find(model =>
+    new RegExp(`(^|[^A-Z0-9])${model}(?![A-Z0-9])`).test(upper)
+  ) || "";
+}
+
+function ftrModelForDevice(device) {
+  // New projects explicitly save ftr_model. For old projects, FTR65DSB was
+  // incorrectly exported for *all* FTRs; recover the actual variant from
+  // a clearly labelled name, but never override a newly selected model.
+  const selected = recognizedFtrModel(device?.ftr_model);
+  if (selected) return selected;
+  const savedType = recognizedFtrModel(device?.device_type);
+  const nameModel = ftrModelFromName(device?.name);
+  if (nameModel && (!savedType || savedType === "FTR65DSB")) return nameModel;
+  return savedType || nameModel || "FTR65DSB";
+}
+
 function resolveProfileKeyForDevice(device) {
   if (!device || typeof device !== "object") return "";
 
@@ -603,7 +643,10 @@ function normalizeLoadedDeviceProfile(device) {
     };
   }
   const profileKey = resolveProfileKeyForDevice(normalized);
-  return profileKey ? { ...normalized, eep: profileKey, profile_key: profileKey } : normalized;
+  const result = profileKey ? { ...normalized, eep: profileKey, profile_key: profileKey } : normalized;
+  return isFtrRoomControllerDevice(result)
+    ? { ...result, ftr_model: ftrModelForDevice(result) }
+    : result;
 }
 
 // Apply the current device-database profile before editing or YAML export.
@@ -639,6 +682,7 @@ function applyCurrentDatabaseProfile(device) {
     heating_control_mode: normalized.heating_control_mode,
     operating_mode_sender_id: normalized.operating_mode_sender_id,
     platform_override: normalized.platform_override,
+    ftr_model: normalized.ftr_model,
   };
   return {
     ...normalized,
@@ -649,7 +693,9 @@ function applyCurrentDatabaseProfile(device) {
     platform: effectivePlatformForDevice(normalized, profile),
     sender_eep: profile.sender_eep || "",
     device_family: profile.device_family || "",
-    device_type: profile.device_type || "",
+    device_type: isFtrRoomControllerDevice(normalized)
+      ? ftrModelForDevice(normalized)
+      : profile.device_type || "",
     model: profile.eltako || normalized.model,
     eltako: profile.eltako || normalized.eltako,
   };
@@ -661,9 +707,10 @@ function deviceTypeForDevice(device) {
 }
 
 function exportDeviceTypeForDevice(device) {
-  // Expanded channels retain their selected source profile, even when a
-  // secondary FLGTF entity uses a different EEP. Instance snapshots and names
-  // must never override the technical type stored in the current profile.
+  // FTR physical model selection is independent of FHK/TF61 runtime mode.
+  // The two shared FTR profiles must NEVER force all sensors to FTR65DSB.
+  if (isFtrRoomControllerDevice(device)) return ftrModelForDevice(device);
+  // Other devices retain their stable database-controlled technical type.
   const key = String(device?.profile_key || device?.eep || "").toUpperCase();
   return String(EEP_DB[PROFILE_KEY_ALIASES[key] || key]?.device_type || "").trim();
 }
@@ -1878,7 +1925,7 @@ function firstAvailableProfileKey() {
 function createEmptyForm(preferredProfileKey = "") {
   const resolvedPreferred = PROFILE_KEY_ALIASES[String(preferredProfileKey || "").toUpperCase()] || String(preferredProfileKey || "");
   const profileKey = EEP_DB[resolvedPreferred] ? resolvedPreferred : firstAvailableProfileKey();
-  return { name:"", dev_id:"", physical_unique_id:"", eep:profileKey, room:"", device_class:"", sender_id:"", sender_eep:"", operating_mode_sender_id:"", platform_override:"", time_opens:"", time_closes:"", min_target_temperature:"", max_target_temperature:"", device_type:"", model:"", eltako:"", id_range:"1", fwg14ms_id_range:"1", bus_address:"", f2l14_mode:"exclusive", pwm_period_seconds:120, heating_control_mode:"ha_external" };
+  return { name:"", dev_id:"", physical_unique_id:"", eep:profileKey, room:"", device_class:"", sender_id:"", sender_eep:"", operating_mode_sender_id:"", ftr_model:"", platform_override:"", time_opens:"", time_closes:"", min_target_temperature:"", max_target_temperature:"", device_type:"", model:"", eltako:"", id_range:"1", fwg14ms_id_range:"1", bus_address:"", f2l14_mode:"exclusive", pwm_period_seconds:120, heating_control_mode:"ha_external" };
 }
 
 // MiniSafe2 configurations arrive either as plain JSON or embedded in the text
@@ -2668,7 +2715,8 @@ export default function App() {
       // The former entity-domain override is only valid for its old profile.
       // A newly selected device type starts with the database platform.
       platform_override: "",
-      device_type: p.device_type || "",
+      ftr_model: isFtrRoomControllerDevice({ eep }) ? ftrModelForDevice(f) : "",
+      device_type: isFtrRoomControllerDevice({ eep }) ? ftrModelForDevice(f) : (p.device_type || ""),
       device_class: p.default_dc ?? "",
       sender_eep: p.sender_eep ?? "",
       sender_id: p.needs_sender ? (f.sender_id || autoSenderIdForGateway(gateway, devices)) : "",
@@ -2772,7 +2820,8 @@ export default function App() {
         ["light", "switch"].includes(String(form.platform_override || ""))
           ? (String(form.platform_override) === String(profile.platform) ? "" : form.platform_override)
           : "",
-      device_type: profile.device_type || "",
+      ftr_model: isFtrRoomControllerDevice(form) ? ftrModelForDevice(form) : "",
+      device_type: isFtrRoomControllerDevice(form) ? ftrModelForDevice(form) : (profile.device_type || ""),
       model: profile.eltako || form.model || "",
       eltako: profile.eltako || form.eltako || "",
       dev_id: isFwg14msProfile ? fwg14msBaseIdForRange(form.fwg14ms_id_range || "1") : form.dev_id,
@@ -4240,6 +4289,32 @@ export default function App() {
                     {language === "en"
                       ? `Device database default: ${profile.platform}. This only changes the YAML section (light/switch), not the controller ID, teach-in, or actuator hardware.`
                       : `Vorgabe aus der Gerätedatenbank: ${profile.platform}. Die Auswahl ändert nur den YAML-Bereich (light/switch), nicht die Sender-ID, das Einlernen oder den Aktor.`}
+                  </div>
+                </div>
+              )}
+
+              {/* FTR model is independent from the FHK / TF61 mode selected above. */}
+              {isFtrRoomControllerDevice(form) && (
+                <div style={{maxWidth:380,marginBottom:".7rem"}}>
+                  <label htmlFor="ftr-physical-model">
+                    {language === "en" ? "Physical FTR model" : "FTR-Gerätemodell"}
+                  </label>
+                  <select id="ftr-physical-model"
+                    value={ftrModelForDevice(form)}
+                    onChange={e => setForm(current => ({
+                      ...current,
+                      ftr_model: e.target.value,
+                      device_type: e.target.value,
+                    }))}
+                  >
+                    {FTR_ROOM_CONTROLLER_MODELS.map(model => (
+                      <option value={model} key={model}>{model}</option>
+                    ))}
+                  </select>
+                  <div style={{fontSize:".68rem",color:"#53616f",lineHeight:1.5,marginTop:".3rem"}}>
+                    {language === "en"
+                      ? "Choose the actual model printed on the sensor. The FHK/TF61 operating mode remains independent; YAML uses this model as device_type."
+                      : "Bitte den tatsächlichen Gerätetyp auswählen. Die FHK-/TF61-Betriebsart bleibt unabhängig; der YAML-Export verwendet das ausgewählte Modell als device_type."}
                   </div>
                 </div>
               )}
