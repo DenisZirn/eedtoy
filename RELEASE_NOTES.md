@@ -27,6 +27,13 @@
 - Nur der YAML-Abschnitt `light:` beziehungsweise `switch:` ändert sich; EEP, Sender-ID, Gateway, Einlernung und Aktorprogrammierung bleiben unverändert.
 - RGBW-Aktoren und andere spezialisierte Gerätetypen werden nicht als einfacher Switch angeboten; bestehende Projekte bleiben kompatibel.
 
+## FTR55-/FTR65-Gerätemodelle
+
+- Bei den FTR55-/FTR65-Raumreglern wird nun das **physische Modell** (z. B. FTR55ESB) separat von der Betriebsart **FHK (A5-10-06)** beziehungsweise **TF61 (A5-38-08)** gewählt.
+- Die YAML übernimmt `device_type` aus der tatsächlichen Geräteauswahl und nicht mehr pauschal `FTR65DSB`.
+- Bei älteren EEDTOY-Projekten wird ein eindeutig im Gerätenamen erkennbares Modell, etwa `FTR55ESB Testwand`, erkannt. Manuell ausgewählte Gerätemodelle werden vorrangig verwendet.
+- Teach-in-Daten, Sollwert- und Frostschutzeinstellungen bleiben unverändert; die Home-Assistant-Integration wird nicht geändert.
+
 ## Sicherheit und Diagnose
 
 - Bei Änderungen an programmierungsrelevanten Aktoreinstellungen (z. B. Temperaturreferenz, Sender-ID, Kanal oder F2L14-Modus) verlangt EEDTOY einen **separaten, ausdrücklich bestätigten Schreibvorgang**. Das Speichern der Projektdatei allein programmiert keinen Aktor.
