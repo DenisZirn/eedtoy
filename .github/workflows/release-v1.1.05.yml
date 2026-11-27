@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/release-v1.1.05.yml
+  workflow_dispatch:
 concurrency:
   group: release-1.1.05
   cancel-in-progress: false
