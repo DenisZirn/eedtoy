@@ -123,7 +123,12 @@ jobs:
           if ($LASTEXITCODE -eq 0) { $releaseExists = $true }
 
           if ($releaseExists -and $env:REPLACE_EXISTING -ne "true") {
-            throw "Release $env:RELEASE_TAG already exists."
+            # Re-running the workflow after a documentation-only change
+            # updates the public release notes without altering its installer,
+            # tag, or other published artifacts.
+            gh release edit $env:RELEASE_TAG --repo $env:GH_REPO --notes-file RELEASE_NOTES.md --latest
+            if ($LASTEXITCODE -ne 0) { throw "Release notes could not be updated." }
+            exit 0
           }
 
           git config user.name "github-actions[bot]"
