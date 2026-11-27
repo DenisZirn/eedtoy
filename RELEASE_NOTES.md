@@ -4,6 +4,7 @@
 
 ## Neu
 
+- **Automatische Updateprüfung:** EEDTOY sucht beim Start nach neuen Versionen und zeigt verfügbare Updates an. Auf Wunsch kannst du die neue Version direkt herunterladen und den Installer starten. Eine manuelle Prüfung ist jederzeit unter **Hilfe → Nach Updates suchen** möglich.
 - **Einlernhilfe für Funkaktoren:** Schritt-für-Schritt-Anleitungen für viele Geräte der 61er- und 62er-Serie – direkt über das Hilfe-Menü oder das jeweilige Gerät.
 - **Licht oder Schalter:** Bei geeigneten Schaltaktoren kannst du auswählen, wie sie in Home Assistant erscheinen. Dimmer bleiben automatisch als Licht eingerichtet.
 - **FTR-Raumregler:** Wähle dein tatsächliches Gerätemodell aus. EEDTOY übernimmt die richtige Bezeichnung in die Home-Assistant-Konfiguration.
