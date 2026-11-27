@@ -82,6 +82,9 @@ def load_sender_map(path: str) -> Dict[str, List[Dict[str, Any]]]:
             "source_gateway_base_id": norm_id(item.get("source_gateway_base_id") or ""),
             "f2l14_mode": str(item.get("f2l14_mode") or "exclusive").strip().lower(),
             "heating_control_mode": str(item.get("heating_control_mode") or "ha_external").strip().lower(),
+            "operating_mode_sender_id": norm_id(item.get("operating_mode_sender_id") or ""),
+            "operating_mode_sender_valid": item.get("operating_mode_sender_valid", True) is not False,
+            "previous_operating_mode_sender_id": norm_id(item.get("previous_operating_mode_sender_id") or ""),
         })
     return result
 
@@ -236,10 +239,14 @@ def _is_real_frgbw14(dev: Any) -> bool:
 async def _ensure_programmed_controller_profile(dev: Any, sender_id: str, channel: int = 0) -> Optional[bool]:
     """Write the FRGBW14 controller exclusively to PCT14 function group 3.
 
-    Confirmed FRGBW14 PCT14 memory layout (04-A1, offset first block 8):
-      entry 1 / function group 1: memory row 8
-      entries 2..4 / group 2:    memory rows 9..11
-      entry 5+ / function group 3: memory rows 12..123
+    FRGBW14 PCT14 memory layout (04-A1, PCT14 offset first block 8):
+      memory rows 8..11: actuator configuration, NOT the learned-ID table
+      entry 1 / function group 1: memory row 12
+      entries 2..4 / group 2:    memory rows 13..15
+      entry 5+ / function group 3: memory rows 16..127 (when accessible)
+    The four configuration rows explain the previously observed discrepancy:
+    writing memory row 12 physically programs FG1, regardless of the function
+    number in the written bytes.
     The PCT14 controller entry uses button 0, function 81, channel
     bitmap 00001111 (all RGBW channels), value 0.
 
@@ -251,43 +258,85 @@ async def _ensure_programmed_controller_profile(dev: Any, sender_id: str, channe
     sender = _sender_bytes_from_id(sender_id)
     expected_line = sender + bytes((0, 81, 0x0F, 0))
     memory_size = int(getattr(dev, "memory_size", 0) or 0)
-    group3_end = min(memory_size, 124)  # 116 PCT14 ID entries, starting at row 8
-    if group3_end <= 12 or not hasattr(dev, "read_mem_line") or not hasattr(dev, "write_mem_line"):
+    # PCT14 table: four configuration lines (8..11), then ID entries 1..116.
+    # The bus library indexes memory by physical row, not PCT14 entry number.
+    group1_row = 12
+    group3_start = 16
+    group3_end = min(memory_size, 128)
+    if group3_end <= group3_start or not hasattr(dev, "read_mem_line") or not hasattr(dev, "write_mem_line"):
         raise RuntimeError("FRGBW14: kein Zugriff auf die PCT14-ID-Tabelle (Funktionsgruppe 3)")
 
     async def read_verified(row: int) -> bytes:
-        actual = await _read_back_mem_line(dev, row)
+        # Read directly over RS485. BusObject.read_mem_line() may return its
+        # in-memory cache, which must never be evidence for PCT14 verification.
+        bus = getattr(dev, "bus", None)
+        if bus is not None:
+            from eltakobus.message import EltakoMemoryRequest, EltakoMemoryResponse
+            response = await bus.exchange(
+                EltakoMemoryRequest(dev.address, row), EltakoMemoryResponse
+            )
+            if getattr(response, "row", row) != row:
+                raise RuntimeError(
+                    f"FRGBW14: Busantwort für falsche Speicherzeile: "
+                    f"angefordert {row}, empfangen {getattr(response, 'row', '?')}"
+                )
+            actual = getattr(response, "value", None)
+        else:
+            # Allows the existing memory-only unit doubles; production
+            # BusObjects always carry the bus supplied by create_busobject.
+            actual = await _read_back_mem_line(dev, row)
         if not isinstance(actual, (bytes, bytearray)) or len(actual) != 8:
             raise TimeoutError(
                 f"FRGBW14: Speicherzeile {row} konnte nicht sicher aus dem Aktor gelesen werden"
             )
-        return bytes(actual)
+        actual = bytes(actual)
+        if row in (8, group1_row, group3_start):
+            log("FRGBW14 physical read", "bus_address", getattr(dev, "address", "?"),
+                "row", row, "data", actual.hex("-").upper())
+        return actual
 
     async def write_verified(row: int, value: bytes) -> None:
-        await _write_mem_line_with_readback(dev, row, value)
+        # Only accept a physical RS485 readback. The generic write helper
+        # can accept a cached value after a lost acknowledgement.
+        log("FRGBW14 write attempt", "bus_address", getattr(dev, "address", "?"),
+            "row", row, "value", value.hex("-").upper())
+        try:
+            await dev.write_mem_line(row, value)
+        except Exception:
+            # An ACK may be lost although the actuator completed the write.
+            # Resolve this uncertainty using the uncached hardware read.
+            if await read_verified(row) != value:
+                raise
         if await read_verified(row) != value:
             raise RuntimeError(
                 f"FRGBW14: Schreiben in Speicherzeile {row} nicht bestätigt; "
                 "Aktorinhalt weicht vom Sollwert ab"
             )
 
-    # A stale BusObject cache must never hide a wrong group-1 assignment.
-    old_group1 = await read_verified(8)
+    # Row 8 contains configuration data. NEVER treat it as a learned ID.
+    config_row8 = await read_verified(8)
+    old_group1 = await read_verified(group1_row)
+    log("FRGBW14 programming start", "bus_address", getattr(dev, "address", "?"),
+        "sender_id", norm_id(sender_id),
+        "config_row8", config_row8.hex("-").upper(),
+        "FG1_row12", old_group1.hex("-").upper(),
+        "FG3_first_row", group3_start, "FG3_end_exclusive", group3_end)
 
     exact_row = None
     sender_row = None
     free_row = None
-    for row in range(12, group3_end):
-        line = await dev.read_mem_line(row)
-        if not isinstance(line, (bytes, bytearray)) or len(line) != 8:
-            raise TimeoutError(f"FRGBW14: ungültige Speicherantwort für Zeile {row}")
-        line = bytes(line)
+    protected_rows = {}
+    for row in range(group3_start, group3_end):
+        line = await read_verified(row)
+        if any(line) and line[:4] != sender:
+            # Preserve every other learned sender independently of the
+            # controller being programmed. Do not assume entry 5 is empty.
+            protected_rows[row] = line
         if line == expected_line:
-            # Validate against the hardware, not just the library cache.
+            # Read again: never count a cached value as independent evidence.
             line = await read_verified(row)
-            if line == expected_line:
+            if line == expected_line and exact_row is None:
                 exact_row = row
-                break
         if line[:4] == sender and any(line) and sender_row is None:
             sender_row = row
         if not any(line) and free_row is None:
@@ -316,20 +365,64 @@ async def _ensure_programmed_controller_profile(dev: Any, sender_id: str, channe
     # for the very same sender be removed. Ignore its other bytes: old
     # builds did not all use the same key/function/channel encoding.
     if old_group1[:4] == sender:
-        current_group1 = await read_verified(8)
+        current_group1 = await read_verified(group1_row)
         if current_group1[:4] == sender:
-            await write_verified(8, bytes(8))
+            await write_verified(group1_row, bytes(8))
             changed = True
 
     # Final hardware verification prevents false "written" or "exists" output.
-    if await read_verified(target_row) != expected_line:
+    # A new BusObject must agree with our original instance; never report
+    # success based solely on an object that participated in the write.
+    fresh_dev = None
+    if getattr(dev, "bus", None) is not None:
+        from eltakobus.device import create_busobject
+        fresh_dev = await create_busobject(bus=dev.bus, id=dev.address)
+        if fresh_dev is None or not _is_real_frgbw14(fresh_dev):
+            raise RuntimeError("FRGBW14: unabhängige Geräteerkennung nach dem Schreiben fehlgeschlagen")
+
+    async def final_read(row: int) -> bytes:
+        if fresh_dev is None:
+            return await read_verified(row)
+        from eltakobus.message import EltakoMemoryRequest, EltakoMemoryResponse
+        answer = await fresh_dev.bus.exchange(
+            EltakoMemoryRequest(fresh_dev.address, row), EltakoMemoryResponse
+        )
+        if getattr(answer, "row", None) != row or len(getattr(answer, "value", b"")) != 8:
+            raise RuntimeError(f"FRGBW14: ungültige unabhängige Rücklesung der Speicherzeile {row}")
+        return bytes(answer.value)
+
+    final_target = await final_read(target_row)
+    final_fg1 = await final_read(group1_row)
+    final_config = await final_read(8)
+    final_group3_first = await final_read(group3_start)
+    log("FRGBW14 final hardware state",
+        "config_row8", final_config.hex("-").upper(),
+        "FG1_row12", final_fg1.hex("-").upper(),
+        "FG3_first_row16", final_group3_first.hex("-").upper(),
+        "FG3_target_row", target_row, "target", final_target.hex("-").upper(),
+        "protected_FG3_entries", len(protected_rows))
+    if final_config != config_row8:
+        raise RuntimeError(
+            "FRGBW14: Konfigurationszeile 8 hat sich verändert; "
+            "keine sichere Bestätigung der ID-Programmierung"
+        )
+    for protected_row, original in protected_rows.items():
+        actual = await final_read(protected_row)
+        if actual != original:
+            raise RuntimeError(
+                f"FRGBW14: bestehender fremder FG3-Eintrag {protected_row - 11} "
+                f"(Zeile {protected_row}) hat sich verändert. "
+                "Keine sichere Bestätigung der Programmierung; "
+                "Aktor in PCT14 neu auslesen."
+            )
+    if final_target != expected_line:
         raise RuntimeError("FRGBW14: Controller-ID ist nicht in Funktionsgruppe 3 gespeichert")
-    if (await read_verified(8))[:4] == sender:
+    if final_fg1[:4] == sender:
         raise RuntimeError("FRGBW14: fehlerhafter Eintrag in Funktionsgruppe 1 ist noch vorhanden")
     dev._eedtoy_frgbw14_row = target_row
     log("FRGBW14 verified", "bus_address", getattr(dev, "address", "?"),
         "sender", norm_id(sender_id), "function_group", 3,
-        "pct14_entry", target_row - 7, "memory_row", target_row,
+        "pct14_entry", target_row - 11, "memory_row", target_row,
         "function", 81, "channel_mask", "00001111")
     return changed
 
@@ -629,6 +722,141 @@ async def _ensure_programmed_fhk_controller(
         "sender", norm_id(sender_id), "function_group", 1,
         "function", 64, "channel_mask", f"{mask:08b}", "memory_row", target_row)
     return changed
+
+
+def _heating_group_4_start(device_type: str, size: int) -> int:
+    """First free-form switch entry in physical FG4, after reserved FG1-3.
+
+    Derived from Series-14 BusObject ranges (FAE14/FHK14: 14+, F4HK14:
+    20+). One-channel legacy FHK14 uses the conservative 14+ boundary.
+    """
+    count, _fg1, _fg3, _models = _heating_group_1_layout(device_type, size)
+    return 20 if count == 4 else 14
+
+
+async def _ensure_programmed_heating_operating_mode(
+    dev: Any,
+    sender_id: str,
+    channel: int,
+    device_type: str,
+    previous_sender_id: str = "",
+) -> bool:
+    """Teach a fourfold RPS operating-mode sender in Series-14 FG4/F30.
+
+    A separate sender is optional, and may be identical to the thermostat
+    sender. Existing FTR/FUTH/MiniSafe and other FG4 entries are protected.
+    The writer only replaces an existing FG4/F30 entry with an *explicitly*
+    tracked previous sender ID for the same channel, never by position.
+    """
+    count, _fg1, _fg3, model_codes = _heating_group_1_layout(
+        device_type, int(getattr(dev, "size", 0) or 0)
+    )
+    if not isinstance(channel, int) or not 0 <= channel < count:
+        raise ValueError(f"{device_type}: ungültiger Betriebsartenkanal {channel!r}")
+    discovery = getattr(dev, "discovery_response", None)
+    model = bytes(getattr(discovery, "model", b"") or b"")
+    if len(model) >= 2 and (model[0] != 0x04 or model[1] not in model_codes):
+        raise RuntimeError(
+            f"{device_type}: physische Gerätekennung {model[:2].hex('-').upper()} "
+            "passt nicht zum ausgewählten Betriebsarten-Aktor"
+        )
+
+    group4_start = _heating_group_4_start(device_type, count)
+    end = int(getattr(dev, "memory_size", 0) or 0)
+    if end <= group4_start or not hasattr(dev, "read_mem_line") or not hasattr(dev, "write_mem_line"):
+        raise RuntimeError(f"{device_type}: FG4-ID-Speicher nicht verfügbar")
+
+    sender = _sender_bytes_from_id(sender_id)
+    old_sender = _sender_bytes_from_id(previous_sender_id) if previous_sender_id else None
+    mask = 1 << channel
+    # PCT14 Key/Taste 7 = "4-fach Taster, alle Tasten" (MiniSafe).
+    # Memory bytes: sender[4], key[1], function[1], channel mask[1], value[1].
+    # Older EEDTOY builds incorrectly used key 0; migrate that exact
+    # same-sender/function/channel entry in place, without adding a duplicate.
+    key_all_buttons = 7
+    expected = sender + bytes((key_all_buttons, 30, mask, 0))
+    legacy = sender + bytes((0, 30, mask, 0))
+    former_variants = (
+        {old_sender + bytes((key, 30, mask, 0)) for key in (0, key_all_buttons)}
+        if old_sender and old_sender != sender else set()
+    )
+
+    async def read_physical(row: int) -> bytes:
+        value = await _read_back_mem_line(dev, row)
+        if not isinstance(value, (bytes, bytearray)) or len(value) != 8:
+            raise TimeoutError(f"{device_type}: FG4 Speicherzeile {row} nicht lesbar")
+        return bytes(value)
+
+    async def write_physical(row: int, data: bytes) -> None:
+        if count <= 2 and "FHK14" in device_type.upper() and "F4HK14" not in device_type.upper():
+            await _write_fhk_mem_line(dev, row, data)
+        else:
+            await _write_mem_line_with_readback(dev, row, data)
+        if await read_physical(row) != data:
+            raise RuntimeError(f"{device_type}: FG4 Speicherzeile {row} nicht bestätigt")
+
+    exact_rows = []
+    legacy_rows = []
+    prior_rows = []
+    first_empty = None
+    for row in range(group4_start, end):
+        value = await read_physical(row)
+        if value == expected:
+            exact_rows.append(row)
+        elif value == legacy:
+            legacy_rows.append(row)
+        elif value in former_variants:
+            prior_rows.append(row)
+        elif not any(value) and first_empty is None:
+            first_empty = row
+
+    if exact_rows:
+        target = exact_rows[0]
+    elif legacy_rows:
+        target = legacy_rows[0]  # upgrade EEDTOY's wrong key 0 in place
+    elif prior_rows:
+        target = prior_rows[0]  # replace only explicitly tracked former ID
+    else:
+        target = first_empty
+    if target is None:
+        raise RuntimeError(
+            f"{device_type} Kanal {channel + 1}: kein freier FG4-Eintrag "
+            "für den Betriebsartensender; bestehende Sender bleiben erhalten"
+        )
+
+    changed = False
+    current = await read_physical(target)
+    if current != expected:
+        if any(current) and current != legacy and current not in former_variants:
+            raise RuntimeError(
+                f"{device_type} Kanal {channel + 1}: FG4-Zeile {target} "
+                "ist inzwischen anderweitig belegt"
+            )
+        await write_physical(target, expected)
+        changed = True
+
+    # Remove only exact duplicates, EEDTOY's old key-0 duplicates for
+    # this sender/function/channel and explicitly tracked former senders.
+    # Never modify foreign IDs, other channel masks, or unrelated functions.
+    duplicate_rows = set(exact_rows + legacy_rows + prior_rows) - {target}
+    for row in sorted(duplicate_rows):
+        if await read_physical(row) in ({expected, legacy} | former_variants):
+            await write_physical(row, bytes(8))
+            changed = True
+        else:
+            raise RuntimeError(
+                f"{device_type} Kanal {channel + 1}: FG4-Zeile {row} wurde zwischenzeitlich verändert"
+            )
+    if await read_physical(target) != expected:
+        raise RuntimeError(f"{device_type}: FG4/F30 nicht bestätigt")
+    dev._eedtoy_heating_mode_row = target
+    log("Heating operating-mode writer verified", device_type,
+        "bus_address", getattr(dev, "address", "?"),
+        "channel", channel + 1, "sender", norm_id(sender_id),
+        "function_group", 4, "function", 30, "key", key_all_buttons,
+        "channel_mask", f"{mask:08b}", "memory_row", target)
+    return changed
+
 
 async def _write_fhk_mem_line(dev: Any, row: int, value: bytes) -> None:
     """Write an FHK14 row without mistaking a delayed F2 reply for the F4 ACK."""
@@ -1034,10 +1262,20 @@ async def ensure_programmed_for_device(fam14_base_id_int: int, dev: Any, sender_
                     elif is_f2l14 and sender_eep == "F6-02-01":
                         update_result = await _ensure_programmed_f2l14(dev, sender_id, entry.get("f2l14_mode", "exclusive"))
                     elif is_fhk and sender_eep == "A5-10-06":
-                        update_result = await _ensure_programmed_fhk_controller(
+                        if not entry.get("operating_mode_sender_valid", True):
+                            raise RuntimeError(
+                                f"{entry_type}: Betriebsarten-Sender-ID passt nicht zum Gateway/Base-ID"
+                            )
+                        temperature_updated = await _ensure_programmed_fhk_controller(
                             dev, sender_id, channel, entry_type,
                             str(entry.get("heating_control_mode") or "ha_external"),
                         )
+                        mode_sender = norm_id(entry.get("operating_mode_sender_id") or sender_id)
+                        mode_updated = await _ensure_programmed_heating_operating_mode(
+                            dev, mode_sender, channel, entry_type,
+                            norm_id(entry.get("previous_operating_mode_sender_id") or ""),
+                        )
+                        update_result = bool(temperature_updated or mode_updated)
                     elif isinstance(dev, HasProgrammableRPS) or isinstance(dev, DimmerStyle) or hasattr(dev, "ensure_programmed"):
                         sender_address = AddressExpression.parse(sender_id)
                         eep_profile = EEP.find(sender_eep)
@@ -1067,15 +1305,20 @@ async def ensure_programmed_for_device(fam14_base_id_int: int, dev: Any, sender_
             if is_fhk and sender_eep == "A5-10-06" and update_result is not None:
                 learned = str(entry.get("heating_control_mode") or "ha_external") == "learned_sensor"
                 group, function = (3, 65) if learned else (1, 64)
+                mode_sender = norm_id(entry.get("operating_mode_sender_id") or sender_id)
+                mode_row = getattr(dev, "_eedtoy_heating_mode_row", None)
                 message += (
-                    f" Bestätigt: Funktionsgruppe {group}, Funktion {function}, "
-                    f"Kanalmaske {1 << channel:08b}."
+                    f" Bestätigt: Temperatur Funktionsgruppe {group}, Funktion {function}, "
+                    f"Kanalmaske {1 << channel:08b}. "
+                    f"Betriebsartensender {mode_sender}: Funktionsgruppe 4, "
+                    f"Funktion 30, Kanalmaske {1 << channel:08b}, "
+                    f"Speicherzeile {mode_row}."
                 )
             if is_frgbw14_hardware and update_result is not None:
                 slot = getattr(dev, "_eedtoy_frgbw14_row", None)
                 if slot is not None:
                     message += (
-                        f" Bestätigt: Funktionsgruppe 3, PCT14-Eintrag {slot - 7}, "
+                        f" Bestätigt: Funktionsgruppe 3, PCT14-Eintrag {slot - 11}, "
                         "Funktion 81, Kanal 00001111."
                     )
             events.append({"status": status, "device_id": device_ext_id, "device_type": entry_type, "sender_id": sender_id, "sender_eep": sender_eep, "message": message})
@@ -1107,6 +1350,7 @@ async def _write_senders_session(
     bus = None
     locked = False
     events: List[Dict[str, Any]] = []
+    discovered_fd2g: Dict[int, Any] = {}
     try:
         # The FGW14-USB RS485 adapter needs ~10 ms pacing at 57600 baud.
         # The previous 1 ms pacing could overload consecutive memory reads

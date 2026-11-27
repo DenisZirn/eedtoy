@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none';">
+  <title>EEDTOY – Dezentrale Aktoren einlernen</title>
+  <style>
+    :root { color-scheme: light; font-family: "Segoe UI", Arial, sans-serif; color:#233344; background:#f5f7fa; font-size:14px; }
+    * { box-sizing: border-box; }
+    body { padding:0; margin:0; }
+    header { background:#fff; border-bottom:1px solid #dbe4ed; padding:24px 30px 18px; }
+    main { max-width:1020px; margin:0 auto; padding:22px 30px 30px; }
+    h1 { font-size:22px; font-weight:700; margin:0 0 6px; }
+    h2 { font-size:17px; margin:0 0 12px; }
+    h3 { font-size:14px; margin:16px 0 8px; }
+    p { margin:6px 0 12px; line-height:1.65; }
+    .muted { color:#596a7b; font-size:13px; }
+    .layout { display:grid; grid-template-columns:290px minmax(0,1fr); gap:20px; }
+    .panel { background:#fff; border:1px solid #dbe4ed; border-radius:8px; padding:20px; }
+    .search { display:block; width:100%; border:1px solid #bdcbd9; border-radius:6px; padding:11px 12px; margin:12px 0; font:inherit; }
+    .search:focus { outline:2px solid #2c779e; outline-offset:1px; }
+    label { display:block; font-weight:650; font-size:13px; margin-bottom:7px; }
+    .filters { display:flex; gap:6px; margin-bottom:12px; flex-wrap:wrap; }
+    .filters button { background:#f3f6fa; border:1px solid #cfdae5; border-radius:5px; padding:7px 12px; font:inherit; cursor:pointer; }
+    .filters button.selected { background:#dceef6; border-color:#4181a2; font-weight:bold; }
+    .models { max-height:calc(100vh - 275px); min-height:180px; overflow-y:auto; }
+    .model { display:block; width:100%; border:1px solid transparent; border-bottom-color:#ecf0f5; background:transparent; text-align:left; padding:11px 9px; font:inherit; cursor:pointer; border-radius:4px; }
+    .model.selected { background:#edf5fa; border-color:#b7d6e8; color:#12516f; }
+    .model:hover { background:#f0f6fa; }
+    .model small { color:#6a7886; display:block; margin-top:4px; }
+    .empty { color:#6b7280; line-height:1.6; padding:12px 4px; }
+    .top { display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:10px; }
+    .type { color:#316985; font-size:12px; font-weight:600; }
+    .meta { display:flex; flex-wrap:wrap; gap:6px; margin:7px 0 13px; }
+    .pill { border-radius:4px; background:#edf2f6; border:1px solid #e1e7ed; color:#4a5d70; font-size:12px; padding:5px 8px; }
+    .warning { padding:11px 13px; border-left:3px solid #bb7a30; background:#fff8ec; line-height:1.6; border-radius:3px; margin:10px 0 16px; font-size:13px; }
+    .steps { list-style:none; padding:0; margin:8px 0 0; }
+    .steps li { display:flex; align-items:flex-start; gap:12px; border-bottom:1px solid #edf0f4; padding:13px 0; line-height:1.65; }
+    .num { background:#dceaf2; color:#155275; font-weight:bold; font-size:13px; display:inline-flex; align-items:center; justify-content:center; border-radius:50%; flex:none; width:26px; height:26px; margin-top:1px; }
+    .step-text { flex:1; min-width:0; }
+    .step-text strong { color:#1e526d; }
+    select { width:100%; max-width:370px; border:1px solid #bccbd8; border-radius:5px; background:#fff; font:inherit; padding:9px; }
+    .btn { display:inline-block; background:#f6f8fa; border:1px solid #aabfce; padding:9px 13px; border-radius:5px; text-decoration:none; color:#1a526f; font-weight:600; font-size:13px; }
+    .btn:hover { background:#e7f1f7; }
+    footer { font-size:12px; color:#65727e; line-height:1.6; margin-top:20px; }
+    .hide { display:none !important; }
+    @media(max-width:760px){ header {padding:20px;} main {padding:16px;} .layout {grid-template-columns:1fr;} .models {max-height:200px;} .panel{padding:16px;} }
+  </style>
+</head>
+<body>
+  <header>
+    <h1 id="pageTitle">Dezentrale Aktoren einlernen</h1>
+    <div class="muted" id="pageSubtitle">EEDTOY-Schritt-für-Schritt-Anleitung · Baureihe 61 und 62 · 72 nur nach Modellprüfung</div>
+  </header>
+  <main>
+    <div class="layout">
+      <aside class="panel">
+        <label id="searchLabel" for="search">Aktor suchen</label>
+        <input id="search" class="search" type="search" autocomplete="off" placeholder="z. B. FHK61, FJ62, FSR61">
+        <div class="filters" role="group" aria-label="Baureihe">
+          <button type="button" data-series="all" class="selected">Alle</button>
+          <button type="button" data-series="61">61</button>
+          <button type="button" data-series="62">62</button>
+          <button type="button" data-series="72">72</button>
+        </div>
+        <div class="models" id="models" role="list" aria-label="Aktor-Modelle"></div>
+      </aside>
+      <section class="panel" aria-live="polite">
+        <div class="top">
+          <div>
+            <div class="type" id="kind"></div>
+            <h2 id="modelTitle"></h2>
+          </div>
+        </div>
+        <div class="meta" id="meta"></div>
+        <div class="warning" id="caution"></div>
+        <div id="roleWrap" class="hide" style="margin:16px 0">
+          <label for="role" id="roleLabel">Einzulernende Senderrolle</label>
+          <select id="role">
+            <option value="controller">Temperaturregler (A5-10-06)</option>
+            <option value="mode">Betriebsartentaster (RPS)</option>
+          </select>
+        </div>
+        <h3 id="stepsHeading">Schritt-für-Schritt-Anleitung</h3>
+        <ol class="steps" id="steps"></ol>
+        <p id="detailNote" class="warning hide"></p>
+        <div style="margin-top:18px">
+          <a id="manual" class="btn" target="_blank" rel="noopener noreferrer" href="https://www.eltako.com/de/service/downloads-zone/">Offizielle ELTAKO-Anleitung öffnen</a>
+        </div>
+        <footer id="footer">
+          Dies ist eine EEDTOY-Hilfe. Sie sendet selbst keine Telegramme. Die Hardware-LED beziehungsweise Aktorquittierung entscheidet über den Lernerfolg. Vor Arbeiten an 230-V-Geräten gelten die Herstellerhinweise und Elektrofachkraft-Vorgaben.
+        </footer>
+      </section>
+    </div>
+  </main>
+  <script defer src="./decentralized-teach-in-guide.js"></script>
+  <script defer src="./decentralized-teach-in-ui.js"></script>
+</body>
+</html>

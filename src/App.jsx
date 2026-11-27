@@ -472,6 +472,33 @@ function profileFor(eep) {
   return EEP_DB[resolvedKey] || GENERIC_EEP_PROFILES[resolvedKey] || {};
 }
 
+// The YAML entity domain is a per-device presentation choice, not an actuator
+// operating mode. Hardware learning telegrams and sender IDs remain unchanged.
+// RGBW actuators have color-specific semantics and are intentionally excluded.
+function supportsLightSwitchSelection(profile) {
+  const p = profile || {};
+  const outgoingEep = String(p.eep_out || "").toUpperCase();
+  // All true dimmers remain HA lights. In particular, FUD14/FUD61/FUD71
+  // and FD62NP/FD62NPN must not be exposed as simple on/off switches.
+  // The database groups DALI dimmers (FDG14, FD2G14) in the same category.
+  // This also ignores a stale "switch" override from a prior test project.
+  const isDimmer = String(p.group || "").trim() === "Licht / Dimmer";
+  return Boolean(p.needs_sender) &&
+    ["light", "switch"].includes(String(p.platform || "").toLowerCase()) &&
+    ["A5-38-08", "M5-38-08"].includes(outgoingEep) &&
+    !isDimmer &&
+    !p.rgbw;
+}
+
+function effectivePlatformForDevice(device, deviceProfile = profileFor(device?.eep)) {
+  const defaultPlatform = String(deviceProfile.platform || device?.platform || "sensor").toLowerCase();
+  const requestedPlatform = String(device?.platform_override || "").toLowerCase();
+  return supportsLightSwitchSelection(deviceProfile) &&
+    ["light", "switch"].includes(requestedPlatform)
+    ? requestedPlatform
+    : defaultPlatform;
+}
+
 function idLearningFilterForProfile(profileKey) {
   const profile = profileFor(profileKey);
   const eep = String(profile.eep_out || profileKey || "").toUpperCase();
@@ -496,6 +523,46 @@ function normalizeProfileSearchText(value) {
     .replace(/ß/g, "SS")
     .replace(/[^A-Z0-9]+/g, " ")
     .trim();
+}
+
+// FTR device model and FHK/TF61 operating mode are two independent choices.
+const FTR_ROOM_CONTROLLER_MODELS = Object.freeze([
+  "FTR65DSB", "FTR55DSB", "FTR55EHB", "FTR55ESB",
+  "FTR65HB", "FTRF65HB", "FTR55HB", "FTR65SB",
+  "FTRF65SB", "FTR55SB",
+]);
+const FTR_ROOM_CONTROLLER_PROFILE_KEYS = Object.freeze([
+  "A5-10-06-FTR-FHK", "A5-38-08-FTR-TF61",
+]);
+
+function isFtrRoomControllerDevice(device) {
+  const key = String(device?.profile_key || device?.eep || "").toUpperCase();
+  return FTR_ROOM_CONTROLLER_PROFILE_KEYS.includes(key) ||
+    FTR_ROOM_CONTROLLER_PROFILE_KEYS.includes(String(device?.eep || "").toUpperCase());
+}
+
+function recognizedFtrModel(value) {
+  const model = String(value || "").trim().toUpperCase();
+  return FTR_ROOM_CONTROLLER_MODELS.includes(model) ? model : "";
+}
+
+function ftrModelFromName(value) {
+  const upper = String(value || "").toUpperCase();
+  return FTR_ROOM_CONTROLLER_MODELS.find(model =>
+    new RegExp(`(^|[^A-Z0-9])${model}(?![A-Z0-9])`).test(upper)
+  ) || "";
+}
+
+function ftrModelForDevice(device) {
+  // New projects explicitly save ftr_model. For old projects, FTR65DSB was
+  // incorrectly exported for *all* FTRs; recover the actual variant from
+  // a clearly labelled name, but never override a newly selected model.
+  const selected = recognizedFtrModel(device?.ftr_model);
+  if (selected) return selected;
+  const savedType = recognizedFtrModel(device?.device_type);
+  const nameModel = ftrModelFromName(device?.name);
+  if (nameModel && (!savedType || savedType === "FTR65DSB")) return nameModel;
+  return savedType || nameModel || "FTR65DSB";
 }
 
 function resolveProfileKeyForDevice(device) {
@@ -576,7 +643,10 @@ function normalizeLoadedDeviceProfile(device) {
     };
   }
   const profileKey = resolveProfileKeyForDevice(normalized);
-  return profileKey ? { ...normalized, eep: profileKey, profile_key: profileKey } : normalized;
+  const result = profileKey ? { ...normalized, eep: profileKey, profile_key: profileKey } : normalized;
+  return isFtrRoomControllerDevice(result)
+    ? { ...result, ftr_model: ftrModelForDevice(result) }
+    : result;
 }
 
 // Apply the current device-database profile before editing or YAML export.
@@ -610,6 +680,9 @@ function applyCurrentDatabaseProfile(device) {
     f2l14_mode: normalized.f2l14_mode,
     pwm_period_seconds: normalized.pwm_period_seconds,
     heating_control_mode: normalized.heating_control_mode,
+    operating_mode_sender_id: normalized.operating_mode_sender_id,
+    platform_override: normalized.platform_override,
+    ftr_model: normalized.ftr_model,
   };
   return {
     ...normalized,
@@ -617,10 +690,12 @@ function applyCurrentDatabaseProfile(device) {
     ...Object.fromEntries(Object.entries(instanceValues).filter(([, value]) => value !== undefined && value !== null && value !== "")),
     profile_key: profileKey,
     eep: profileKey,
-    platform: profile.platform || normalized.platform,
+    platform: effectivePlatformForDevice(normalized, profile),
     sender_eep: profile.sender_eep || "",
     device_family: profile.device_family || "",
-    device_type: profile.device_type || "",
+    device_type: isFtrRoomControllerDevice(normalized)
+      ? ftrModelForDevice(normalized)
+      : profile.device_type || "",
     model: profile.eltako || normalized.model,
     eltako: profile.eltako || normalized.eltako,
   };
@@ -632,9 +707,10 @@ function deviceTypeForDevice(device) {
 }
 
 function exportDeviceTypeForDevice(device) {
-  // Expanded channels retain their selected source profile, even when a
-  // secondary FLGTF entity uses a different EEP. Instance snapshots and names
-  // must never override the technical type stored in the current profile.
+  // FTR physical model selection is independent of FHK/TF61 runtime mode.
+  // The two shared FTR profiles must NEVER force all sensors to FTR65DSB.
+  if (isFtrRoomControllerDevice(device)) return ftrModelForDevice(device);
+  // Other devices retain their stable database-controlled technical type.
   const key = String(device?.profile_key || device?.eep || "").toUpperCase();
   return String(EEP_DB[PROFILE_KEY_ALIASES[key] || key]?.device_type || "").trim();
 }
@@ -721,9 +797,24 @@ function senderProgrammingIsPending(device, primaryKey, pct14BaseId = "") {
   const selectedKey = exportGatewayForDevice(device, primaryKey);
   if (!selectedKey) return false;
   const knownSender = normalizeId(device.programmed_sender_id);
+  // A change of heating reference changes the physical FG/function even
+  // when the controller sender ID itself stays exactly the same.
+  if (device.programmed_heating_control_mode &&
+      String(device.programmed_heating_control_mode) !== String(device.heating_control_mode || "ha_external")) {
+    return true;
+  }
+  if (isSeries14HeatingActuator(device) && normalizeId(device.programmed_operating_mode_sender_id)) {
+    const separator = String(selectedKey || "").indexOf("|");
+    const sourceGateway = separator > 0
+      ? { type:selectedKey.slice(0, separator), base_id:selectedKey.slice(separator + 1) }
+      : null;
+    const requiredModeSender = operatingModeSenderForGateway(device, sourceGateway, pct14BaseIdForDevice(device, pct14BaseId));
+    if (!requiredModeSender || requiredModeSender !== normalizeId(device.programmed_operating_mode_sender_id)) return true;
+  }
   if (knownSender) {
     const requestedSender = senderIdForGatewayKey(device, selectedKey, pct14BaseId);
-    return !requestedSender || requestedSender !== knownSender;
+    return !requestedSender || requestedSender !== knownSender ||
+      Boolean(device.actuator_settings_pending);
   }
   // Older project data may not have a recorded sender ID yet. Preserve the
   // outstanding warning until a previously clean route or a confirmed write
@@ -749,7 +840,12 @@ function assignDeviceExportGateway(device, selectedKey, primaryKey, pct14BaseId 
     ...device,
     export_gateway_key: selectedKey,
     programmed_sender_id: knownSender,
-    sender_programming_pending: Boolean(selectedKey) && (!knownSender || !selectedSender || knownSender !== selectedSender),
+    sender_programming_pending: Boolean(selectedKey) && Boolean(
+      device.actuator_settings_pending ||
+      !knownSender || !selectedSender || knownSender !== selectedSender ||
+      (device.programmed_heating_control_mode &&
+       String(device.programmed_heating_control_mode) !== String(device.heating_control_mode || "ha_external"))
+    ),
   };
 }
 
@@ -1173,8 +1269,15 @@ function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", la
         if (deviceFamily === "FRW-WS") {
           out += `        battery_low_data: "0x30"\n`;
         }
-        if (["FHK14","F4HK14","FAE14LPR","FAE14SSR"].some(model => String(deviceType || "").toUpperCase().includes(model))) {
+        if (isSeries14HeatingActuator(d)) {
           out += `        heating_control_mode: "${String(d.heating_control_mode || "ha_external")}"\n`;
+        }
+        if ((isSeries14HeatingActuator(d) || isFhk61RadioThermostat(d))
+            && normalizeId(d.operating_mode_sender_id)) {
+          const modeSender = operatingModeSenderForGateway(d, gw, pct14BaseIdForDevice(d, pct14BaseId));
+          if (modeSender && modeSender !== normalizeId(exportSenderId)) {
+            out += `        operating_mode_sender_id: "${modeSender}"\n`;
+          }
         }
         if (p.pwm_mode === "direct") {
           out += `        pwm_mode: "direct"\n`;
@@ -1197,7 +1300,12 @@ function generateYaml(gateway, devices, extraGateways = [], pct14BaseId = "", la
           out += `        bus_address: "${normalizeId(d.bus_address)}"\n`;
         }
         if (p.hysteresis != null) out += `        hysteresis: ${p.hysteresis}\n`;
-        if (p.frost_temperature != null) out += `        frost_temperature: ${p.frost_temperature}\n`;
+        // FTR55/65 frost protection is the 8 °C DB2 setpoint in an
+        // A5-10-06 data telegram, not a separate YAML/EEP field. Suppress
+        // even stale locally customized database values for FTR profiles.
+        if (!isFtrRoomControllerDevice(d) && p.frost_temperature != null) {
+          out += `        frost_temperature: ${p.frost_temperature}\n`;
+        }
         if (p.dimming_speed != null) out += `        dimming_speed: ${p.dimming_speed}\n`;
         if (p.room_controller_mode && p.min_target_temperature != null) out += `        min_target_temperature: ${p.min_target_temperature}\n`;
         if (p.room_controller_mode && p.max_target_temperature != null) out += `        max_target_temperature: ${p.max_target_temperature}\n`;
@@ -1302,6 +1410,36 @@ function deviceIdForGateway(device, gw, pct14BaseId) {
   return busIdFromAddress(offset);
 }
 
+function isSeries14HeatingActuator(device) {
+  return /FHK14|F4HK14|FAE14LPR|FAE14SSR/.test(String(deviceTypeForDevice(device) || "").toUpperCase())
+    && String(profileFor(device?.eep).sender_eep || device?.sender_eep || "").toUpperCase() === "A5-10-06";
+}
+
+function isFhk61RadioThermostat(device) {
+  return /^FHK61(?:U|SSR)?(?:-|$)/.test(String(deviceTypeForDevice(device) || "").toUpperCase())
+    && String(profileFor(device?.eep).pwm_mode || "") !== "direct"
+    && String(profileFor(device?.eep).sender_eep || device?.sender_eep || "").toUpperCase() === "A5-10-06";
+}
+
+function operatingModeSenderForGateway(device, gw, pct14BaseId) {
+  return normalizeId(device?.operating_mode_sender_id)
+    || normalizeId(senderIdForGateway(device, gw, pct14BaseId));
+}
+
+function operatingModeSenderFitsGateway(senderId, gw) {
+  const id = normalizeId(senderId);
+  if (!id || !gw) return false;
+  if (gw.type === "fam-usb") {
+    const base = normalizeId(gw.base_id);
+    if (!base) return false;
+    const num = parseInt(id.replaceAll("-", ""), 16);
+    const start = parseInt(base.replaceAll("-", ""), 16);
+    return Number.isSafeInteger(start) && num > start && num <= start + 127;
+  }
+  return ["fam14", "fgw14usb"].includes(gw.type) &&
+    /^00-00-B0-[0-9A-F]{2}$/.test(id) && id !== "00-00-B0-00";
+}
+
 function senderIdForGateway(device, gw, pct14BaseId) {
   if (device?.bus_system_id && gw?.type === "fam-usb") return device.sender_id;
   // An explicitly imported sender is a complete address, never a gateway offset.
@@ -1376,6 +1514,12 @@ function buildSenderProgrammingEntries(devices, targetGateways, pct14BaseId, bus
         pwm_mode: String(d.pwm_mode || p.pwm_mode || ""),
         pwm_period_seconds: Number(d.pwm_period_seconds || p.pwm_period_seconds || 120),
         heating_control_mode: String(d.heating_control_mode || "ha_external"),
+        operating_mode_sender_id: (isSeries14HeatingActuator(d)
+          ? operatingModeSenderForGateway(d, targetGateway, pct14BaseIdForDevice(d, pct14BaseId))
+          : ""),
+        operating_mode_sender_valid: !normalizeId(d.operating_mode_sender_id)
+          || operatingModeSenderFitsGateway(d.operating_mode_sender_id, targetGateway),
+        previous_operating_mode_sender_id: normalizeId(d.programmed_operating_mode_sender_id || ""),
       });
     }
   }
@@ -1786,7 +1930,7 @@ function firstAvailableProfileKey() {
 function createEmptyForm(preferredProfileKey = "") {
   const resolvedPreferred = PROFILE_KEY_ALIASES[String(preferredProfileKey || "").toUpperCase()] || String(preferredProfileKey || "");
   const profileKey = EEP_DB[resolvedPreferred] ? resolvedPreferred : firstAvailableProfileKey();
-  return { name:"", dev_id:"", physical_unique_id:"", eep:profileKey, room:"", device_class:"", sender_id:"", sender_eep:"", time_opens:"", time_closes:"", min_target_temperature:"", max_target_temperature:"", device_type:"", model:"", eltako:"", id_range:"1", fwg14ms_id_range:"1", bus_address:"", f2l14_mode:"exclusive", pwm_period_seconds:120, heating_control_mode:"ha_external" };
+  return { name:"", dev_id:"", physical_unique_id:"", eep:profileKey, room:"", device_class:"", sender_id:"", sender_eep:"", operating_mode_sender_id:"", ftr_model:"", platform_override:"", time_opens:"", time_closes:"", min_target_temperature:"", max_target_temperature:"", device_type:"", model:"", eltako:"", id_range:"1", fwg14ms_id_range:"1", bus_address:"", f2l14_mode:"exclusive", pwm_period_seconds:120, heating_control_mode:"ha_external" };
 }
 
 // MiniSafe2 configurations arrive either as plain JSON or embedded in the text
@@ -2573,7 +2717,11 @@ export default function App() {
       ...f,
       eep,
       profile_key: eep,
-      device_type: p.device_type || "",
+      // The former entity-domain override is only valid for its old profile.
+      // A newly selected device type starts with the database platform.
+      platform_override: "",
+      ftr_model: isFtrRoomControllerDevice({ eep }) ? ftrModelForDevice(f) : "",
+      device_type: isFtrRoomControllerDevice({ eep }) ? ftrModelForDevice(f) : (p.device_type || ""),
       device_class: p.default_dc ?? "",
       sender_eep: p.sender_eep ?? "",
       sender_id: p.needs_sender ? (f.sender_id || autoSenderIdForGateway(gateway, devices)) : "",
@@ -2620,6 +2768,25 @@ export default function App() {
       if (!String(f.physical_unique_id || "").trim()) e.physical_unique_id = language === "en" ? "Learn or enter the battery ID." : "Batterie-ID einlernen oder eingeben.";
       else if (!/^[0-9a-fA-F]{2}(-[0-9a-fA-F]{2}){3}$/.test(String(f.physical_unique_id).trim())) e.physical_unique_id = "Format: FF-AA-BB-CC";
     }
+    // A separate operating-mode sender is optional, but must belong to the
+    // selected radio/Series-14 controller gateway when explicitly provided.
+    if (isSeries14HeatingActuator(f) || isFhk61RadioThermostat(f)) {
+      const modeText = String(f.operating_mode_sender_id || "").trim();
+      if (modeText) {
+        if (!normalizeId(modeText)) {
+          e.operating_mode_sender_id = "Format: FF-AA-BB-CC";
+        } else {
+          const gateways = orderedGatewayBlocks(gateway, buildActiveExtraGateways());
+          const key = f.export_gateway_key || gatewayKey(gateway);
+          const selected = gateways.find(item => gatewayKey(item) === key);
+          if (!selected || !operatingModeSenderFitsGateway(modeText, selected)) {
+            e.operating_mode_sender_id = language === "en"
+              ? "Operating-mode sender ID does not belong to the selected gateway/Base-ID."
+              : "Betriebsarten-Sender-ID gehört nicht zur gewählten Gateway-/Base-ID.";
+          }
+        }
+      }
+    }
     if (selectedProfile.pwm_mode === "direct") {
       const period = Number(f.pwm_period_seconds ?? selectedProfile.pwm_period_seconds ?? 120);
       if (!Number.isInteger(period) || period < 10 || period > 1000 || period % 10 !== 0) {
@@ -2653,8 +2820,13 @@ export default function App() {
       profile_key: form.eep,
       sender_id: profile.needs_sender ? (form.sender_id.trim() || autoSender) : "",
       sender_eep: profile.needs_sender ? (form.sender_eep || profile.sender_eep || "") : "",
-      platform: profile.platform ?? "sensor",
-      device_type: profile.device_type || "",
+      platform: effectivePlatformForDevice(form, profile),
+      platform_override: supportsLightSwitchSelection(profile) &&
+        ["light", "switch"].includes(String(form.platform_override || ""))
+          ? (String(form.platform_override) === String(profile.platform) ? "" : form.platform_override)
+          : "",
+      ftr_model: isFtrRoomControllerDevice(form) ? ftrModelForDevice(form) : "",
+      device_type: isFtrRoomControllerDevice(form) ? ftrModelForDevice(form) : (profile.device_type || ""),
       model: profile.eltako || form.model || "",
       eltako: profile.eltako || form.eltako || "",
       dev_id: isFwg14msProfile ? fwg14msBaseIdForRange(form.fwg14ms_id_range || "1") : form.dev_id,
@@ -2670,6 +2842,7 @@ export default function App() {
       battery_eep: isF4usmProfile ? String(profile.battery_eep || "") : String(form.battery_eep || ""),
       f2l14_mode: selectedFamily === "F2L14" ? String(form.f2l14_mode || profile.f2l14_mode || "exclusive") : String(form.f2l14_mode || "exclusive"),
       heating_control_mode: String(form.heating_control_mode || "ha_external"),
+      operating_mode_sender_id: normalizeId(form.operating_mode_sender_id),
       pwm_period_seconds: Number(form.pwm_period_seconds ?? profile.pwm_period_seconds ?? 120),
       pwm_mode: String(profile.pwm_mode || ""),
     };
@@ -2699,6 +2872,29 @@ export default function App() {
     }
     if (Object.keys(e).length) { setErrors(e); return; }
     setErrors({});
+
+    // Saving an actuator configuration never writes to the physical bus.
+    // Mark changes to programming-relevant fields as pending; changes to
+    // presentation-only fields (name/room) do not require bus programming.
+    if (editIdx !== null && isPct14ImportedDevice(entry)) {
+      const previous = devices[editIdx];
+      const type = String(deviceTypeForDevice(entry) || "").toUpperCase();
+      const heating = /FHK14|F4HK14|FAE14LPR|FAE14SSR/.test(type);
+      const previousMode = String(previous?.heating_control_mode || "ha_external");
+      const nextMode = String(entry.heating_control_mode || "ha_external");
+      const programmingFields = ["sender_id", "sender_eep", "channel", "f2l14_mode", "device_type", "operating_mode_sender_id"];
+      const changed = programmingFields.some(field =>
+        String(previous?.[field] ?? "") !== String(entry[field] ?? "")
+      ) || (heating && previousMode !== nextMode);
+      if (changed) {
+        entry.sender_programming_pending = true;
+        entry.actuator_settings_pending = true;
+      }
+      if (heating && previousMode !== nextMode) {
+        entry.programmed_heating_control_mode =
+          previous.programmed_heating_control_mode || previousMode;
+      }
+    }
 
     const nextDevices = editIdx !== null
       ? devices.map((x,i) => i===editIdx ? entry : x)
@@ -3075,6 +3271,12 @@ export default function App() {
   }, [writeConnectionKey]);
   const busWriteHint = t("senderWrite.hint");
   const canWriteSenderIds = !writingSenders && !writeGatewayBusy && busWriteGatewayConnected && senderProgrammingEntries.length > 0;
+  const pendingActuatorChanges = devices.filter(device => (
+    isPct14ImportedDevice(device) &&
+    (device.sender_programming_pending || device.actuator_settings_pending ||
+      (device.programmed_heating_control_mode &&
+        String(device.programmed_heating_control_mode) !== String(device.heating_control_mode || "ha_external")))
+  )).length;
 
   useEffect(() => {
     if (!isElectron || !window.electronAPI?.onWriteSenderProgress) return undefined;
@@ -3163,6 +3365,13 @@ export default function App() {
       setWriteSenderMsg(t("senderWrite.noGateway"));
       return;
     }
+    const invalidOperatingModes = senderProgrammingEntries.filter(entry => entry.operating_mode_sender_valid === false);
+    if (invalidOperatingModes.length) {
+      setWriteSenderMsg(language === "en"
+        ? "Operating-mode sender ID does not belong to the selected gateway/Base-ID. Correct the ID before programming."
+        : "Betriebsarten-Sender-ID passt nicht zur gewählten Gateway-/Base-ID. Bitte vor dem Schreiben korrigieren.");
+      return;
+    }
     const port = busWritePort;
     if (!hasRs485Gateway) {
       setWriteSenderMsg(t("senderWrite.wrongGateway"));
@@ -3216,7 +3425,7 @@ export default function App() {
         // Only clear pending flags for devices represented in this successful
         // verified write operation, never for another bus or gateway route.
         setDevices(previous => previous.map(device => {
-          if (!device.sender_programming_pending) return device;
+          if (!device.sender_programming_pending && !device.actuator_settings_pending) return device;
           const entries = buildSenderProgrammingEntries(
             [device], programmingGatewayBlocks,
             selectedWriteBus?.base_id || pct14GatewayBaseId,
@@ -3228,7 +3437,16 @@ export default function App() {
             done.sender_eep === entry.sender_eep
           ));
           return confirmed
-            ? { ...device, programmed_sender_id: normalizeId(confirmed.sender_id), sender_programming_pending: false }
+            ? {
+                ...device,
+                programmed_sender_id: normalizeId(confirmed.sender_id),
+                programmed_heating_control_mode: String(device.heating_control_mode || "ha_external"),
+                ...(isSeries14HeatingActuator(device)
+                  ? { programmed_operating_mode_sender_id: normalizeId(confirmed.operating_mode_sender_id || confirmed.sender_id) }
+                  : {}),
+                sender_programming_pending: false,
+                actuator_settings_pending: false,
+              }
             : device;
         }));
       }
@@ -4055,11 +4273,72 @@ export default function App() {
                 </select>
               </div>
 
+              {/* Home Assistant entity domain: optional per-device override. */}
+              {supportsLightSwitchSelection(profile) && (
+                <div style={{maxWidth:370,marginBottom:".7rem"}}>
+                  <label htmlFor="device-platform-selection">
+                    {language === "en" ? "Home Assistant entity type" : "Home-Assistant-Entität"}
+                  </label>
+                  <select
+                    id="device-platform-selection"
+                    value={effectivePlatformForDevice(form, profile)}
+                    onChange={e=>setForm(current=>({
+                      ...current,
+                      platform_override:e.target.value === profile.platform ? "" : e.target.value
+                    }))}
+                  >
+                    <option value="light">Light</option>
+                    <option value="switch">Switch</option>
+                  </select>
+                  <div style={{fontSize:".68rem",color:"#53616f",lineHeight:1.5,marginTop:".3rem"}}>
+                    {language === "en"
+                      ? `Device database default: ${profile.platform}. This only changes the YAML section (light/switch), not the controller ID, teach-in, or actuator hardware.`
+                      : `Vorgabe aus der Gerätedatenbank: ${profile.platform}. Die Auswahl ändert nur den YAML-Bereich (light/switch), nicht die Sender-ID, das Einlernen oder den Aktor.`}
+                  </div>
+                </div>
+              )}
+
+              {/* FTR model is independent from the FHK / TF61 mode selected above. */}
+              {isFtrRoomControllerDevice(form) && (
+                <div style={{maxWidth:380,marginBottom:".7rem"}}>
+                  <label htmlFor="ftr-physical-model">
+                    {language === "en" ? "Physical FTR model" : "FTR-Gerätemodell"}
+                  </label>
+                  <select id="ftr-physical-model"
+                    value={ftrModelForDevice(form)}
+                    onChange={e => setForm(current => ({
+                      ...current,
+                      ftr_model: e.target.value,
+                      device_type: e.target.value,
+                    }))}
+                  >
+                    {FTR_ROOM_CONTROLLER_MODELS.map(model => (
+                      <option value={model} key={model}>{model}</option>
+                    ))}
+                  </select>
+                  <div style={{fontSize:".68rem",color:"#53616f",lineHeight:1.5,marginTop:".3rem"}}>
+                    {language === "en"
+                      ? "Choose the actual model printed on the sensor. The FHK/TF61 operating mode remains independent; YAML uses this model as device_type."
+                      : "Bitte den tatsächlichen Gerätetyp auswählen. Die FHK-/TF61-Betriebsart bleibt unabhängig; der YAML-Export verwendet das ausgewählte Modell als device_type."}
+                  </div>
+                </div>
+              )}
+
+              {/* FTR frost protection is already encoded as the normal
+                   8 °C setpoint in DB2, not as an independent YAML value. */}
+              {isFtrRoomControllerDevice(form) && String(profile.room_controller_mode || "").toLowerCase() === "fhk" && (
+                <div style={{fontSize:".7rem",color:"#2f6f8f",background:"#eef5f8",border:"1px solid #c6d9e4",borderRadius:5,padding:".5rem .7rem",marginBottom:".65rem",lineHeight:1.5}}>
+                  {language === "en"
+                    ? "Frost protection: the sensor reports 8 °C as its normal DB2 target temperature in A5-10-06. There is no separate frost-temperature telegram field or YAML setting."
+                    : "Frostschutz: Der FTR meldet 8 °C als normalen Solltemperaturwert in DB2 (A5-10-06). Kein separates Frostschutz-Telegrammfeld und keine zusätzliche YAML-Einstellung."}
+                </div>
+              )}
+
               {/* Info */}
               {profile.eltako&&(
                 <div style={{fontSize:".7rem",color:"#2f6f8f",background:"#eef5f8",border:"1px solid #c6d9e4",borderRadius:5,padding:".38rem .7rem",marginBottom:".65rem",lineHeight:1.5}}>
                    <strong>{profile.eltako}</strong>
-                  {"  "}<span style={{color:PC[profile.platform]??""}}>{PI[profile.platform]??""} {profile.platform}</span>
+                  {"  "}<span style={{color:PC[effectivePlatformForDevice(form,profile)]??""}}>{PI[effectivePlatformForDevice(form,profile)]??""} {effectivePlatformForDevice(form,profile)}</span>
                 </div>
               )}
 
@@ -4083,11 +4362,68 @@ export default function App() {
                     <option value="ha_external">{language === "en" ? "External Home Assistant temperature – FG1 / function 64" : "Externer HA-Temperatursensor – Funktionsgruppe 1 / Funktion 64"}</option>
                     <option value="learned_sensor">{language === "en" ? "Sensor already learned in actuator – HA setpoint FG3 / function 65" : "Im Aktor eingelernter Temperatursensor – HA-Sollwert Gruppe 3 / Funktion 65"}</option>
                   </select>
+                  {editIdx !== null && String(devices[editIdx]?.heating_control_mode || "ha_external") !== String(form.heating_control_mode || "ha_external") && (
+                    <div role="status" style={{fontSize:".73rem",marginTop:".4rem",fontWeight:600,color:"#a3540a"}}>
+                      {language === "en"
+                        ? "Actuator setting changed: save the device and explicitly write the sender IDs to the actuator. The change is not active until the write is verified."
+                        : "Aktoreinstellung geändert: Gerät speichern und anschließend die Sender-IDs ausdrücklich in den Aktor schreiben. Bis zur bestätigten Übertragung ist die Änderung nicht aktiv."}
+                    </div>
+                  )}
                   <div style={{fontSize:".68rem",color:"#53616f",lineHeight:1.5,marginTop:".35rem"}}>
                     {(form.heating_control_mode || "ha_external") === "learned_sensor"
                       ? (language === "en" ? "Requires a matching pre-learned sensor in FG1. The writer leaves that sensor unchanged and programs only the HA setpoint in FG3." : "Voraussetzung: Ein passender Temperatursensor ist bereits in Gruppe 1 eingelernt. Der Writer belässt diesen Sensor und schreibt den HA-Sollwert nur in Gruppe 3.")
                       : (language === "en" ? "The HA sender occupies the FG1 thermostat slot and may replace an earlier function-64 sender for this channel." : "Die HA-Sender-ID belegt den Temperaturreglerplatz in Gruppe 1 und kann dort eine bisherige Funktion-64-Sender-ID dieses Kanals ersetzen.")}
                   </div>
+                </div>
+              )}
+
+              {(isSeries14HeatingActuator({ ...form, device_type: form.device_type || profile.device_type })
+                  || isFhk61RadioThermostat({ ...form, device_type: form.device_type || profile.device_type })) && (
+                <div style={{maxWidth:550,marginBottom:".7rem",padding:".7rem",border:"1px solid #c6d9e4",borderRadius:7,background:"#f4f8fb"}}>
+                  <strong style={{fontSize:".76rem",color:"#245b7a"}}>
+                    {language === "en" ? "Operating-mode sender (fourfold RPS pushbutton)" : "Betriebsartensender (Vierfach-RPS-Taster)"}
+                  </strong>
+                  <p style={{fontSize:".7rem",margin:".4rem 0"}}>
+                    {language === "en"
+                      ? "The existing controller sender ID remains responsible for temperature/setpoint. Leave this blank to reuse it for operating modes."
+                      : "Die bisherige Sender-ID steuert weiterhin Temperatur und Sollwert. Leer lassen, um dieselbe Sender-ID für die Betriebsarten zu verwenden."}
+                  </p>
+                  <label>{language === "en" ? "Separate operating-mode sender ID (optional)" : "Separate Betriebsarten-Sender-ID (optional)"}</label>
+                  <input
+                    className={errors.operating_mode_sender_id ? "err" : ""}
+                    value={form.operating_mode_sender_id || ""}
+                    onChange={e=>{setForm(current=>({...current,operating_mode_sender_id:e.target.value.toUpperCase()}));setErrors({});}}
+                    placeholder={language === "en" ? "Empty = use the temperature sender" : "Leer = Sender-ID des Temperaturreglers verwenden"}
+                  />
+                  {errors.operating_mode_sender_id && <div className="em">{errors.operating_mode_sender_id}</div>}
+                  <div style={{fontSize:".68rem",color:"#53616f",lineHeight:1.5,marginTop:".4rem"}}>
+                    {isSeries14HeatingActuator({ ...form, device_type: form.device_type || profile.device_type })
+                      ? (language === "en"
+                        ? "Series-14: FG4 / function 30 is written separately for each channel using the selected Series-14 gateway. FG1/F64 and FG3/F65 are preserved."
+                        : "Series-14: FG4 / Funktion 30 wird je Heizkanal über das ausgewählte Series-14-Gateway geschrieben. Die Temperaturzuordnung FG1/F64 bzw. FG3/F65 bleibt getrennt.")
+                      : (language === "en"
+                        ? "FHK61 radio actuator: no FG4 programming. Teach the RPS sender separately on the physical actuator; transmission is not proof of learning."
+                        : "FHK61-Funkaktor: Keine FG4-Programmierung. Den RPS-Sender am physischen Aktor separat einlernen; ein gesendetes Telegramm ist keine Einlernbestätigung.")}
+                  </div>
+                  {isFhk61RadioThermostat({ ...form, device_type: form.device_type || profile.device_type }) && (
+                    <div style={{fontSize:".69rem",lineHeight:1.6,marginTop:".45rem"}}>
+                      <strong>{language === "en" ? "Manual FHK61 teach-in" : "FHK61-Betriebsartensender manuell einlernen"}</strong>
+                      <ol style={{paddingLeft:"1.2rem",margin:".3rem 0"}}>
+                        <li>{language === "en" ? "Set the lower dial to 4.5 (right stop)." : "Unteren Drehschalter auf 4,5 (Rechtsanschlag) stellen."}</li>
+                        <li>{language === "en" ? "Set the upper dial to LRN; the LED should flash calmly." : "Oberen Drehschalter auf LRN stellen; LED blinkt ruhig."}</li>
+                        <li>{language === "en" ? "Operate the assigned fourfold RPS sender once (e.g. 0x70 = Home). Check the actuator LED: it should go out." : "Den zugeordneten Vierfach-RPS-Sender einmal betätigen (z. B. 0x70 = Home). LED am Aktor kontrollieren: sie sollte erlöschen."}</li>
+                        <li>{language === "en" ? "Restore both dials to the operating positions and verify all four modes on the device." : "Beide Drehschalter in die Betriebsstellung zurückdrehen und alle vier Betriebsarten am Aktor prüfen."}</li>
+                      </ol>
+                      <div>{language === "en"
+                        ? "RPS data byte (not the EnOcean status byte): 0x70 Home, 0x50 Sleep (−4 K), 0x30 Eco (−2 K), 0x10 Off / frost protection."
+                        : "RPS-Datenbyte (nicht EnOcean-Statusbyte): 0x70 Home, 0x50 Sleep (−4 K), 0x30 Eco (−2 K), 0x10 Aus / Frostschutz."}</div>
+                      <div style={{fontWeight:600,color:"#a3540a",marginTop:".3rem"}}>
+                        {language === "en"
+                          ? "EEDTOY prepares the sender configuration. No automatic RPS telegram is sent and no learning success is claimed."
+                          : "EEDTOY bereitet die Senderzuordnung vor. Es wird kein RPS-Telegramm automatisch gesendet und kein Lernerfolg behauptet."}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -4115,6 +4451,20 @@ export default function App() {
                     <option value="exclusive">{t("devices.f2l14Exclusive")}</option>
                     <option value="additive">{t("devices.f2l14Additive")}</option>
                   </select>
+                </div>
+              )}
+
+              {/* Read-only model-specific learning guide. Never programs a device. */}
+              {/(?:61|62|72)(?:[A-Z0-9/-]|$)/i.test(String(form.device_type || profile.device_type || "")) && (
+                <div style={{marginBottom:".65rem"}}>
+                  <button type="button" className="btn ghost"
+                    onClick={()=>window.electronAPI?.openDecentralizedTeachInHelp?.(
+                      String(form.device_type || profile.device_type || "").trim()
+                    )}
+                    disabled={!isElectron}
+                  >
+                    {language === "en" ? "Teach-in help for this actuator…" : "Einlernhilfe für diesen Aktor öffnen…"}
+                  </button>
                 </div>
               )}
 
@@ -4278,6 +4628,13 @@ export default function App() {
                     </div>
                   </div>
                 </div>
+                {pendingActuatorChanges > 0 && (
+                  <div role="status" style={{marginTop:".6rem",padding:".55rem .7rem",fontSize:".75rem",border:"1px solid #f0bf79",borderRadius:6,background:"#fff7ed",color:"#9a3412"}}>
+                    {language === "en"
+                      ? `${pendingActuatorChanges} actuator change(s) not yet written. Save the project separately; select the correct Series-14 bus and use "Write to actuators" to apply the changes.`
+                      : `${pendingActuatorChanges} Aktoränderung(en) noch nicht geschrieben. Das Speichern des Projekts überträgt keine Änderungen an den Aktor. Passenden Series-14-Bus auswählen und „In Aktoren schreiben“ ausführen.`}
+                  </div>
+                )}
                 {writingSenders&&(()=>{
                   const total = Number(writeSenderProgress.total || senderProgrammingEntries.length || 0);
                   const processed = Math.min(total, Number(writeSenderProgress.processed || 0));

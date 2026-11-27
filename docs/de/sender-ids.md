@@ -59,3 +59,58 @@ Bei einer **beispielhaften** Busadresse 2 und diesen Beispiel-Base-IDs:
 Das sind **keine allgemeinen Werte für beliebige Anlagen**. Die tatsächliche Base-ID und der Gerätekontext sind immer zu prüfen.
 
 Weiter: [Praxisbeispiele](examples.md) · [Fehlerbehebung](troubleshooting.md).
+
+
+## Heizungs-Betriebsartensteuerung (Testfunktion)
+
+Für **FHK14, F4HK14, FAE14LPR und FAE14SSR** schreibt EEDTOY zusätzlich zur
+vorhandenen Temperaturregelung einen Betriebsartensender als **Vierfach-RPS-Taster
+in FG4 / Funktion 30**. Ein eigener Sender kann pro Heizkanal im Geräteformular
+hinterlegt werden. Ist das Feld leer, wird die zu diesem Gateway gehörende
+bisherige Temperatur-Controller-ID verwendet. Der F4HK14 behält für jeden seiner
+vier Heizkanäle die eigene Sender- und Kanalzuordnung.
+
+**FG1/F64 und FG3/F65 bleiben fachlich getrennte Temperaturrollen.** Der
+Schreibvorgang liest bestehende FG4-Einträge aus, ergänzt nur einen freien
+Eintrag oder aktualisiert eine EEDTOY bekannte vorherige Betriebsarten-ID
+für denselben Kanal. Fremde FTR-/FUTH-/MiniSafe-Sender werden nicht überschrieben.
+Beim erneuten Schreiben entstehen keine neuen Doppeleinträge.
+
+Die Vierfach-RPS-Datenwerte zur Betriebsartensteuerung sind:
+
+| RPS-Datenbyte | Betriebsart |
+| --- | --- |
+| `0x70` | Normalbetrieb / Home |
+| `0x50` | Nachtabsenkung 4 K / Sleep |
+| `0x30` | Absenkung 2 K / Eco |
+| `0x10` | Aus / Frostschutz |
+
+Diese Werte sind **RPS-Datenbytes**, nicht das EnOcean-Statusbyte.
+
+### FHK61, FHK61U und FHK61SSR (Funkaktoren)
+
+Die FHK61-Familie wird **nicht** über RS485-FG4 programmiert. Den
+Betriebsartensender separat einlernen:
+
+1. Für den Vierfach-Funktaster den unteren Drehschalter auf
+   **Rechtsanschlag 4,5** einstellen.
+2. Den oberen Drehschalter auf **LRN** stellen. Die LED blinkt ruhig.
+3. Den zugeordneten RPS-Vierfach-Taster betätigen; nach erfolgreichem
+   physischen Einlernen erlischt die LED am Aktor.
+4. Beide Drehschalter auf die vorgesehene Betriebsstellung zurückdrehen.
+   Anschließend die vier Betriebsarten am Aktor testen.
+
+Die Vorgehensweise ist unter anderem für die neuere FHK61-230V-Anleitung
+(Version 30 100 045-3), FHK61U-230V und FHK61SSR dokumentiert.
+Ein Absetzen eines Funksignals **allein** bestätigt noch keinen Lernerfolg.
+EEDTOY zeigt eine manuelle Anleitung, sendet in dieser Testversion jedoch
+kein automatisches Funk-Lerntelegramm.
+
+Quellen (ELTAKO):
+- [FHK61-230V – aktuelle Bedienungsanleitung](https://www.eltako.com/fileadmin/downloads/de/_bedienung/FHK61-230V_UC_30100045-3_dt.pdf)
+- [FHK61U-230V – Bedienungsanleitung](https://www.eltako.com/fileadmin/downloads/de/_bedienung/FHK61U-230V_30100050-2_dt.pdf)
+- [FHK61SSR – Bedienungsanleitung](https://www.eltako.com/fileadmin/downloads/de/_bedienung/FHK61SSR_30100034-1_dt.pdf)
+
+**FHK61SSR-230V:** Die direkte A5-38-08-PWM-Regelung ist eine
+eigenständige Aktorbetriebsart und darf nicht mit der
+A5-10-06-Temperaturregelung vermischt werden.

@@ -49,27 +49,29 @@ async def test_frgbw14_group_3_function_81():
     unrelated = bytes.fromhex("0000B00100330100")
 
     dev = ReadbackDevice()
-    dev.seed(8, expected)
-    dev.seed(12, unrelated)
+    dev.seed(8, bytes.fromhex("03FE03FE03FE03FE"))  # hardware config, NEVER ID
+    dev.seed(12, expected)  # legacy FG1
+    dev.seed(16, unrelated)  # occupied FG3/PCT14 entry 5
     assert await module._ensure_programmed_controller_profile(dev, "FF-A6-04-A3") is True
-    assert dev.hardware[12] == unrelated
-    assert dev.hardware[13] == expected
-    assert dev.hardware[8] == bytes(8)
+    assert dev.hardware[16] == unrelated
+    assert dev.hardware[17] == expected
+    assert dev.hardware[12] == bytes(8)
+    assert dev.hardware[8] == bytes.fromhex("03FE03FE03FE03FE")
     assert await module._ensure_programmed_controller_profile(dev, "FF-A6-04-A3") is False
 
     # PCT14 group 3 begins at ID entry 5, but a busy entry 5 is NEVER
     # overwritten. The writer may use entries 6, 7, 8, ... instead.
     first_three_taken = ReadbackDevice()
     existing_rows = {
-        12: bytes.fromhex("0000B00500510F00"),  # PCT14 entry 5
-        13: bytes.fromhex("0000B00600510F00"),  # PCT14 entry 6
-        14: bytes.fromhex("0000B00700510F00"),  # PCT14 entry 7
+        16: bytes.fromhex("0000B00500510F00"),  # PCT14 entry 5
+        17: bytes.fromhex("0000B00600510F00"),  # PCT14 entry 6
+        18: bytes.fromhex("0000B00700510F00"),  # PCT14 entry 7
     }
     for row, line in existing_rows.items():
         first_three_taken.seed(row, line)
     assert await module._ensure_programmed_controller_profile(first_three_taken, "FF-A6-04-A3") is True
-    assert first_three_taken.hardware[15] == expected  # PCT14 entry 8
-    assert first_three_taken._eedtoy_frgbw14_row == 15
+    assert first_three_taken.hardware[19] == expected  # PCT14 entry 8
+    assert first_three_taken._eedtoy_frgbw14_row == 19
     assert all(first_three_taken.hardware[row] == line for row, line in existing_rows.items())
     assert first_three_taken.hardware[8] == bytes(8)
     assert await module._ensure_programmed_controller_profile(first_three_taken, "FF-A6-04-A3") is False
@@ -77,22 +79,22 @@ async def test_frgbw14_group_3_function_81():
     # If this exact sender ID already exists later in group 3, reuse it
     # without creating a duplicate in the first available lower entry.
     already_later = ReadbackDevice()
-    already_later.seed(16, expected)  # PCT14 entry 9
+    already_later.seed(20, expected)  # PCT14 entry 9
     assert await module._ensure_programmed_controller_profile(already_later, "FF-A6-04-A3") is False
-    assert already_later._eedtoy_frgbw14_row == 16
-    assert all(already_later.hardware[row] == bytes(8) for row in range(12, 16))
+    assert already_later._eedtoy_frgbw14_row == 20
+    assert all(already_later.hardware[row] == bytes(8) for row in range(16, 20))
 
     legacy = ReadbackDevice()
-    legacy.seed(8, bytes.fromhex("FFA604A300200100"))
+    legacy.seed(12, bytes.fromhex("FFA604A300200100"))
     assert await module._ensure_programmed_controller_profile(legacy, "FF-A6-04-A3") is True
-    assert legacy.hardware[8] == bytes(8)
-    assert legacy.hardware[12] == expected
+    assert legacy.hardware[12] == bytes(8)
+    assert legacy.hardware[16] == expected
 
     other_sender = ReadbackDevice()
-    other_sender.seed(8, unrelated)
+    other_sender.seed(12, unrelated)
     assert await module._ensure_programmed_controller_profile(other_sender, "FF-A6-04-A3") is True
-    assert other_sender.hardware[8] == unrelated
-    assert other_sender.hardware[12] == expected
+    assert other_sender.hardware[12] == unrelated
+    assert other_sender.hardware[16] == expected
 
     class BrokenWrite(ReadbackDevice):
         async def write_mem_line(self, row, value):
@@ -107,6 +109,129 @@ async def test_frgbw14_group_3_function_81():
     else:
         raise AssertionError("FRGBW14 must reject unconfirmed writes")
 
+
+
+async def test_frgbw14_ignores_stale_busobject_cache():
+    """The physical PCT14 table must win over a stale BusObject cache."""
+    class Response:
+        def __init__(self, value, row):
+            self.value = value
+            self.row = row
+
+    class Bus:
+        def __init__(self, dev):
+            self.dev = dev
+            self.reads = []
+
+        async def exchange(self, request, response_type=None):
+            row = getattr(request, "row", None)
+            if row is None:
+                row = getattr(request, "memory_line", None)
+            if row is None:
+                row = getattr(request, "address", None)
+            # EltakoMemoryRequest exposes the memory line as memory_line or
+            # memory_address depending on the bus library version.
+            if row is None or not isinstance(row, int) or row >= len(self.dev.hardware):
+                row = getattr(request, "memory_address", None)
+            assert isinstance(row, int), repr(request)
+            self.reads.append(row)
+            return Response(self.dev.hardware[row], row)
+
+    class StaleDevice(FakeDevice):
+        def __init__(self):
+            super().__init__(127)
+            self.hardware = list(self.memory)
+            self.address = 35
+            self.bus = Bus(self)
+
+        async def read_mem_line(self, row):
+            return self.memory[row]  # deliberately stale
+
+        async def write_mem_line(self, row, value):
+            self.hardware[row] = value
+            self.memory[row] = value
+
+    # Unit tests run with the system Python, without the bundled eltakobus.
+    # Supply only the two message types; the production integration still
+    # imports the real library and exchanges actual RS485 telegrams.
+    fake_pkg = types.ModuleType("eltakobus")
+    fake_messages = types.ModuleType("eltakobus.message")
+    class MemoryRequest:
+        def __init__(self, address, row):
+            self.address = address
+            self.row = row
+    class MemoryResponse:
+        pass
+    fake_messages.EltakoMemoryRequest = MemoryRequest
+    fake_messages.EltakoMemoryResponse = MemoryResponse
+    fake_devices = types.ModuleType("eltakobus.device")
+    async def create_busobject(bus, id):
+        assert id == 35
+        return bus.dev
+    fake_devices.create_busobject = create_busobject
+    fake_pkg.device = fake_devices
+    sys.modules["eltakobus"] = fake_pkg
+    sys.modules["eltakobus.message"] = fake_messages
+    sys.modules["eltakobus.device"] = fake_devices
+
+    dev = StaleDevice()
+    dev.discovery_response = types.SimpleNamespace(model=bytes((0x04, 0xA1, 0, 0)))
+    dev.size = 6
+    expected = bytes.fromhex("FFA604A300510F00")
+    foreign = bytes.fromhex("FFAD246800510F00")
+    dev.hardware[8] = bytes.fromhex("03FE03FE03FE03FE")
+    dev.hardware[12] = expected      # PCT14 FG1 contains the wrong assignment
+    dev.hardware[16] = foreign       # PCT14 FG3 entry 5 is someone else's ID
+    dev.memory[16] = expected        # stale false-positive FG3 cache
+    assert await module._ensure_programmed_controller_profile(dev, "FF-A6-04-A3") is True
+    assert dev.hardware[8] == bytes.fromhex("03FE03FE03FE03FE")
+    assert dev.hardware[12] == bytes(8)
+    assert dev.hardware[16] == foreign
+    assert dev.hardware[17] == expected
+    assert 8 in dev.bus.reads and 12 in dev.bus.reads and 16 in dev.bus.reads and 17 in dev.bus.reads
+
+
+
+async def test_frgbw14_arbitrary_sender_ids_and_occupied_slots():
+    """Program arbitrary controller IDs; do not special-case the testwand IDs."""
+    class HardwareDevice(FakeDevice):
+        def __init__(self):
+            super().__init__(127)
+            self.hardware = list(self.memory)
+
+        async def read_mem_line(self, row):
+            self.memory[row] = self.hardware[row]
+            return self.hardware[row]
+
+        async def write_mem_line(self, row, value):
+            self.hardware[row] = value
+            self.memory[row] = value
+
+    for sender_id, occupied_slots in (
+        ("01-23-45-67", 0),
+        ("7A-BB-CC-DD", 1),
+        ("FE-12-34-56", 4),
+        ("A0-B1-C2-D3", 12),
+    ):
+        dev = HardwareDevice()
+        expected = bytes.fromhex(sender_id.replace("-", "")) + bytes((0, 81, 15, 0))
+        foreign = {}
+        for offset in range(occupied_slots):
+            row = 16 + offset
+            value = (1000 + offset).to_bytes(4, "big") + bytes((0, 81, 15, 0))
+            foreign[row] = value
+            dev.hardware[row] = value
+        dev.hardware[8] = bytes.fromhex("03FE03FE03FE03FE")
+        dev.hardware[12] = expected
+        assert await module._ensure_programmed_controller_profile(dev, sender_id) is True
+        assert dev.hardware[16 + occupied_slots] == expected
+        assert dev.hardware[12] == bytes(8)
+        assert dev.hardware[8] == bytes.fromhex("03FE03FE03FE03FE")
+        assert all(dev.hardware[row] == value for row, value in foreign.items())
+        assert await module._ensure_programmed_controller_profile(dev, sender_id) is False
+        assert sum(
+            dev.hardware[row] == expected for row in range(16, 127)
+        ) == 1
 
 class HeatingDevice(FakeDevice):
     """Keep actuator contents independent from the eltakobus read cache."""
@@ -577,6 +702,8 @@ if __name__ == "__main__":
     test_heating_control_mode_survives_sender_map()
     test_multiple_senders_per_device_are_preserved()
     asyncio.run(test_frgbw14_group_3_function_81())
+    asyncio.run(test_frgbw14_ignores_stale_busobject_cache())
+    asyncio.run(test_frgbw14_arbitrary_sender_ids_and_occupied_slots())
     asyncio.run(test_heating_group_1_function_64_only())
     asyncio.run(test_f2l14_confirmed_pct14_additive_double_rocker_entry())
     asyncio.run(test_f2l14_mode_change_replaces_existing_sender_and_cleans_duplicates())

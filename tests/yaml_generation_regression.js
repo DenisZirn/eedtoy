@@ -27,7 +27,7 @@ const start = appSource.indexOf('const APP_VERSION');
 const end = appSource.indexOf('export default function App()');
 if (start < 0 || end < 0) throw new Error('Could not isolate App.jsx helper functions');
 
-const helperSource = `${appSource.slice(start, end)}\nthis.__api = { APP_VERSION, EEP_DB, generateYaml, normalizeFksSenderAssignments, getPct14Mapping, deduplicateExportDevices, buildSenderProgrammingEntries };`;
+const helperSource = `${appSource.slice(start, end)}\nthis.__api = { APP_VERSION, EEP_DB, generateYaml, normalizeFksSenderAssignments, getPct14Mapping, deduplicateExportDevices, buildSenderProgrammingEntries, isSeries14HeatingActuator, isFhk61RadioThermostat, operatingModeSenderFitsGateway, supportsLightSwitchSelection, effectivePlatformForDevice, applyCurrentDatabaseProfile, normalizeLoadedDeviceProfile, ftrModelForDevice, exportDeviceTypeForDevice };`;
 const context = {
   console,
   Date,
@@ -130,7 +130,7 @@ assertNotIncludes(deYaml, 'serial_path:', 'Serial path is not exported');
 assertIncludes(deYaml, 'room_controller_mode: "fhk"', 'FTR FHK mode export');
 assertIncludes(deYaml, 'min_target_temperature: 12', 'FTR minimum setpoint export');
 assertIncludes(deYaml, 'max_target_temperature: 28', 'FTR maximum setpoint export');
-assertIncludes(deYaml, 'frost_temperature: 8', 'FTR frost protection setpoint export');
+assertNotIncludes(deYaml, 'frost_temperature:', 'FTR frost protection 8 C is a DB2 setpoint, not a separate YAML field');
 assertIncludes(deYaml, 'room_controller_mode: "tf61"', 'FTR TF61 mode export');
 assertIncludes(deYaml, 'hysteresis: 1', 'FTR TF61 hysteresis export');
 assertIncludes(deYaml, 'name: "FDG14 DALI"', 'FDG14 device export');
@@ -294,4 +294,213 @@ for (let channel = 1; channel <= 4; channel += 1) {
   assertIncludes(fsr71PlainYaml, `id: "FF-A6-07-${senderSuffix}"`, `Plain FSR71 channel ${channel} sender ID`);
   assertIncludes(fsr71PlainYaml, `device_type: "FSR71NP-4x-230V"`, `Saved FSR71 profile supplies the technical type for channel ${channel}`);
   assertIncludes(fsr71PlainYaml, `channel: ${channel}`, `Legacy FSR71 alias channel ${channel} metadata`);
+}
+
+ 
+// Separate operating-mode sender is optional; existing project YAML remains
+// byte-compatible when no explicit sender is configured.
+const heatingGateway = {type:'fam-usb',base_id:'FF-A6-04-80'};
+const baseHeating = {name:'FHK14 Heizung',eep:'A5-10-06',platform:'climate',
+  device_type:'FHK14',dev_id:'00-00-00-06',sender_id:'FF-A6-04-86',
+  sender_eep:'A5-10-06',imported_from_pct14:true};
+const noModeYaml = api.generateYaml(heatingGateway,[baseHeating],[], 'FF-BF-5C-80');
+assertNotIncludes(noModeYaml,'operating_mode_sender_id:', 'Legacy heating YAML omits new optional field');
+const modeHeating = {...baseHeating,operating_mode_sender_id:'FF-A6-04-A8'};
+const separateModeYaml = api.generateYaml(heatingGateway,[modeHeating],[], 'FF-BF-5C-80');
+assertIncludes(separateModeYaml,'operating_mode_sender_id: "FF-A6-04-A8"', 'Series-14 separate operating sender exported');
+assertIncludes(separateModeYaml,'id: "FF-A6-04-86"', 'Existing controller sender unchanged');
+const heatingEntries = api.buildSenderProgrammingEntries(
+  [modeHeating], [heatingGateway], 'FF-BF-5C-80', '', 'fam-usb|FF-A6-04-80');
+assert(heatingEntries.length===1 && heatingEntries[0].operating_mode_sender_id==='FF-A6-04-A8',
+  'FG4 sender passed to the Series-14 writer without another device entry');
+assert(heatingEntries[0].sender_id==='FF-A6-04-86',
+  'Temperature sender remains the original channel controller');
+assert(api.operatingModeSenderFitsGateway('FF-A6-04-A8',heatingGateway),
+  'FAM-USB operating-mode sender must be inside Base-ID range');
+assert(!api.operatingModeSenderFitsGateway('AA-BB-CC-DD',heatingGateway),
+  'Foreign Base-ID must be rejected for FAM-USB');
+assert(api.operatingModeSenderFitsGateway('00-00-B0-05',{type:'fgw14usb',base_id:'FF-BF-5C-80'}),
+  'Series-14 writer allows virtual sender IDs');
+assert(!api.operatingModeSenderFitsGateway('FF-A6-04-A8',{type:'fgw14usb',base_id:'FF-BF-5C-80'}),
+  'Series-14 writer rejects radio ID when a virtual bus sender is needed');
+const heatingChannels=Array.from({length:4},(_,index)=>({
+  ...modeHeating,device_type:'F4HK14',name:'F4HK14 Kanal '+(index+1),
+  dev_id:'00-00-00-'+(0x40+index).toString(16).toUpperCase(),
+  operating_mode_sender_id:'FF-A6-04-'+(0xA8+index).toString(16).toUpperCase()
+}));
+const channels=api.buildSenderProgrammingEntries(
+  heatingChannels,[heatingGateway],'FF-BF-5C-80','','fam-usb|FF-A6-04-80');
+assert(channels.length===4 &&
+  new Set(channels.map(x=>x.operating_mode_sender_id)).size===4 &&
+  new Set(channels.map(x=>x.sender_id)).size===4,
+  'F4HK14 channels use independently routed controller and operating-mode IDs');
+const fhk61Profile='A5-10-06-FHK61-230V';
+const fhk61={name:'FHK61',eep:fhk61Profile,platform:'climate',
+  device_type:'FHK61-230V',dev_id:'01-02-03-04',sender_id:'FF-A6-04-86',
+  operating_mode_sender_id:'FF-A6-04-A9'};
+const radioModeYaml=api.generateYaml(heatingGateway,[fhk61],[], 'FF-BF-5C-80');
+assertIncludes(radioModeYaml,'operating_mode_sender_id: "FF-A6-04-A9"',
+  'FHK61 physical radio teach-in sender role exported separately');
+const pwmModeYaml=api.generateYaml(heatingGateway,[{
+ ...fhk61,eep:'A5-38-08-FHK61SSR-PWM',device_type:'FHK61SSR-230V',
+ platform:'number',sender_eep:'A5-38-08',pwm_mode:'direct'
+}],[], 'FF-BF-5C-80');
+assertNotIncludes(pwmModeYaml,'operating_mode_sender_id:',
+  'SSR direct PWM remains independent from RPS operating-mode learning');
+
+
+// Light/Switch is a YAML-only user override. Old projects fall back to
+// the database, unchanged sender IDs / EEP and identical physical actuation.
+const relayGw={type:'fam-usb',base_id:'FF-A6-04-80'};
+const relayBase={eep:'M5-38-08-FSR61NP-230V',profile_key:'M5-38-08-FSR61NP-230V',
+  device_type:'FSR61NP-230V',name:'Steckdose Garten',dev_id:'FF-AC-10-01',
+  sender_id:'FF-A6-04-95',sender_eep:'A5-38-08',platform:'light'};
+const dbRelay=api.EEP_DB[relayBase.eep];
+assert(api.supportsLightSwitchSelection(dbRelay),'FSR relay supports Light/Switch');
+assert(api.effectivePlatformForDevice(relayBase,dbRelay)==='light',
+  'Database default remains Light when override is absent');
+const legacyYaml=api.generateYaml(relayGw,[relayBase]);
+assertIncludes(legacyYaml,'      light:', 'Legacy relay still exports as Light');
+assertNotIncludes(legacyYaml,'      switch:', 'No unexpected Switch from old project');
+const switched={...relayBase,platform_override:'switch'};
+const loadedSwitched=api.normalizeLoadedDeviceProfile(switched);
+assert(loadedSwitched.platform_override==='switch','Switch override persists on project load');
+const appliedSwitched=api.applyCurrentDatabaseProfile(loadedSwitched);
+assert(appliedSwitched.platform==='switch', 'Database refresh respects Switch override');
+const switchYaml=api.generateYaml(relayGw,[switched]);
+assertIncludes(switchYaml,'      switch:', 'Switch override chooses YAML switch section');
+assertNotIncludes(switchYaml,'      light:', 'Switch override removes device from YAML light section');
+assertIncludes(switchYaml,'eep: "M5-38-08"','Switch retains device EEP');
+assertIncludes(switchYaml,'id: "FF-A6-04-95"','Switch retains controller sender ID');
+assertIncludes(switchYaml,'eep: "A5-38-08"','Switch retains controller sender EEP');
+const backToDb={...switched,platform_override:''};
+assert(api.effectivePlatformForDevice(backToDb,dbRelay)==='light',
+  'Selecting original Light restores database default');
+const switchedBack=api.generateYaml(relayGw,[backToDb]);
+assertIncludes(switchedBack,'      light:','Switch-to-Light reset exports database platform');
+assertNotIncludes(switchedBack,'      switch:','Switch section disappears after reset');
+const rgbProfile=api.EEP_DB['07-3F-7F-FRGBW14'];
+assert(!api.supportsLightSwitchSelection(rgbProfile),'RGBW actuator cannot be converted to Switch');
+const rgbDevice={eep:'07-3F-7F-FRGBW14',device_type:'FRGBW14',
+  name:'RGBW',dev_id:'FF-AC-10-07',sender_id:'FF-A6-04-96',
+  platform_override:'switch',platform:'light'};
+assert(api.effectivePlatformForDevice(rgbDevice,rgbProfile)==='light',
+  'Invalid saved RGBW override is ignored');
+assert(!api.supportsLightSwitchSelection(api.EEP_DB['A5-10-06']),
+  'Heating/climate entities cannot be converted');
+const fourRelay={...relayBase,eep:'M5-38-08-FSR71NP-4X-230V',profile_key:'M5-38-08-FSR71NP-4X-230V',
+  device_type:'FSR71NP-4x-230V',name:'FSR71NP-4x-230V',platform_override:'switch'};
+const fourYaml=api.generateYaml(relayGw,[fourRelay]);
+for(let ch=1;ch<=4;ch++)assertIncludes(fourYaml,`channel: ${ch}`,
+  `Four-channel relay keeps channel ${ch} as Switch`);
+assertIncludes(fourYaml,'      switch:', 'Expanded relay uses Switch YAML group');
+assertNotIncludes(fourYaml,'      light:', 'Expanded Switch relay not duplicated in Light');
+
+
+// Dimmers must always stay lights, even if a user saved an outdated
+// platform_override='switch' before the Light/Switch selector was restricted.
+for (const profileKey of [
+  'A5-38-08-FUD14', 'A5-38-08-FUD71',
+  'A5-38-08-FUD61NP-230V', 'A5-38-08-FUD61NPN-230V',
+  'A5-38-08-FD62NP-230V', 'A5-38-08-FD62NPN-230V',
+  'A5-38-08-FDG14', 'A5-38-08-FD2G14',
+]) {
+  const dimmer = api.EEP_DB[profileKey];
+  assert(dimmer && dimmer.platform === 'light', profileKey + ' database platform light');
+  assert(!api.supportsLightSwitchSelection(dimmer),
+    profileKey + ' does not show Light/Switch selector');
+  const legacy = {
+    name: dimmer.device_type, eep:profileKey, profile_key:profileKey,
+    device_type:dimmer.device_type, dev_id:'FF-AC-10-08',
+    sender_id:'FF-A6-04-96',sender_eep:'A5-38-08',
+    platform:'switch',platform_override:'switch'
+  };
+  assert(api.effectivePlatformForDevice(legacy,dimmer) === 'light',
+    profileKey + ' ignores previously saved Switch override');
+  const normalized = api.applyCurrentDatabaseProfile(legacy);
+  assert(normalized.platform === 'light',
+    profileKey + ' project reload normalizes to Light');
+  const yaml = api.generateYaml(relayGw,[legacy]);
+  assertIncludes(yaml,'      light:', profileKey + ' exports in light section');
+  assertNotIncludes(yaml,'      switch:',profileKey + ' never exports as switch');
+}
+assert(api.supportsLightSwitchSelection(dbRelay),
+  'Simple FSR relay still offers Light/Switch after dimmer restriction');
+
+
+// FTR55/FTR65 hardware variant must be independent of FHK / TF61 mode.
+// Former builds exported FTR65DSB for the entire shared profile family.
+const ftrVariants = [
+  "FTR65DSB", "FTR55DSB", "FTR55EHB", "FTR55ESB",
+  "FTR65HB", "FTRF65HB", "FTR55HB", "FTR65SB",
+  "FTRF65SB", "FTR55SB"
+];
+for(const mode of [
+  {eep:"A5-10-06-FTR-FHK", out:"A5-10-06", platform:"sensor", role:"fhk"},
+  {eep:"A5-38-08-FTR-TF61", out:"A5-38-08", platform:"binary_sensor", role:"tf61"}
+]) {
+  for(const model of ftrVariants) {
+    const current = {
+      eep:mode.eep, profile_key:mode.eep, name:model+" Testwand",
+      dev_id:"05-A3-EA-85",platform:mode.platform,
+      ftr_model:model, device_type:"FTR65DSB"
+    };
+    assert(api.ftrModelForDevice(current)===model,
+      model+" / "+mode.role+" explicitly saved model");
+    const imported=api.applyCurrentDatabaseProfile(current);
+    assert(imported.device_type===model,model+" / "+mode.role+" reload keeps physical model");
+    const exported=api.generateYaml(
+      {type:"fam-usb",base_id:"05-A3-EA-80"},[current],[], "", "de"
+    );
+    assertIncludes(exported,`device_type: "${model}"`,
+      model+" / "+mode.role+" YAML exports correct physical model");
+    assertIncludes(exported,`room_controller_mode: "${mode.role}"`,
+      model+" / "+mode.role+" mode unchanged");
+    assertIncludes(exported,`eep: "${mode.out}"`,
+      model+" / "+mode.role+" EEP unchanged");
+    assertNotIncludes(exported, 'frost_temperature:',
+      model+" / "+mode.role+" does not export a separate frost protection YAML field");
+  }
+}
+const oldFtrProject = {eep:"A5-10-06-FTR-FHK",name:"FTR55ESB Testwand",
+  dev_id:"05-A3-EA-85",device_type:"FTR65DSB",platform:"sensor"};
+assert(api.normalizeLoadedDeviceProfile(oldFtrProject).ftr_model==="FTR55ESB",
+  "Legacy project recovers FTR55ESB from unique name");
+assertIncludes(api.generateYaml(
+  {type:"fam-usb",base_id:"05-A3-EA-80"},[oldFtrProject]),
+  'device_type: "FTR55ESB"',
+  "Previously exported FTR65DSB corrected for FTR55ESB Testwand");
+const userSelectedFtr={...oldFtrProject,ftr_model:"FTR55EHB"};
+assert(api.ftrModelForDevice(userSelectedFtr)==="FTR55EHB",
+  "Explicit model selection takes precedence over legacy name");
+assert(api.ftrModelForDevice({
+  ...oldFtrProject,name:"Wohnzimmer",device_type:"FTR55DSB"
+})==="FTR55DSB","Old project with a valid specific device type retains it");
+
+
+// A user-customized local device database may still carry the obsolete
+// frost_temperature value. The FTR-specific YAML writer must ignore it,
+// while other device profiles retain their existing export behavior.
+const ftrDb = api.EEP_DB["A5-10-06-FTR-FHK"];
+assert(ftrDb.frost_temperature === 8,
+  "Legacy FTR database retains its unchanged 8 C reference for old projects");
+assert(!ftrDb.note,
+  "FTR database stays backward-compatible; explanatory text is in the device form");
+const savedFtrProfile = {...ftrDb};
+try {
+  ftrDb.frost_temperature = 8;
+  const oldDbProject = {
+    eep:"A5-10-06-FTR-FHK",platform:"sensor",name:"FTR55ESB Testwand",
+    device_type:"FTR55ESB",ftr_model:"FTR55ESB",dev_id:"05-A3-EA-85"
+  };
+  const ftrFromOldDb = api.generateYaml({
+    type:"fam-usb",base_id:"05-A3-EA-80"
+  },[oldDbProject]);
+  assertNotIncludes(ftrFromOldDb,"frost_temperature:",
+    "Legacy local FTR database values do not reintroduce separate YAML frost setting");
+  assertIncludes(ftrFromOldDb,'device_type: "FTR55ESB"',
+    "Legacy local FTR DB keeps actual physical device type");
+} finally {
+  if (savedFtrProfile.frost_temperature === undefined) delete ftrDb.frost_temperature;
+  else ftrDb.frost_temperature = savedFtrProfile.frost_temperature;
 }

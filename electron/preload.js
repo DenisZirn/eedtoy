@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   disconnectGateway: (payload) => ipcRenderer.invoke('disconnect-gateway', payload),
   saveProjectAs: (payload) => ipcRenderer.invoke('save-project-as', payload),
   openProject: () => ipcRenderer.invoke('open-project'),
+  openDecentralizedTeachInHelp: (model = '') => ipcRenderer.invoke('open-decentralized-teach-in-help', String(model || '')),
   saveProject: (payload) => ipcRenderer.invoke('save-project', payload),
   getLanguage: () => ipcRenderer.invoke('get-language'),
   setLanguage: (language) => ipcRenderer.invoke('set-language', language),

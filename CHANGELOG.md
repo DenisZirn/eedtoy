@@ -1,12 +1,17 @@
 ## 1.1.05
 
-- FHK61-230V, FHK61U-230V und FHK61SSR-230V als Geräteprofile ergänzt; SSR-Temperatur- und PWM-Betrieb getrennt.
-- FHK14/F4HK14/FAE14: auswählbare Regelungsarten mit HA-Temperaturquelle (FG1/F64) oder physischem FTR/FUTH und HA-Sollwertvorgabe (FG3/F65).
+- FRGBW14: hardwarebestätigte Korrektur der PCT14-Speicheradressierung: FG1/Eintrag 1 = Zeile 12, FG3/Eintrag 5 = Zeile 16; Funktion 81 mit RGBW-Vierkanalmaske. Fremde Sender-IDs und Konfigurationszeilen werden geschützt.
+- Programmierungsrelevante Aktoränderungen, insbesondere FHK14/F4HK14/FAE14 Temperaturreferenz intern/extern, erfordern einen separaten bestätigten Schreibvorgang.
+- FHK14/F4HK14/FAE14: HA-Temperaturquelle über FG1/F64 oder physischer Sensor mit HA-Sollwert über FG3/F65.
 - F4HK14: korrekte Erkennung und Sender-ID-Prüfung für alle vier Kanäle.
-- FRGBW14: Senderzuordnung in FG3/F81 mit Vierkanalmaske.
-- FD2G14: Diagnose und sichere Prüfung der 16 Kanäle verbessert; sporadische Geräte- oder Busantwortausfälle bleiben möglich.
+- Series-14-Betriebsarten: FG4/F30 Vierfach-RPS-Eintrag für FHK14, F4HK14, FAE14LPR und FAE14SSR, kanalgetrennt, idempotent und mit Schutz fremder Einträge.
+- FHK61-Betriebsarten: separates Funk-LRN-Verfahren in EEDTOY beschrieben, keine FG4-Schreiboperation und keine unbestätigte Erfolgsmeldung.
+- Optionaler YAML-Parameter `operating_mode_sender_id` mit Gateway-/Base-ID-Prüfung, alte YAML-Dateien bleiben unverändert.
+- FHK61-230V, FHK61U-230V und FHK61SSR-230V als Geräteprofile ergänzt; SSR-Temperatur- und PWM-Betrieb getrennt.
+- FD2G14: NameError im Wiederanlauf behoben, Diagnose und Prüfung der 16 Kanäle verbessert; sporadische Geräte- oder Busantwortausfälle bleiben möglich.
 - Automatische Python-Schreibdiagnose mit Logdatei, Rotation und Windows-Schreibrechte-Fallback.
-- Schreibgesamtstatus zeigt bei Fehlern nicht mehr fälschlich Erfolg; zusätzliche JavaScript-Syntaxprüfung.
+- Schreibgesamtstatus zeigt bei Fehlern nicht mehr fälschlich Erfolg; erweiterte Regressionstests und Windows-Installer-Prüfung.
+- Einlernhilfe unter Hilfe für dezentrale Aktoren der Baureihen 61 und 62 (Baureihe 72 als noch unbestätigte Kategorie), mit Suchfeld, Modellvorauswahl, direktem Link aus dem Geräteformular und eigenen Anleitungen einschließlich Home-Assistant-Einlerntelegramm-Schritt. Keine Hardware-Schreibaktion durch das Hilfefenster.
 - Anwendersichtbare Fremdnamens-Bezeichnungen aus eigenen Diagnosemeldungen entfernt.
 
 ## 1.1.04
