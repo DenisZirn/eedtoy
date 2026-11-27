@@ -1,52 +1,26 @@
 # EEDTOY v1.1.05
 
-## Geräte und Aktorprogrammierung
+*Mehr Komfort beim Einlernen und eine zuverlässigere Gerätezuordnung.*
 
-- **FRGBW14 – an echter Hardware bestätigt:** Die Home-Assistant-Sender-ID wird in **Funktionsgruppe 3 / Funktion 81** mit RGBW-Vierkanalmaske `00001111` geschrieben. Die physische PCT14-ID-Tabelle beginnt nach vier Konfigurationszeilen: **FG1 ab Speicherzeile 12, FG3 ab Zeile 16**. Bereits eingelernte fremde IDs bleiben unangetastet. Ein fehlerhafter alter FG1-Eintrag derselben Sender-ID wird erst nach erfolgreicher FG3-Programmierung entfernt.
-- **FHK14, F4HK14 und FAE14:** Wählbare Temperaturreferenz: externe Home-Assistant-Temperatur in FG1/Funktion 64 oder vorhandener eingelernter Sensor in FG1 mit HA-Sollwertvorgabe in FG3/Funktion 65. Ein Wechsel der Regelungsart wird als **noch in den Aktor zu schreiben** angezeigt und erst nach bestätigtem Schreibvorgang quittiert.
-- **F4HK14:** Zuordnung aller vier Heizkanäle und Kanalmasken bei unterschiedlichen Gerätebezeichnungen verbessert.
-- **FHK14-FG4-Taste:** PCT14-Funktion 30 („4-fach Taster, alle Tasten“) erhält jetzt Taste **7** statt 0. Bereits von älteren EEDTOY-Testversionen geschriebene gleiche Sender-/Funktions-/Kanaleinträge werden an derselben Speicherstelle korrigiert, ohne vorhandene MiniSafe-IDs zu verändern oder Duplikate zu erzeugen.
-- **Betriebsarten Series-14:** FHK14, F4HK14 (vier Kanäle getrennt), FAE14LPR und FAE14SSR: optional eigenständiger Betriebsartensender in **FG4 / Funktion 30 (Vierfach-Taster)**. Bestehende Temperaturzuordnung FG1/F64 bzw. FG3/F65 bleibt unverändert. Fremde MiniSafe-/FTR-/FUTH-Einträge werden nicht überschrieben. Nach bestätigter Rücklesung werden Gruppe, Funktion, Kanal und Sender-ID protokolliert.
-- **Betriebsarten FHK61:** FHK61-230V, FHK61U-230V und FHK61SSR-230V in Temperaturregelung: getrennte Senderrollen mit Anleitung zum **manuellen Funk-Einlernen** (4,5 / LRN / RPS-Taster / Betriebsstellung). Kein FG4-Busschreiben und keine fingierte Einlernbestätigung. Direkt-PWM beim FHK61SSR bleibt separat.
-- **YAML:** Optional `operating_mode_sender_id`; fehlt die separate ID, wird die ursprüngliche Temperaturcontroller-`sender.id` verwendet. Die explizite Sender-ID wird gegen Gateway-/Base-ID-Zuordnung validiert.
-- **FHK61-Familie:** FHK61-230V, FHK61U-230V und FHK61SSR-230V ergänzt; Temperaturregelung und direkter PWM-Betrieb beim SSR bleiben getrennte Betriebsarten.
-- **FD2G14:** Wiederanlauf nach fehlgeschlagener Geräteerkennung gegen `NameError` abgesichert; Diagnose und Rückleseprüfung für 16 Kanäle erweitert. Sporadische Timeouts können weiterhin auftreten.
+## Neu
 
-## EEDTOY-Einlernhilfe für dezentrale Funkaktoren
+- **Einlernhilfe für Funkaktoren:** Schritt-für-Schritt-Anleitungen für viele Geräte der 61er- und 62er-Serie – direkt über das Hilfe-Menü oder das jeweilige Gerät.
+- **Licht oder Schalter:** Bei geeigneten Schaltaktoren kannst du auswählen, wie sie in Home Assistant erscheinen. Dimmer bleiben automatisch als Licht eingerichtet.
+- **FTR-Raumregler:** Wähle dein tatsächliches Gerätemodell aus. EEDTOY übernimmt die richtige Bezeichnung in die Home-Assistant-Konfiguration.
 
-- Unter **Hilfe → Dezentrale Aktoren einlernen** steht ein eigenständiges, durchsuchbares Hilfefenster für Modelle der **Baureihe 61 und 62** zur Verfügung. Die **Baureihe 72** wird nur mit allgemeinen Hinweisen angezeigt, solange keine genaue Gerätevariante bestätigt ist.
-- Das Geräteformular bietet für passende Modelle einen direkten Link **„Einlernhilfe für diesen Aktor öffnen“**. Dadurch öffnet sich die Anleitung sofort mit der Modellvorauswahl.
-- Die Anleitungen enthalten nun die vier wesentlichen Schritte **Aktor auf LRN beziehungsweise per Tippsequenz lernbereit machen → in Home Assistant „Einlerntelegramm senden“ drücken (sofern verfügbar) → Gerätequittierung kontrollieren → Betriebsstellung wiederherstellen**.
-- FHK61: Temperaturregler A5-10-06 und RPS-Betriebsartensender sind getrennt auswählbar. Direkt-PWM am FHK61SSR wird nicht mit der Temperaturregelung gleichgesetzt.
-- Für unbestätigte Varianten werden keine Einlernpositionen erfunden. Hersteller-PDFs beziehungsweise die offizielle Download-Zone sind separat verlinkt. Die Hilfefunktion schreibt selbst keine Telegramme und ändert keine Projekte.
+## Verbessert
 
-## Home-Assistant-Entitäten: Light oder Switch
-
-- Bei geeigneten **Licht-/Relaisaktoren** ist im Geräteformular die YAML-Entität als **Light** oder **Switch** wählbar. Standard ist weiterhin die Vorgabe aus der EEDTOY-Gerätedatenbank.
-- Eine abweichende Auswahl wird **pro Gerät und pro Kanal** im Projekt gespeichert und auch beim erneuten YAML-Export beachtet. Beim Rückwechsel auf den Datenbankwert entfällt die manuelle Abweichung.
-- Nur der YAML-Abschnitt `light:` beziehungsweise `switch:` ändert sich; EEP, Sender-ID, Gateway, Einlernung und Aktorprogrammierung bleiben unverändert.
-- RGBW-Aktoren und andere spezialisierte Gerätetypen werden nicht als einfacher Switch angeboten; bestehende Projekte bleiben kompatibel.
-
-## FTR55-/FTR65-Gerätemodelle
-
-- Bei den FTR55-/FTR65-Raumreglern wird nun das **physische Modell** (z. B. FTR55ESB) separat von der Betriebsart **FHK (A5-10-06)** beziehungsweise **TF61 (A5-38-08)** gewählt.
-- Die YAML übernimmt `device_type` aus der tatsächlichen Geräteauswahl und nicht mehr pauschal `FTR65DSB`.
-- Bei älteren EEDTOY-Projekten wird ein eindeutig im Gerätenamen erkennbares Modell, etwa `FTR55ESB Testwand`, erkannt. Manuell ausgewählte Gerätemodelle werden vorrangig verwendet.
-- Bei FTR55-/FTR65-Raumreglern wird die **Frostschutztemperatur 8 °C nur noch als Gerätehinweis** gezeigt: Im A5-10-06-FHK-Telegramm steht der Wert als reguläre Solltemperatur in **DB2**, nicht in einem separaten Frostschutzfeld. Deshalb entfällt `frost_temperature: 8` in der erzeugten YAML – auch bei älteren lokal angepassten Gerätedatenbanken. Die Frostschutzfunktion, der Empfangsdecoder und die Home-Assistant-Integration bleiben unverändert.
-- Teach-in-Daten, Solltemperaturbereich und Betriebsart FHK/TF61 bleiben unverändert; die Home-Assistant-Integration wird nicht geändert.
-
-## Sicherheit und Diagnose
-
-- Bei Änderungen an programmierungsrelevanten Aktoreinstellungen (z. B. Temperaturreferenz, Sender-ID, Kanal oder F2L14-Modus) verlangt EEDTOY einen **separaten, ausdrücklich bestätigten Schreibvorgang**. Das Speichern der Projektdatei allein programmiert keinen Aktor.
-- Der Schreibstatus wird erst nach bestätigtem Gerätezugriff zurückgesetzt; bei Fehlern bleiben ausstehende Änderungen sichtbar.
-- Die Python-Schreibdiagnose wird als `EEDTOY-Schreibdiagnose.log` gespeichert. Der Dateipfad wird in EEDTOY angezeigt; falls das Installationsverzeichnis nicht beschreibbar ist, wird das Benutzerverzeichnis verwendet.
-- Zusätzliche Regressionstests für FRGBW14-Speicheradressierung, fremde Sender-IDs, unterschiedliche Controller-IDs, Gateway-Zuordnung und eingebettete Python-Laufzeit.
-- Der Windows-Installer wird im CI-Build auf einem sauberen Windows-System testinstalliert.
+- **FRGBW14:** Die Zuordnung für die RGBW-Steuerung funktioniert jetzt zuverlässig.
+- **Heizungsaktoren:** Verbesserte Einrichtung der Temperatur- und Betriebsartensteuerung, auch bei mehreren Heizkanälen.
+- **Mehr Sicherheit beim Schreiben:** Bestehende Gerätezuordnungen werden geschützt, Änderungen müssen bewusst übertragen werden und Fehler lassen sich über die Schreibdiagnose leichter nachvollziehen.
+- **Stabilität:** Weitere Verbesserungen beim Schreiben und bei der Kommunikation mit Busaktoren.
 
 ## Installation
 
-**Windows:** `EEDTOY-Setup-1.1.05.exe` installieren. Die benötigte Python-Laufzeit ist enthalten.
+**Windows:** `EEDTOY-Setup-1.1.05.exe` herunterladen und installieren. Die benötigten Komponenten sind bereits enthalten.
 
-**Wichtig:** Vor Schreibvorgängen eine PCT14-Sicherung erstellen und immer den richtigen Series-14-Bus auswählen. Eine neue macOS-DMG-Version ist nicht Bestandteil dieser Windows-Veröffentlichung.
+Bestehende EEDTOY-Projekte können weiterverwendet werden. Vor Änderungen an Busaktoren empfehlen wir eine Sicherung der PCT14-Konfiguration.
 
-> EEDTOY ist ein privat entwickeltes Projekt und kein offizielles Produkt der ELTAKO GmbH.
+---
+
+*EEDTOY ist ein privat entwickeltes Projekt und kein offizielles Produkt der ELTAKO GmbH.*
