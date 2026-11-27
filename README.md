@@ -48,7 +48,7 @@ Das **[deutsche EEDTOY-Benutzerhandbuch (v1.1.05)](docs/de/README.md)** bietet e
 
 Die FAM14-Basis-ID des Programmieranschlusses und die FAM-USB-Basis-ID für die späteren HA-Sender sind getrennt. Der Schreibprozess prüft vor dem Schreiben erneut die FAM14-Basis-ID. Ohne Mehrbus-Haken bleibt der Einbus-Ablauf erhalten.
 
-Die erzeugte YAML in Home Assistant über **EEDTOY YAML importieren** in **ELTAKO Sensors & Actuators** einlesen. Die Integration muss für diese Buszuordnung nicht geändert werden.
+Die erzeugte YAML in Home Assistant über **„EEDTOY YAML importieren“** in **[ELTAKO Sensors & Actuators](https://github.com/DenisZirn/eltako-sensors-actuators)** einlesen. Die Integration muss für diese Buszuordnung nicht geändert werden.
 
 ## MiniSafe2-Import: Sender-IDs
 
